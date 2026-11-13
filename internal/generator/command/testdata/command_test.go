@@ -510,8 +510,8 @@ func (e *env) holdCreate(t *testing.T, c caller, key, order, owner string) strin
 	return id
 }
 
-// holdUpdate sets, in one command, the owner of the Hold.
-func (e *env) holdUpdate(t *testing.T, c caller, key, order, id, owner string) {
+// holdUpdate sets, in one command, the owner of the Hold, and gives the answer.
+func (e *env) holdUpdate(t *testing.T, c caller, key, order, id, owner string) reply {
 	t.Helper()
 	e.behave(t, func(ctx context.Context, _ *commands.ReserveAndChargeRequest, h *commands.ReserveAndChargeHandle) (*commands.ReserveAndChargeResponse, error) {
 		_, holds := e.holdRepositories(ctx, h, order)
@@ -526,9 +526,7 @@ func (e *env) holdUpdate(t *testing.T, c caller, key, order, id, owner string) {
 		}
 		return &commands.ReserveAndChargeResponse{}, nil
 	})
-	if got := e.post(c.token, key, order, body); got.status != http.StatusCreated {
-		t.Fatalf("the update of a Hold answered %d %s, want 201", got.status, got.body)
-	}
+	return e.post(c.token, key, order, body)
 }
 
 // holdDelete deletes the Hold in one command.
@@ -695,10 +693,18 @@ func TestCommand(t *testing.T) {
 		a := e.as("u-7", "tA", time.Now().Add(time.Hour))
 		order := e.order(a)
 		hold := e.holdCreate(t, a, "rc29-oc05-t01-create", order, "u1")
-		e.holdUpdate(t, a, "rc29-oc05-t01-update", order, hold, "u2")
+		// An update that keeps the owner enqueues nothing; one that changes it is refused with 400 naming owner_id,
+		// since the subject of a field-sourced relationship is set at create only (ST-SUP-Q118).
+		if got := e.holdUpdate(t, a, "rc29-oc05-t01-update", order, hold, "u1"); got.status != http.StatusCreated {
+			t.Fatalf("an update that keeps the owner answered %d %s, want 201", got.status, got.body)
+		}
+		if got := e.holdUpdate(t, a, "rc29-oc05-t01-move", order, hold, "u2"); got.status != http.StatusBadRequest ||
+			!strings.Contains(string(got.body), `"code":"invalid"`) || !strings.Contains(string(got.body), `"field":"owner_id"`) {
+			t.Fatalf("an update that moves the owner answered %d %s, want 400 invalid naming owner_id", got.status, got.body)
+		}
 		e.holdDelete(t, a, "rc29-oc05-t01-delete", order, hold)
 		got := e.holdTuples(a, hold)
-		want := []string{"touch creator@user:" + a.subject(), "touch owner@user:u1", "delete owner@user:u1", "touch owner@user:u2", "delete owner@user:u2"}
+		want := []string{"touch creator@user:" + a.subject(), "touch owner@user:u1", "delete owner@user:u1"}
 		if len(got) != len(want) {
 			t.Fatalf("the authz outbox holds %v for the Hold, want %v", got, want)
 		}
@@ -743,19 +749,21 @@ func TestCommand(t *testing.T) {
 		a := e.as("u-7", "tA", time.Now().Add(time.Hour))
 		order := e.order(a)
 		hold := e.holdCreate(t, a, "rc29-oc05-t03-create", order, "u1")
-		e.holdUpdate(t, a, "rc29-oc05-t03-update", order, hold, "u2")
+		e.holdDelete(t, a, "rc29-oc05-t03-delete", order, hold)
 		got := e.holdTuples(a, hold)
-		if len(got) != 4 {
-			t.Fatalf("the authz outbox holds %v for the Hold, want four messages", got)
+		if len(got) < 3 {
+			t.Fatalf("the authz outbox holds %v for the Hold, want the two touches of the create and the delete", got)
 		}
 		if got[0].revocation != got[1].revocation || got[0].revocation == "" {
 			t.Errorf("the two touches of the create name the revocations %q and %q, want one", got[0].revocation, got[1].revocation)
 		}
-		if got[2].revocation != got[3].revocation || got[2].revocation == "" {
-			t.Errorf("the delete and the touch of the update name the revocations %q and %q, want one", got[2].revocation, got[3].revocation)
+		for _, m := range got[2:] {
+			if m.revocation != got[2].revocation || m.revocation == "" {
+				t.Errorf("the messages of the delete name the revocations %q and %q, want one", got[2].revocation, m.revocation)
+			}
 		}
 		if got[0].revocation == got[2].revocation {
-			t.Error("the create and the update name one revocation")
+			t.Error("the create and the delete name one revocation")
 		}
 	})
 

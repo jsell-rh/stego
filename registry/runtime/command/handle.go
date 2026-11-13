@@ -35,6 +35,26 @@ var (
 	// rerun cannot change, such as a loaded value of another attempt (ST-SUP-RP10-LC24). Once a handle meets one,
 	// every later method returns it, and Run ends the call with it and runs the fill no more.
 	ErrInternal = errors.New("command: internal error")
+	// ErrInvalid matches every refusal of a value that the request gave for a field, such as a change of a field
+	// that holds the subject of a declared relationship, which only a create sets, or a subject that no tuple can
+	// hold (ST-SUP-RP10-LC05, ST-SUP-Q118). Once a handle meets one, every later method returns it, Run commits
+	// nothing and runs the fill no more, and OutcomeOf answers it with 400 and the code invalid, naming the field.
+	ErrInvalid = errors.New("command: invalid value")
+)
+
+// invalidError is a refusal of a field's value: it matches ErrInvalid and names the declared field and a fixed
+// reason, never the value.
+type invalidError struct{ field, reason string }
+
+func (e *invalidError) Error() string {
+	return "command: invalid value of " + e.field + ": " + e.reason
+}
+func (e *invalidError) Is(target error) bool { return target == ErrInvalid }
+
+// The fixed reasons of an invalidError.
+const (
+	reasonCreateOnly = "the field holds the subject of a relationship, which only a create sets"
+	reasonSubject    = "the field names no subject that a relationship can hold"
 )
 
 // internalError is an internal error: it matches ErrInternal and holds no field value and no database text.
@@ -185,8 +205,12 @@ type Relationship[T any] struct {
 	// Field reads the subject's ID from a value, such as value.OwnerID; an empty ID writes no tuple. Nil takes the
 	// subject from the caller, the principal of the handle, which a create writes and an update never changes; a
 	// caller of another subject type than SubjectType is refused, so a tuple that the schema refuses is never
-	// enqueued.
+	// enqueued. A field subject is set at create only: an update that changes it is refused with ErrInvalid, and a
+	// command that declares no permission may not set it (ST-SUP-Q118).
 	Field func(value T) string
+	// FieldName is the declared name of the field that Field reads, such as owner_id, which a refusal names; it is
+	// required with Field.
+	FieldName string
 	// Resource is true when SubjectType is a resource type of this service, so the subject's ID is tenant-qualified
 	// as the ID of a referenced row is (ST-SUP-RP06-LC22).
 	Resource bool
@@ -246,19 +270,23 @@ func (e *Entity[T]) relations() []authz.Relation {
 	return out
 }
 
-// declared gives the tuple of each declared relationship of value whose subject is set: for create, the caller's
-// too; otherwise only the field-sourced ones, since the caller of an update or a delete is not the subject that the
-// create wrote.
-func (r *Repository[T]) declared(id string, value T, create bool) ([]authz.Tuple, error) {
+// declaredTuple is the tuple of one declared relationship of a row before the row is written: its relation and its
+// checked subject. The resource is the row's, whose key the row statement gives.
+type declaredTuple struct {
+	relation string
+	subject  authz.Subject
+}
+
+// subjects builds and checks, before the row statement, the tuple of each declared relationship of value whose
+// subject is set: for create, the caller's too; otherwise only the field-sourced ones, since the caller of an update
+// or a delete is not the subject that the create wrote (ST-SUP-Q118). A refusal breaks the handle, so a fill that
+// drops it commits nothing: a caller of another subject type and a create in a command that declares no permission
+// that sets a field subject are internal errors, which the generators refuse; a field subject that no tuple can
+// hold, such as *, a text with a character that a provider ID cannot hold or the resource ID of another tenant, is
+// ErrInvalid naming the field.
+func (r *Repository[T]) subjects(value T, create bool) ([]declaredTuple, error) {
 	s, e := r.st, r.entity
-	if len(e.spec.Relationships) == 0 {
-		return nil, nil
-	}
-	resource, err := authz.NewResource(s.tenant, e.spec.ResourceType, id)
-	if err != nil {
-		return nil, s.breakWith(internalf("the row of %s has a key that is not a resource key", e.spec.Name))
-	}
-	var tuples []authz.Tuple
+	var tuples []declaredTuple
 	for _, rel := range e.spec.Relationships {
 		var subject authz.Subject
 		switch {
@@ -274,39 +302,58 @@ func (r *Repository[T]) declared(id string, value T, create bool) ([]authz.Tuple
 			if subjectID == "" {
 				continue
 			}
+			if create && s.mode == modeCommand && s.commandPermission == "" {
+				return nil, s.breakWith(internalf("the command %s declares no permission and sets the subject of the relationship %s of %s, which the generators refuse", s.action, rel.Relation, e.spec.Name))
+			}
 			if rel.Resource {
-				if subjectID, err = authz.ResourceID(s.tenant, subjectID); err != nil {
-					return nil, s.breakWith(internalf("the relationship %s of %s has a subject key that is not a resource key", rel.Relation, e.spec.Name))
+				qualified, err := authz.ResourceID(s.tenant, subjectID)
+				if err != nil {
+					return nil, s.breakWith(&invalidError{field: rel.FieldName, reason: reasonSubject})
 				}
+				subjectID = qualified
 			}
 			subject = authz.Subject{Type: rel.SubjectType, ID: subjectID}
+			if err := authz.CheckSubject(s.tenant, subject); err != nil {
+				return nil, s.breakWith(&invalidError{field: rel.FieldName, reason: reasonSubject})
+			}
 		}
-		tuples = append(tuples, authz.Tuple{Resource: resource, Relation: rel.Relation, Subject: subject})
+		tuples = append(tuples, declaredTuple{relation: rel.Relation, subject: subject})
 	}
 	return tuples, nil
 }
 
-// relateDeclared enqueues, through the authorization handle, the delete of each tuple of drop that touch does not
-// hold, and then the touch of each tuple of touch that drop does not hold (ST-SUP-Q118).
-func (r *Repository[T]) relateDeclared(ctx context.Context, touch, drop []authz.Tuple) error {
-	s := r.st
-	for _, set := range []struct {
-		tuples, other []authz.Tuple
-		op            func(*authz.Handle, context.Context, authz.Tuple) (authz.Revocation, error)
-	}{{drop, touch, (*authz.Handle).Unrelate}, {touch, drop, (*authz.Handle).Relate}} {
-		for _, tuple := range set.tuples {
-			if slices.Contains(set.other, tuple) {
-				continue
-			}
-			if err := s.setLockTimeout(ctx); err != nil {
-				return s.fail(ctx, "relate", err)
-			}
-			if _, err := set.op(s.az, ctx, tuple); err != nil {
-				return s.decisionError(ctx, "relate", err)
-			}
+// relateDeclared enqueues, through the authorization handle and after the row statement of the row id, op of each
+// tuple of tuples: a touch on create and a delete on delete (ST-SUP-Q118). Each failure breaks the handle, so Run
+// commits nothing, also when the fill drops the error.
+func (r *Repository[T]) relateDeclared(ctx context.Context, id string, tuples []declaredTuple,
+	op func(*authz.Handle, context.Context, authz.Tuple) (authz.Revocation, error)) error {
+	s, e := r.st, r.entity
+	if len(tuples) == 0 {
+		return nil
+	}
+	resource, err := authz.NewResource(s.tenant, e.spec.ResourceType, id)
+	if err != nil {
+		return s.breakWith(internalf("the row of %s has a key that is not a resource key", e.spec.Name))
+	}
+	for _, t := range tuples {
+		if err := s.setLockTimeout(ctx); err != nil {
+			return s.fail(ctx, "relate", err)
+		}
+		if _, err := op(s.az, ctx, authz.Tuple{Resource: resource, Relation: t.relation, Subject: t.subject}); err != nil {
+			return s.afterWrite(ctx, "relate", err)
 		}
 	}
 	return nil
+}
+
+// afterWrite maps an error of the authorization handle after the row statement of a write: a database error or a
+// cancel is a statement failure, and every other error is an internal error. Both break the handle, so the row is
+// never committed without its tuples and its audit row (ST-SUP-Q118).
+func (s *state) afterWrite(ctx context.Context, step string, err error) error {
+	if sqlState(err) != "" || ctx.Err() != nil {
+		return s.fail(ctx, step, err)
+	}
+	return s.breakWith(internalf("the %s of a tuple of the written row was not enqueued", step))
 }
 
 // Entity is the repository declaration of one entity, which NewEntity checks once.
@@ -398,6 +445,9 @@ func NewEntity[T any](spec EntitySpec[T]) (*Entity[T], error) {
 		}
 		if _, err := authz.ParseRelation(spec.ResourceType + "#" + r.Relation); err != nil {
 			return nil, fmt.Errorf("command: the relationship of %s: %w", spec.Name, err)
+		}
+		if (r.Field == nil) != (r.FieldName == "") {
+			return nil, fmt.Errorf("command: the relationship %s of %s needs the field name with the field, and only then", r.Relation, spec.Name)
 		}
 		if (r.Field == nil && r.Resource) || slices.ContainsFunc(spec.Relationships[:i], func(o Relationship[T]) bool { return o.Relation == r.Relation }) ||
 			slices.ContainsFunc(spec.Parent, func(o Reference[T]) bool { return o.Relation == r.Relation }) {
@@ -719,7 +769,7 @@ func (r *Repository[T]) relate(ctx context.Context, id string, touch, drop []ref
 		}
 		if _, err := op(s.az, ctx, authz.Tuple{Resource: resource, Relation: ref.relation,
 			Subject: authz.Subject{Type: ref.resourceType, ID: subject}}); err != nil {
-			return s.decisionError(ctx, "relate", err)
+			return s.afterWrite(ctx, "relate", err)
 		}
 		return nil
 	}
@@ -1325,6 +1375,11 @@ func (r *Repository[T]) Create(ctx context.Context, value T, parents ...Ref) (Lo
 			return nil, err
 		}
 	}
+	// Every declared tuple is built and checked before the row statement (ST-SUP-Q118).
+	tuples, err := r.subjects(value, true)
+	if err != nil {
+		return nil, err
+	}
 	row, err := s.lockedRow(ctx, "create "+e.spec.Name, e.spec.Insert, append([]any{s.tenant.ID()}, e.spec.Values(value)...)...)
 	if err != nil {
 		return nil, err
@@ -1338,11 +1393,7 @@ func (r *Repository[T]) Create(ctx context.Context, value T, parents ...Ref) (Lo
 			return nil, err
 		}
 	}
-	tuples, err := r.declared(meta.ID, stored, true)
-	if err != nil {
-		return nil, err
-	}
-	if err := r.relateDeclared(ctx, tuples, nil); err != nil {
+	if err := r.relateDeclared(ctx, meta.ID, tuples, (*authz.Handle).Relate); err != nil {
 		return nil, err
 	}
 	if err := s.buffer(e.auditType(), e.spec.Fields, meta.ID, nil, e.spec.State(stored)); err != nil {
@@ -1378,6 +1429,12 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T, par
 	if err != nil {
 		return nil, err
 	}
+	// The subject of a field-sourced relationship is set at create and does not change (ST-SUP-Q118).
+	for _, rel := range e.spec.Relationships {
+		if rel.Field != nil && rel.Field(from2.value) != rel.Field(value) {
+			return nil, s.breakWith(&invalidError{field: rel.FieldName, reason: reasonCreateOnly})
+		}
+	}
 	step := "update " + e.spec.Name
 	row, err := s.lockedRow(ctx, step, e.spec.Update,
 		append([]any{s.tenant.ID(), from2.meta.ID, from2.meta.Version}, e.spec.Values(value)...)...)
@@ -1403,18 +1460,6 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T, par
 		}
 	}
 	if err := r.relate(ctx, meta.ID, touch, drop); err != nil {
-		return nil, err
-	}
-	// A changed field subject moves its tuple; a caller-sourced one stays as the create wrote it.
-	was, err := r.declared(meta.ID, from2.value, false)
-	if err != nil {
-		return nil, err
-	}
-	is, err := r.declared(meta.ID, stored, false)
-	if err != nil {
-		return nil, err
-	}
-	if err := r.relateDeclared(ctx, is, was); err != nil {
 		return nil, err
 	}
 	if err := s.buffer(e.auditType(), e.spec.Fields, meta.ID, e.spec.State(from2.value), e.spec.State(stored)); err != nil {
@@ -1463,11 +1508,11 @@ func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T], parent ...Re
 		s.conflict = &conflictError{text: "the version of a row of " + e.spec.Name + " moved"}
 		return s.conflict
 	}
-	gone, err := r.declared(from2.meta.ID, from2.value, false)
+	gone, err := r.subjects(from2.value, false)
 	if err != nil {
 		return err
 	}
-	if err := r.relateDeclared(ctx, nil, gone); err != nil {
+	if err := r.relateDeclared(ctx, from2.meta.ID, gone, (*authz.Handle).Unrelate); err != nil {
 		return err
 	}
 	if err := s.buffer(e.auditType(), e.spec.Fields, from2.meta.ID, e.spec.State(from2.value), nil); err != nil {

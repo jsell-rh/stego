@@ -307,12 +307,13 @@ func TestServeHelpers(t *testing.T) {
 			want   Outcome
 			answer string
 		}{
-			{"declared refusal", fmt.Errorf("wrapped: %w", declared), Outcome{http.StatusUnprocessableEntity, "reserve.short_stock", audit.OutcomeFailed}, "reserve.short_stock"},
-			{"refusal not declared", NewRefusal("reserve", "short_stock", http.StatusUnprocessableEntity, "reserve.short_stock"), Outcome{http.StatusInternalServerError, ErrorCodeInternal, audit.OutcomeFailed}, ErrorCodeInternal},
-			{"deny", ErrDenied, Outcome{http.StatusNotFound, ErrorCodeDenied, audit.OutcomeDenied}, ErrorCodeDenied},
-			{"conflict", &conflictError{text: "moved"}, Outcome{http.StatusConflict, audit.ErrorCodeConflict, audit.OutcomeFailed}, audit.ErrorCodeConflict},
-			{"commit of unknown outcome", ErrCommitUnknown, Outcome{http.StatusInternalServerError, audit.ErrorCodeCommitOutcomeUnknown, audit.OutcomeFailed}, ErrorCodeInternal},
-			{"another error", errors.New("no stock for " + secret), Outcome{http.StatusInternalServerError, ErrorCodeInternal, audit.OutcomeFailed}, ErrorCodeInternal},
+			{"declared refusal", fmt.Errorf("wrapped: %w", declared), Outcome{http.StatusUnprocessableEntity, "reserve.short_stock", audit.OutcomeFailed, "", ""}, "reserve.short_stock"},
+			{"refusal not declared", NewRefusal("reserve", "short_stock", http.StatusUnprocessableEntity, "reserve.short_stock"), Outcome{http.StatusInternalServerError, ErrorCodeInternal, audit.OutcomeFailed, "", ""}, ErrorCodeInternal},
+			{"deny", ErrDenied, Outcome{http.StatusNotFound, ErrorCodeDenied, audit.OutcomeDenied, "", ""}, ErrorCodeDenied},
+			{"conflict", &conflictError{text: "moved"}, Outcome{http.StatusConflict, audit.ErrorCodeConflict, audit.OutcomeFailed, "", ""}, audit.ErrorCodeConflict},
+			{"commit of unknown outcome", ErrCommitUnknown, Outcome{http.StatusInternalServerError, audit.ErrorCodeCommitOutcomeUnknown, audit.OutcomeFailed, "", ""}, ErrorCodeInternal},
+			{"another error", errors.New("no stock for " + secret), Outcome{http.StatusInternalServerError, ErrorCodeInternal, audit.OutcomeFailed, "", ""}, ErrorCodeInternal},
+			{"invalid value", fmt.Errorf("wrapped: %w", &invalidError{field: "owner_id", reason: reasonCreateOnly}), Outcome{http.StatusBadRequest, ErrorCodeInvalid, audit.OutcomeFailed, "owner_id", reasonCreateOnly}, ErrorCodeInvalid},
 		} {
 			got := OutcomeOf(c.err, declared)
 			if got != c.want || got.AnswerCode() != c.answer || strings.Contains(fmt.Sprint(got), secret) {

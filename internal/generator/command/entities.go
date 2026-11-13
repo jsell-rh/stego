@@ -324,7 +324,7 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 				if f.pointer {
 					read = fmt.Sprintf("func(v %s) string {\n\t\tif v.%s == nil {\n\t\t\treturn \"\"\n\t\t}\n\t\treturn *v.%s\n\t}", e.goName, f.goName, f.goName)
 				}
-				w.f(", Field: %s", read)
+				w.f(", Field: %s, FieldName: %q", read, f.decl.Name)
 				if r.resource {
 					w.f(", Resource: true")
 				}

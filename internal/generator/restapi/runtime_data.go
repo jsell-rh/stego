@@ -194,6 +194,13 @@ func validateRuntimeData(ctx gen.Context, entities map[string]types.Entity) erro
 				if e.Permissions[op] != types.PermissionPublic {
 					return fmt.Errorf("rest-api: collection %s declares create with the permission %q; on the runtime data path a create of a top-level entity is decided on the service-level resource of the tenant provisioning (ST-SUP-RC29-OC01), which the declaration cannot name yet (ST-DECL-UC10), so it must be public with a reason", c.Name, e.Permissions[op])
 				}
+				// A command that declares no permission may not write a field-sourced relationship: the client would
+				// choose the subject (ST-SUP-Q118).
+				for _, r := range e.Relationships {
+					if r.SubjectSource == types.SubjectSourceField {
+						return fmt.Errorf("rest-api: collection %s declares a public create of %s, whose relationship %s takes its subject from the field %s; a command that declares no permission may not write a field-sourced relationship, since the client would choose the subject (ST-SUP-Q118): take the subject from the caller, or write the relationship in a declared command with a permission", c.Name, e.Name, r.Relation, r.SubjectField)
+					}
+				}
 			}
 		}
 		for _, f := range e.Fields {
@@ -791,7 +798,8 @@ func (rt *Runtime) boundQuery(ctx context.Context, b command.Bound, q *query.Que
 
 // answerWrite answers an error of Run and writes the audit row of the denied or failed write in its own short
 // transaction (ST-SUP-RC28-OC03): a slot refusal is the slot's status and outcome denied, a deny is 404, the same
-// answer as a missing row, a conflict 409 and every other error 500. A row that is not there is 404 and outcome
+// answer as a missing row, a refused field value 400 naming the field (ST-SUP-Q118), a conflict 409 and every other
+// error 500. A row that is not there is 404 and outcome
 // denied for an operation that decides a permission, as a deny is, so the answer never tells that a row exists or
 // once existed (ST-SUP-RC20-OC37, ST-SUP-RP10-LC31), and 404 not_found otherwise. No error text reaches the answer or
 // the audit row.
@@ -827,6 +835,9 @@ func (rt *Runtime) answerWrite(w http.ResponseWriter, r *http.Request, req comma
 	o := command.OutcomeOf(err)
 	_ = rt.Commands.RecordFailure(r.Context(), req, action, resourceType, o)
 	switch o.Status {
+	case http.StatusBadRequest:
+		// The runtime refused a field's value (command.ErrInvalid): the answer names the field and the fixed reason.
+		handleError(w, r, Validation([]ValidationError{{Field: o.Field, Message: o.Reason}}))
 	case http.StatusNotFound:
 		handleError(w, r, NotFound(kind, req.Resource))
 	case http.StatusConflict:

@@ -503,6 +503,17 @@ func tupleKey(t tenant.Tenant, tuple Tuple) (string, error) {
 	return key, nil
 }
 
+// CheckSubject checks a direct subject of a tuple of tenant t before the tuple is built, with the checks that Relate
+// and Unrelate make of it: a type and an ID that a provider can hold, no wildcard, and, when the ID has the shape of
+// a tenant-qualified resource ID, the tenant t (ST-SUP-RP06-LC07, ST-SUP-RP06-LC22). The command runtime checks the
+// subject of each declared relationship of a row so before the row is written (ST-SUP-Q118).
+func CheckSubject(t tenant.Tenant, subject Subject) error {
+	if err := subject.valid(); err != nil {
+		return err
+	}
+	return subjectIn(t, subject, "")
+}
+
 // subjectIn checks that a subject that is a resource is of tenant t: a subject set always, a direct subject when
 // its ID has the shape of a tenant-qualified resource ID.
 func subjectIn(t tenant.Tenant, subject Subject, relation string) error {

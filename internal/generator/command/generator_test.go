@@ -367,7 +367,7 @@ func TestContract(t *testing.T) {
 		for _, want := range []string{
 			"\tRelationships: []command.Relationship[Hold]{\n",
 			`{Relation: "creator", SubjectType: "user"},`,
-			`{Relation: "owner", SubjectType: "user", Field: func(v Hold) string { return v.OwnerID }},`,
+			`{Relation: "owner", SubjectType: "user", Field: func(v Hold) string { return v.OwnerID }, FieldName: "owner_id"},`,
 		} {
 			if !strings.Contains(contract, want) {
 				t.Errorf("the entity Hold does not have %s in its Relationships list:\n%s", want, contract)
@@ -388,8 +388,8 @@ func TestContract(t *testing.T) {
 		}
 		contract = string(generated(t, commandContext(t, svc, commandSlot))["commands/commands.go"])
 		for _, want := range []string{
-			`{Relation: "backup", SubjectType: "user", Field: func(v Hold) string {`, "if v.BackupID == nil {", "return *v.BackupID",
-			`{Relation: "linked", SubjectType: "order", Field: func(v Hold) string { return v.LinkedID }, Resource: true},`,
+			`{Relation: "backup", SubjectType: "user", Field: func(v Hold) string {`, "if v.BackupID == nil {", "return *v.BackupID", `}, FieldName: "backup_id"},`,
+			`{Relation: "linked", SubjectType: "order", Field: func(v Hold) string { return v.LinkedID }, FieldName: "linked_id", Resource: true},`,
 		} {
 			if !strings.Contains(contract, want) {
 				t.Errorf("the Relationships list of Hold does not hold %s:\n%s", want, contract)
