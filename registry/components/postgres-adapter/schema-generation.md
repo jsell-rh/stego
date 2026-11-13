@@ -50,10 +50,12 @@ transaction control: no `BEGIN`, `COMMIT`, `ROLLBACK` or `SAVEPOINT`. A
 `COMMIT` in the body ends the transaction early, and leaves a partial
 migration with no ledger row. STEGO does not check the body for this.
 
-After one external apply, the ledger holds one row past the registered
-history. A later `ApplyMigration` and a later `Migrate` are then refused with
-`ErrMigrationLedger` until a release registers that migration (question
-ST-SUP-Q113).
+A release must register each external migration before the next migration
+runs. After one external apply, the ledger holds one row past the registered
+history, and a later `ApplyMigration` or `Migrate` is refused with
+`ErrMigrationLedger`. Register that migration, with the same name and body, in
+the next release; then both go on. The ledger stays an exact history of what a
+release declares (ST-SUP-Q113, decided 2026-11-12).
 
 Before any schema write, the runtime takes a database-wide transaction advisory
 lock and checks for a completed marker. A matching marker returns success
