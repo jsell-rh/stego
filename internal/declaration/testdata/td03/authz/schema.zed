@@ -14,3 +14,9 @@ definition document {
 	permission view = viewer + owner
 	permission edit = owner
 }
+
+definition service {
+	relation operator: user
+	permission provision = operator
+	permission retire = operator
+}
