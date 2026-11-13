@@ -71,7 +71,7 @@ func TestRelativeFlagDefinition(t *testing.T) {
 
 func TestRelativeFlagThroughTLS(t *testing.T) {
 	t.Run("ST-SUP-RC04-OC28-T01 The emitted CLI converts a relative duration before any request", func(t *testing.T) {
-		directory := t.TempDir()
+		directory := privateDir(t)
 		t.Setenv("TEST_CLI_CONFIG", filepath.Join(directory, "config.json"))
 		token := filepath.Join(directory, "token")
 		if err := os.WriteFile(token, []byte("private-token"), 0600); err != nil {
