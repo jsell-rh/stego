@@ -121,6 +121,13 @@ func Manifest(relayRole, runtimeRole, workerRole string) (manifest.Manifest, err
 	for i := range columns {
 		columns[i].Default = defaults[columns[i].Name]
 	}
+	// The sequence of the messages orders the delivery of each key (ST-SUP-RP01-LC03), so it is the identity that
+	// the migration makes, GENERATED ALWAYS, counting up by 1.
+	for i := range columns {
+		if columns[i].Name == "sequence" {
+			columns[i].Identity = "a"
+		}
+	}
 	check := func(name, definition string) manifest.Constraint {
 		return manifest.Constraint{Name: name, Kind: manifest.KindCheck, Definition: definition}
 	}
