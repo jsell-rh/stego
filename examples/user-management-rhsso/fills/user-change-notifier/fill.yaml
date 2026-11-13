@@ -18,3 +18,24 @@ evidence:
     fill.yaml: 8b5f1cfccc5511e8bd0410659a19f54cfd36f02e8956c8cea708ab41bb480c11
     notifier.go: b79866f5522d8433360eb114f311f8f7b79d2c44d538c3a287e041700c8d33d2
     notifier_test.go: cb862507720c2bb8e3236acfdbae0d8c39a5db220103cccf9e660b58350b777e
+sign_off:
+  evidence_digest: 3f27fb9c2d099294bcaba627d6adf65c17cf0c14de9089ad093cd150dbb7d871
+  signature:
+    key_type: ssh
+    signer: 35787503+elsell@users.noreply.github.com
+    signature: |
+      -----BEGIN SSH SIGNATURE-----
+      U1NIU0lHAAAAAQAAARcAAAAHc3NoLXJzYQAAAAMBAAEAAAEBALsnksSLm9M7JucxPR5fip
+      7av8zqxlfnHPiKO4ScdopJeezbbuPmQz7KkjDKM2oLsdyeV3PZZZz051W6SC4v8mcAk6wM
+      aUo9FQq81i3h9cmgeeJf06thXUgYM0R58QPNwAquZTgvkGTBFvaBO0amv/tmfSGoqw9sYa
+      Kyum85zOVpOMPrOWR9mZqY/I8SG6nvN05jF+YDksFAArzy6DYU/4LHGIkU9NDuKAe2o1Ww
+      WUP0D2JTJIWxnskmDRqUVgtmmPzW8131Mhur+ms2l/K6Qkv8HmJzspCsZPkxhkDMougK7s
+      G/ltb8qpbwznydvO9A525OppB9qgbqpJ1Yo4Jz7usAAAAKc3RlZ28tZmlsbAAAAAAAAAAG
+      c2hhNTEyAAABFAAAAAxyc2Etc2hhMi01MTIAAAEAXHJxm9whx3zwtrCWB1PKc3rqmhOVAZ
+      Uo0/LtJhhInpKZSd44SO6lijk4jvYhKfuTOB7K4Tg+YAW7EMkNuTuNvH1pDaxHcW11AJwx
+      LSdLkVsGtlBhN7gRfYBJ0adrqZEcysHoWEI0KEtSiErXg9Ns/30SIVBlthnLstnYZO0jDe
+      eoOucnU5Uov5Ol/F90OtkQOzGzg9FSZs7anj6zBqiT00GTEjclA5gQV0q0pFEmwdDhzC0U
+      1gEczgvrfQCGeQjXuWoMgUIkpN/5yGFBrOCvJ9Eqc4XVR2k07NV0EFlE0t6Mg+7PYOIkUc
+      a8tFSha68z+NOJZhy0OC9IQZ8k8yxgLw==
+      -----END SSH SIGNATURE-----
+  signed_at: 2026-11-13T05:19:52Z
