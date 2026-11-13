@@ -384,7 +384,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 			return server
 		}
 		one, other := fork("example.com/one"), fork("example.com/other")
-		state := filepath.Join(t.TempDir(), "sumdb")
+		state := filepath.Join(privateTemp(t), "sumdb")
 		trustOf := func(server *httptest.Server, state string) runtimeTrust {
 			at := sumDBServer{url: server.URL, key: verifier, client: server.Client(), state: state}
 			return runtimeTrust{pins: map[string]string{version: sum}, lookup: func(ctx context.Context, path, vers string) (string, bool, error) {
@@ -443,7 +443,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 				t.Fatalf("the run was refused: %v", err)
 			}
 		}
-		state := filepath.Join(t.TempDir(), "sumdb")
+		state := filepath.Join(privateTemp(t), "sumdb")
 		latest := filepath.Join(state, "latest")
 		stage(state)
 		good, err := os.ReadFile(latest)
@@ -487,7 +487,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 			}
 		}
 		// A folder that others may write is left out with a warning, and nothing is kept there.
-		unsafe := filepath.Join(t.TempDir(), "unsafe")
+		unsafe := filepath.Join(privateTemp(t), "unsafe")
 		if err := os.Mkdir(unsafe, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -503,7 +503,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 			t.Errorf("a tree was kept in a folder that others may write: %v", err)
 		}
 		// A folder that is a link is left out too.
-		linked := filepath.Join(t.TempDir(), "linked")
+		linked := filepath.Join(privateTemp(t), "linked")
 		if err := os.Symlink(state, linked); err != nil {
 			t.Fatal(err)
 		}
@@ -538,7 +538,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 		}
 		// A folder that is moved after the lookup opened it, with another folder put at its path, keeps the tree in
 		// the folder that the lookup opened: no write goes to the new path.
-		parent := t.TempDir()
+		parent := privateTemp(t)
 		state, moved := filepath.Join(parent, "sumdb"), filepath.Join(parent, "moved")
 		kept, err := openKeptTree(context.Background(), state, verifier)
 		if err != nil {
@@ -559,6 +559,41 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 		}
 		if _, err := os.Lstat(filepath.Join(state, "latest")); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("the tree was written to the folder at the path after the move: %v", err)
+		}
+		// A parent folder that is a link to another folder of the user, such as stego under a shared cache root, is
+		// not followed: the kept tree is not used, and nothing is written in the folder it links to.
+		other := filepath.Join(parent, "other")
+		if err := os.Mkdir(other, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(other, filepath.Join(parent, "stego")); err != nil {
+			t.Fatal(err)
+		}
+		if linked, err := openKeptTree(context.Background(), filepath.Join(parent, "stego", "sumdb"), verifier); err == nil || !strings.Contains(err.Error(), "is not a folder") {
+			if err == nil {
+				linked.close()
+			}
+			t.Errorf("a kept tree under a parent that is a link gave %v, want a refusal that it is not a folder", err)
+		}
+		if entries, err := os.ReadDir(other); err != nil || len(entries) != 0 {
+			t.Errorf("the folder that the parent links to holds %v (%v), want nothing", entries, err)
+		}
+		// A parent folder that others may write is refused too, and nothing is made in it.
+		open := filepath.Join(parent, "open")
+		if err := os.Mkdir(open, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(open, 0o777); err != nil {
+			t.Fatal(err)
+		}
+		if opened, err := openKeptTree(context.Background(), filepath.Join(open, "sumdb"), verifier); err == nil || !strings.Contains(err.Error(), "others may write") {
+			if err == nil {
+				opened.close()
+			}
+			t.Errorf("a kept tree under a parent that others may write gave %v, want a refusal", err)
+		}
+		if entries, err := os.ReadDir(open); err != nil || len(entries) != 0 {
+			t.Errorf("the parent that others may write holds %v (%v), want nothing", entries, err)
 		}
 		// A wait for a lock that another run holds ends with its context, and leaves no goroutine behind.
 		held, err := openKeptTree(context.Background(), moved, verifier)
@@ -681,4 +716,15 @@ func archetypeRuntimePin(t *testing.T, name, data string) (string, string) {
 		t.Fatalf("%s pins no runtime library with a version and a sum", name)
 	}
 	return version, sum
+}
+
+// privateTemp gives a new temporary folder that only its owner may write, as the parent of a kept tree must be
+// whatever the umask of the test is.
+func privateTemp(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

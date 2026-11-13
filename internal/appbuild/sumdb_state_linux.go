@@ -35,34 +35,17 @@ type keptTree struct {
 // lockPoll is how often a lookup tries again to take the lock of the folder.
 const lockPoll = 20 * time.Millisecond
 
-// openKeptTree opens the folder, which it makes when it is missing, as one
-// handle that does not follow a link, and takes the lock of the folder. It
+// openKeptTree opens the folder through walkKeptFolder, which makes it when
+// it is missing, as one handle that does not follow a link, and takes the
+// lock of the folder. It
 // refuses a folder that is a link, that is not a folder, that another user
 // owns or that its group or others may write, so that no other user can
 // plant or change the kept tree. It waits for the lock no longer than ctx
 // allows, and leaves nothing running when it gives up.
 func openKeptTree(ctx context.Context, folder, key string) (*keptTree, error) {
-	if err := os.MkdirAll(filepath.Dir(folder), 0o700); err != nil {
-		return nil, err
-	}
-	if err := os.Mkdir(folder, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-		return nil, err
-	}
-	fd, err := syscall.Open(folder, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	dir, err := walkKeptFolder(folder)
 	if err != nil {
-		if errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.ENOTDIR) {
-			return nil, fmt.Errorf("%s is not a folder", folder)
-		}
 		return nil, err
-	}
-	dir := os.NewFile(uintptr(fd), folder)
-	info, err := dir.Stat()
-	if err == nil {
-		err = ownedAlone(info)
-	}
-	if err != nil {
-		dir.Close()
-		return nil, fmt.Errorf("%s: %w", folder, err)
 	}
 	k := &keptTree{folder: folder, key: key, dir: dir}
 	lock, err := k.openAt("lock", syscall.O_CREAT|syscall.O_RDWR, 0o600)
@@ -90,6 +73,53 @@ func openKeptTree(ctx context.Context, folder, key string) (*keptTree, error) {
 	}
 	k.lock = lock
 	return k, nil
+}
+
+// walkKeptFolder opens the folder of the kept tree from its grandparent, the
+// cache root such as ~/.cache, which it opens as a folder, through the
+// parent such as stego and then the folder such as sumdb, each with openat
+// and O_DIRECTORY|O_NOFOLLOW from the handle of the step before, and makes
+// each with mkdirat (mode 0700) when it is missing. Each of the two must be a
+// folder, not a link, owned by the user and not writable by its group or
+// others; else the kept tree is not used. No path is followed below the
+// cache root, so a link at the parent cannot send the tree elsewhere.
+func walkKeptFolder(folder string) (*os.File, error) {
+	root := filepath.Dir(filepath.Dir(folder))
+	// The cache root is the user's own choice, such as XDG_CACHE_HOME, and may be a link; below it nothing is.
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return nil, err
+	}
+	fd, err := syscall.Open(root, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: root, Err: err}
+	}
+	current := os.NewFile(uintptr(fd), root)
+	path := root
+	for _, name := range []string{filepath.Base(filepath.Dir(folder)), filepath.Base(folder)} {
+		path = filepath.Join(path, name)
+		if err := syscall.Mkdirat(int(current.Fd()), name, 0o700); err != nil && !errors.Is(err, syscall.EEXIST) {
+			current.Close()
+			return nil, &os.PathError{Op: "mkdir", Path: path, Err: err}
+		}
+		next, err := syscall.Openat(int(current.Fd()), name, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+		current.Close()
+		if err != nil {
+			if errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.ENOTDIR) {
+				return nil, fmt.Errorf("%s is not a folder", path)
+			}
+			return nil, &os.PathError{Op: "open", Path: path, Err: err}
+		}
+		current = os.NewFile(uintptr(next), path)
+		info, err := current.Stat()
+		if err == nil {
+			err = ownedAlone(info)
+		}
+		if err != nil {
+			current.Close()
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	return current, nil
 }
 
 // openAt opens the file name of the folder through its handle, never
