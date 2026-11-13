@@ -204,7 +204,7 @@ func compatGit(args ...string) ([]byte, error) {
 			env = append(env, variable)
 		}
 	}
-	env = append(env, "GIT_TERMINAL_PROMPT=0", "GIT_NO_REPLACE_OBJECTS=1", "GIT_NO_LAZY_FETCH=1")
+	env = append(env, "GIT_TERMINAL_PROMPT=0", "GIT_NO_REPLACE_OBJECTS=1", "GIT_NO_LAZY_FETCH=1", "LC_ALL=C")
 	command.Stdout, command.Stderr, command.Env = &stdout, &stderr, env
 	if err := command.Run(); err != nil {
 		return nil, fmt.Errorf("git %s: %v: %s", args[0], err, strings.TrimSpace(stderr.String()))
@@ -219,7 +219,12 @@ func compatGit(args ...string) ([]byte, error) {
 // a tag, a note or a ref outside the remote.
 func defaultBaseRef() (ref string, found bool, err error) {
 	if _, err := compatGit("rev-parse", "--is-inside-work-tree"); err != nil {
-		return "", false, nil
+		// Only git's own answer that the folder is in no repository means no repository; every other failure, such
+		// as a repository of another owner or no git at all, fails rather than skip the check.
+		if strings.Contains(err.Error(), "not a git repository") {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("git cannot read the repository of the service folder, so the base check cannot run: %w", err)
 	}
 	if target, err := compatGit("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"); err == nil {
 		name := strings.TrimSpace(string(target))
@@ -239,7 +244,7 @@ func defaultBaseRef() (ref string, found bool, err error) {
 			return name, true, nil
 		}
 	}
-	return "", false, nil
+	return "", false, fmt.Errorf("the repository of the service folder has no default branch: refs/remotes/origin/HEAD is not set and there is no branch main or master; name the base with --base")
 }
 
 // baseGate is what plan and apply learn from the check against the base before they plan: the base they took, and
@@ -262,7 +267,7 @@ func checkBaseBeforePlan(named string, stdout io.Writer) (baseGate, error) {
 			return gate, err
 		}
 		if !found {
-			fmt.Fprintln(stdout, "No base check: the service folder is in no Git repository with a default branch, and --base names none.")
+			fmt.Fprintln(stdout, "No base check: the service folder is in no Git repository, and --base names no base.")
 			return gate, nil
 		}
 		gate.ref = ref
@@ -270,6 +275,9 @@ func checkBaseBeforePlan(named string, stdout io.Writer) (baseGate, error) {
 		return gate, fmt.Errorf("the base ref %q starts with -, which git reads as an option", named)
 	}
 	base, err := readBase(gate.ref)
+	if err == nil {
+		err = refuseMovedService(base)
+	}
 	if err != nil {
 		return gate, err
 	}
@@ -294,7 +302,11 @@ func checkBaseBeforePlan(named string, stdout io.Writer) (baseGate, error) {
 		fmt.Fprint(stdout, formatBaseCheck(check))
 		return gate, fmt.Errorf("the check against the base ref %s refuses the declaration, so nothing is written: declare the schema changes that it names", gate.ref)
 	}
-	fmt.Fprintf(stdout, "Base: %s at commit %s; the declaration can run beside it.\n", gate.ref, base.Commit)
+	if check.Released {
+		fmt.Fprintf(stdout, "Base: %s at commit %s; the declaration can run beside it.\n", gate.ref, base.Commit)
+	} else {
+		fmt.Fprintf(stdout, "Base: %s at commit %s holds no record, so no release has run, and any stored shape is accepted.\n", gate.ref, base.Commit)
+	}
 	if len(steps) > 0 {
 		gate.steps = steps
 		if gate.data, err = compiler.AppendSchemaSteps(data, steps); err != nil {

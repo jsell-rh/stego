@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -74,6 +75,20 @@ func TestSchemaStepPlan(t *testing.T) {
 		git(t, s.service, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
 		if planned := s.must(t, "plan"); !strings.Contains(planned, "Base: refs/heads/main at commit "+commit) {
 			t.Errorf("with no origin, plan does not take the local main:\n%s", planned)
+		}
+		git(t, s.service, "branch", "-m", "trunk")
+		if stdout, stderr, err := s.stego(t, "plan"); err == nil || !strings.Contains(stdout+stderr, "has no default branch") {
+			t.Errorf("a repository with no default branch: %v, want a refusal that asks for --base:\n%s%s", err, stdout, stderr)
+		}
+		git(t, s.service, "branch", "-m", "main")
+		noGit := *s
+		noGit.env = append(slices.Clone(s.env[1:]), "PATH="+filepath.Dir(stegoBinary(t)))
+		if stdout, stderr, err := noGit.stego(t, "plan"); err == nil || !strings.Contains(stdout+stderr, "git cannot read the repository") {
+			t.Errorf("with no git to run: %v, want a refusal, not a plan with no check:\n%s%s", err, stdout, stderr)
+		}
+		s.unreleased(t)
+		if planned := s.must(t, "plan"); !strings.Contains(planned, "Base: refs/heads/main at commit "+git(t, s.service, "rev-parse", "main")+" holds no record") {
+			t.Errorf("plan on a base with no record does not name the base and its commit:\n%s", planned)
 		}
 		other := s.copyService(t, "notes-no-git")
 		if output, err := exec.Command("rm", "-rf", filepath.Join(other.service, ".git")).CombinedOutput(); err != nil {

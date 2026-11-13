@@ -39,8 +39,9 @@ Plan and apply check the declaration against the base before they plan: the
 ref that `--base` names, or the default branch of the repository. The default
 branch is the branch of `origin` that `refs/remotes/origin/HEAD` names, else a
 local `main`, else `master`. When the check refuses the declaration, plan and
-apply write nothing. With no Git repository and no such branch there is no
-check, and plan and apply say so.
+apply write nothing. When the service folder is in no Git repository, there is
+no check, and plan and apply say so. A repository with no such branch, or one
+that git cannot read, stops plan and apply: name the base with `--base`.
 
 ## The check against the base
 
