@@ -105,6 +105,7 @@ func (f Faults) All() []ValidationError {
 func Validate(service *types.ServiceDeclaration, undeclared ...parser.UndeclaredField) Faults {
 	var faults Faults
 	faults.Undeclared = undeclaredFaults(undeclared)
+	nameLedgerAccounts(service, faults.Undeclared)
 	if err := gen.ValidateHTTPBasePath(service.BasePath); err != nil {
 		faults.Service = append(faults.Service, ValidationError{Category: "service", Rule: "base-path", Path: "base_path", Found: service.BasePath, Message: err.Error()})
 	}
@@ -121,6 +122,7 @@ func Validate(service *types.ServiceDeclaration, undeclared ...parser.Undeclared
 	faults.Service = append(faults.Service, validateAuditValues(service)...)
 	faults.Entities = append(faults.Entities, validateFieldTypes(service.Entities)...)
 	faults.Entities = append(faults.Entities, validateFieldDefaults(service.Entities)...)
+	faults.Entities = append(faults.Entities, validateMoney(service)...)
 	for _, err := range types.ValidateVersioned(service.Entities, service.Collections) {
 		faults.Entities = append(faults.Entities, ValidationError{Category: "field-type", Rule: "versioned-metadata", Path: locate(service, err.Error()), Message: err.Error()})
 	}
@@ -129,7 +131,8 @@ func Validate(service *types.ServiceDeclaration, undeclared ...parser.Undeclared
 		faults.Collections = append(faults.Collections, ValidationError{Category: "field-type", Rule: "unique-when-live", Path: locate(service, err.Error()), Message: err.Error()})
 	}
 	faults.Collections = append(faults.Collections, validateCollectionReferences(service.Collections, service.Entities)...)
-	faults.Collections = append(faults.Collections, validateCollectionOps(service.Collections)...)
+	faults.Collections = append(faults.Collections, validateCollectionOps(service.Collections, ledgerEntities(service.Entities))...)
+	faults.Collections = append(faults.Collections, validateLedgerCollections(service)...)
 	faults.Collections = append(faults.Collections, validateMixinUniqueness(service.Mixins)...)
 
 	faults.Slots = append(faults.Slots, validateSlotBindingCollections(service.Slots, service.Collections)...)
@@ -192,7 +195,7 @@ func defaultSuits(f types.Field) bool {
 	case types.FieldTypeBool:
 		_, ok := f.Default.(bool)
 		return ok
-	case types.FieldTypeInt32, types.FieldTypeInt64:
+	case types.FieldTypeInt32, types.FieldTypeInt64, types.FieldTypeMoney:
 		var value int64
 		switch number := f.Default.(type) {
 		case int:
@@ -200,11 +203,12 @@ func defaultSuits(f types.Field) bool {
 		case int64:
 			value = number
 		case uint64:
-			return f.Type == types.FieldTypeInt64 && number <= math.MaxInt64
+			return f.Type != types.FieldTypeInt32 && number <= math.MaxInt64
 		default:
 			return false
 		}
-		return f.Type == types.FieldTypeInt64 || (value >= math.MinInt32 && value <= math.MaxInt32)
+		// A money default is whole minor units in an int64 (ST-DECL-INV26).
+		return f.Type != types.FieldTypeInt32 || (value >= math.MinInt32 && value <= math.MaxInt32)
 	case types.FieldTypeFloat, types.FieldTypeDouble:
 		switch number := f.Default.(type) {
 		case int, int64, uint64:
@@ -1060,8 +1064,10 @@ func validateCollectionReferences(collections []types.Collection, entities []typ
 }
 
 // validateCollectionOps checks that each operation in collections is valid and
-// that no operation appears more than once within a single collection.
-func validateCollectionOps(collections []types.Collection) []ValidationError {
+// that no operation appears more than once within a single collection. The
+// operations of a collection over a ledger are held to the ledger operations
+// instead (validateLedgerCollections).
+func validateCollectionOps(collections []types.Collection, ledgers map[string]bool) []ValidationError {
 	var errs []ValidationError
 	for _, c := range collections {
 		// Check for empty operations list — a collection with no operations
@@ -1090,7 +1096,7 @@ func validateCollectionOps(collections []types.Collection) []ValidationError {
 			}
 			opSeen[op] = true
 
-			if !types.ValidOperations[op] {
+			if !types.ValidOperations[op] && !ledgers[c.Entity] {
 				errs = append(errs, ValidationError{
 					Category: "operation",
 					Rule:     "operation",
