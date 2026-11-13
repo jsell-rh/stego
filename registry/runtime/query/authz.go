@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
@@ -186,6 +187,38 @@ const MaxSearchKeys = 10000
 // gives more than MaxSearchKeys keys: the entity is not small, and the list fails closed (ST-SUP-RP11-LC20).
 var ErrTooManyKeys = errors.New("query: the resource search gives more keys than an entity of small expected cardinality may have")
 
+// overBound is the warning of a list over MaxSearchKeys: at most one log line in each overBoundEvery, which counts
+// the lists over the bound since the last line, so a caller who repeats such a list cannot flood the log.
+var overBound = &boundWarning{every: overBoundEvery, now: time.Now}
+
+// overBoundEvery is the shortest time between two warnings of a list over MaxSearchKeys.
+const overBoundEvery = time.Minute
+
+// boundWarning logs a list over the bound at most once in each period every, with the count of lists since the
+// last line.
+type boundWarning struct {
+	mu    sync.Mutex
+	every time.Duration
+	now   func() time.Time
+	last  time.Time
+	count int
+}
+
+func (b *boundWarning) warn(ctx context.Context, entity string) {
+	b.mu.Lock()
+	b.count++
+	now := b.now()
+	if !b.last.IsZero() && now.Sub(b.last) < b.every {
+		b.mu.Unlock()
+		return
+	}
+	count := b.count
+	b.last, b.count = now, 0
+	b.mu.Unlock()
+	slog.WarnContext(ctx, "query: an entity of small expected cardinality has more visible rows than the bound; declare it large",
+		"entity", entity, "bound", MaxSearchKeys, "lists", count)
+}
+
 // searchKeys gives every key that the resource search gives for the list permission, page by page, and refuses more
 // than MaxSearchKeys with ErrTooManyKeys, which it logs with the entity and the bound so that an operator sees a
 // wrong cardinality declaration. It never falls back to paging the table.
@@ -204,8 +237,7 @@ func (r *Repository[T]) searchKeys(ctx context.Context) ([]string, error) {
 		}
 		keys = append(keys, found.Keys...)
 		if len(keys) > MaxSearchKeys {
-			slog.WarnContext(ctx, "query: an entity of small expected cardinality has more visible rows than the bound; declare it large",
-				"entity", e.spec.Name, "bound", MaxSearchKeys)
+			overBound.warn(ctx, e.spec.Name)
 			return nil, fmt.Errorf("%w: the entity %s, more than %d keys", ErrTooManyKeys, e.spec.Name, MaxSearchKeys)
 		}
 		if found.Next.IsZero() {
@@ -387,8 +419,15 @@ func (e *entity) orderedStatement(order []OrderBy, started bool, values []any, k
 	filter, filterArgs := e.filterSQL(where, keys, len(args)+2)
 	args = append(args, filterArgs...)
 	limit := param(size)
-	return "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1" + filter + after +
-		" ORDER BY " + strings.Join(by, ", ") + " LIMIT " + limit, args
+	tail := " ORDER BY " + strings.Join(by, ", ") + " LIMIT " + limit
+	if keys != nil {
+		// The rows of the searched keys are read by key first, at most MaxSearchKeys of them, and only then put in
+		// order, so the planner cannot walk an index of the order field and test each row it passes, hidden rows
+		// included, against the keys: the work depends on the visible rows only (ST-SUP-RP11-LC20).
+		return "WITH v AS MATERIALIZED (SELECT * FROM " + e.table + " WHERE " + TenantColumn + " = $1" + filter + ") SELECT " +
+			e.selectList + " FROM v WHERE true" + after + tail, args
+	}
+	return "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1" + filter + after + tail, args
 }
 
 // position gives the encoded position values of a row on the fields of order, which a cursor of the list holds:

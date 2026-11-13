@@ -3,12 +3,15 @@ package query
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
@@ -450,6 +453,123 @@ func TestSmallListOrder(t *testing.T) {
 		keys = keys[:MaxSearchKeys]
 		if _, _, err := list(ListRequest{Order: []OrderBy{{Field: "total"}}}); err != nil {
 			t.Errorf("an ordered list with %d searched keys gave %v, want it taken", len(keys), err)
+		}
+	})
+}
+
+func TestSmallListOrderWork(t *testing.T) {
+	t.Run("ST-SUP-RP11-LC20-T07 The work of an ordered list of an entity of small expected cardinality does not depend on where hidden rows sort", func(t *testing.T) {
+		e := newEnv(t)
+		// An index of the order field, which the planner walks when it may test the keys row by row.
+		e.insert(t, "CREATE INDEX orders_total ON app.orders (tenant_id, total)")
+		// In both tenants the caller sees the same 5000 orders; 200000 hidden orders sort before them by total in t1,
+		// and after them in t2.
+		var visible []string
+		for i := range 5000 {
+			visible = append(visible, fmt.Sprintf("v-%05d", i))
+		}
+		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT t, 'v-' || lpad(g::text, 5, '0'), 1000000 + g FROM generate_series(0, 4999) g, (VALUES ('t1'), ('t2')) AS x(t)")
+		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't1', 'h-' || g, g FROM generate_series(1, 200000) g")
+		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't2', 'h-' || g, 2000000 + g FROM generate_series(1, 200000) g")
+		e.insert(t, "VACUUM ANALYZE app.orders")
+		var current string
+		port := &fakeDecision{decide: func(authz.EvaluationRequest) bool { return true }, search: func(r authz.SearchRequest) authz.SearchResult {
+			from := 0
+			if cursor, _, ok := r.Page.Token.CursorFor("fake"); ok {
+				fmt.Sscan(cursor, &from)
+			}
+			to := min(from+r.Page.Limit, len(visible))
+			var result authz.SearchResult
+			for _, id := range visible[from:to] {
+				result.Resources = append(result.Resources, resourceIn(t, current, "order", id))
+			}
+			if to < len(visible) {
+				result.Next = authz.NewPageToken("fake", fmt.Sprint(to), authz.Fresh())
+			}
+			return result
+		}}
+		rt := e.servedRuntime(t, port)
+		searched := orderEntity(t, true)
+		q := mustListQuery(t, "list-searched-orders", searched, "view")
+		p := mustPrincipal(t, "user:u-7")
+		// buffers lists the first page in the order of total as tenant id, and gives its IDs and the shared buffers
+		// that the ordered statement of the list reads, from EXPLAIN (ANALYZE, BUFFERS) of the same statement.
+		buffers := func(id string) ([]string, int) {
+			current = id
+			tn := mustTenant(t, id)
+			rec := &statements{}
+			tx, err := tenant.Begin(context.Background(), e.traced(t, rec), tn, &sql.TxOptions{ReadOnly: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback() }()
+			h, err := bind(context.Background(), rt, tx, tn, p, q, noProbe{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			repo, err := Repo(h, searched)
+			if err != nil {
+				t.Fatal(err)
+			}
+			page, err := repo.List(context.Background(), ListRequest{Limit: 4, Order: []OrderBy{{Field: "total"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ids []string
+			for _, item := range page.Items {
+				ids = append(ids, item.ID())
+			}
+			for _, s := range rec.all() {
+				if !strings.Contains(s.sql, "app.orders") || !strings.Contains(s.sql, "ORDER BY") {
+					continue
+				}
+				var plan []struct {
+					Plan struct {
+						Hit  int `json:"Shared Hit Blocks"`
+						Read int `json:"Shared Read Blocks"`
+					} `json:"Plan"`
+				}
+				var text []byte
+				if err := e.admin.QueryRowContext(context.Background(), "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+s.sql, s.args...).Scan(&text); err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal(text, &plan); err != nil || len(plan) != 1 {
+					t.Fatalf("the plan %s: %v", text, err)
+				}
+				return ids, plan[0].Plan.Hit + plan[0].Plan.Read
+			}
+			t.Fatal("the list ran no ordered statement")
+			return nil, 0
+		}
+		beforeIDs, before := buffers("t1")
+		afterIDs, after := buffers("t2")
+		want := []string{"v-00000", "v-00001", "v-00002", "v-00003"}
+		if !slices.Equal(beforeIDs, want) || !slices.Equal(afterIDs, want) {
+			t.Errorf("the first pages were %v and %v, want %v in both tenants", beforeIDs, afterIDs, want)
+		}
+		if before > 2*after+50 {
+			t.Errorf("the ordered list read %d buffers with hidden rows before the visible ones and %d with them after; the work depends on where hidden rows sort", before, after)
+		}
+	})
+}
+
+func TestOverBoundWarning(t *testing.T) {
+	t.Run("ST-SUP-RP11-LC20-T08 The warning of a list over the bound is logged at most once a minute, with the count of lists", func(t *testing.T) {
+		var out strings.Builder
+		previous := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&out, nil)))
+		t.Cleanup(func() { slog.SetDefault(previous) })
+		clock := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+		b := &boundWarning{every: time.Minute, now: func() time.Time { return clock }}
+		for range 1000 {
+			b.warn(context.Background(), "order")
+		}
+		clock = clock.Add(time.Minute)
+		b.warn(context.Background(), "order")
+		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+		if len(lines) != 2 || !strings.Contains(lines[0], "entity=order") || !strings.Contains(lines[0], "bound=10000") ||
+			!strings.HasSuffix(lines[0], "lists=1") || !strings.HasSuffix(lines[1], "lists=1000") {
+			t.Errorf("1001 lists over the bound in a minute and one after it logged %d lines:\n%s\nwant one with lists=1 and one with lists=1000", len(lines), out.String())
 		}
 	})
 }
