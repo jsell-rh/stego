@@ -459,6 +459,15 @@ func runApply(args []string) error {
 		if err != nil {
 			return err
 		}
+		// Check the declaration as written, against the same base: it needs no more steps and has no fault.
+		again, err := checkBaseBeforePlan(gate.ref, io.Discard)
+		if err == nil && len(again.steps) > 0 {
+			err = fmt.Errorf("service.yaml still lacks %d add step(s) after apply wrote them", len(again.steps))
+		}
+		if err != nil {
+			restore()
+			return fmt.Errorf("the declaration that apply wrote does not pass the base check, so apply wrote the old one back: %w", err)
+		}
 		printSchemaSteps(os.Stdout, "Wrote the", gate.steps)
 		if started, err := applyPlanned(*replaceHandEdits, *savedPlan); err != nil {
 			// Once Apply starts, its journal names the new declaration, and stego recover completes it.
@@ -474,7 +483,8 @@ func runApply(args []string) error {
 }
 
 // writeSchemaSteps writes the declaration with its new add steps over service.yaml, with the file's mode, and
-// gives the function that writes the old bytes back when apply then fails.
+// gives the function that writes the old bytes back when apply then fails. Each write goes to a new file beside
+// service.yaml, which then replaces it, so a crash leaves the old or the new declaration whole.
 func writeSchemaSteps(data []byte) (func(), error) {
 	info, err := os.Stat("service.yaml")
 	if err != nil {
@@ -484,10 +494,36 @@ func writeSchemaSteps(data []byte) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile("service.yaml", data, info.Mode().Perm()); err != nil {
+	if err := replaceDeclaration(data, info.Mode().Perm()); err != nil {
 		return nil, err
 	}
-	return func() { _ = os.WriteFile("service.yaml", old, info.Mode().Perm()) }, nil
+	return func() { _ = replaceDeclaration(old, info.Mode().Perm()) }, nil
+}
+
+// replaceDeclaration writes service.yaml through a new file in the same folder and a rename.
+func replaceDeclaration(data []byte, mode os.FileMode) error {
+	file, err := os.CreateTemp(".", ".service.yaml.*")
+	if err != nil {
+		return err
+	}
+	name := file.Name()
+	defer os.Remove(name)
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Chmod(mode); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, "service.yaml")
 }
 
 // applyPlanned plans from the files on disk and carries the plan out. started tells whether Apply ran, after which

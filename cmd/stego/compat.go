@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +54,9 @@ func runCompat(args []string, stdout io.Writer) error {
 		return exitStatus{compatUsage, fmt.Sprintf("the base ref %q starts with -, which git reads as an option", *baseRef)}
 	}
 	base, err := readBase(*baseRef)
+	if err == nil {
+		err = refuseMovedService(base)
+	}
 	if err != nil {
 		return exitStatus{compatUsage, err.Error()}
 	}
@@ -110,7 +114,9 @@ func formatBaseCheck(check compiler.BaseCheck) string {
 
 // readBase reads the base ref from the Git repository that holds the working folder: the commit it resolves to,
 // and service.yaml and .stego/state.yaml of the service folder at that commit. A file that the commit does not
-// hold is nil.
+// hold at that path is nil. Every other failure to read the commit or a file fails, so that an unreadable file is
+// never taken as an absent one; a file that is no regular file, or that is larger than a declaration may be, is
+// refused before it is read.
 func readBase(ref string) (compiler.BaseSource, error) {
 	base := compiler.BaseSource{Ref: ref}
 	prefix, err := compatGit("rev-parse", "--show-prefix")
@@ -122,31 +128,84 @@ func readBase(ref string) (compiler.BaseSource, error) {
 		return base, fmt.Errorf("the base ref %s names no commit of the service's repository", ref)
 	}
 	base.Commit = strings.TrimSpace(string(commit))
-	prefix = bytes.TrimSpace(prefix)
+	folder := string(bytes.TrimSpace(prefix))
 	for _, file := range []struct {
 		name   string
 		target *[]byte
 	}{{"service.yaml", &base.Declaration}, {".stego/state.yaml", &base.Record}} {
-		object := base.Commit + ":" + string(prefix) + file.name
-		if _, err := compatGit("cat-file", "-e", object); err != nil {
-			continue
-		}
-		data, err := compatGit("cat-file", "blob", object)
+		data, found, err := readBaseFile(base.Commit, folder+file.name)
 		if err != nil {
-			return base, fmt.Errorf("read %s at the base ref %s: %w", file.name, ref, err)
+			return base, fmt.Errorf("read %s at the base ref %s (commit %s): %w", folder+file.name, ref, base.Commit, err)
 		}
-		*file.target = append([]byte{}, data...)
+		if found {
+			*file.target = data
+		}
 	}
 	return base, nil
 }
 
-// compatGit runs one git command in the working folder with a time limit and gives its standard output.
+// readBaseFile reads one file of a commit by its path from the root of the repository, and tells whether the
+// commit holds it.
+func readBaseFile(commit, name string) ([]byte, bool, error) {
+	listing, err := compatGit("ls-tree", "-z", "--full-tree", commit, "--", name)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(listing) == 0 {
+		return nil, false, nil
+	}
+	entry, path, ok := strings.Cut(strings.TrimSuffix(string(listing), "\x00"), "\t")
+	fields := strings.Fields(entry)
+	if !ok || path != name || len(fields) != 3 || fields[1] != "blob" || (fields[0] != "100644" && fields[0] != "100755") {
+		return nil, false, fmt.Errorf("the commit holds %s as %q, which is no regular file", name, entry)
+	}
+	size, err := compatGit("cat-file", "-s", fields[2])
+	if err != nil {
+		return nil, false, err
+	}
+	if n, err := strconv.ParseInt(strings.TrimSpace(string(size)), 10, 64); err != nil || n > parser.MaxDocumentBytes {
+		return nil, false, fmt.Errorf("the file has %s bytes; at most %d are read", strings.TrimSpace(string(size)), parser.MaxDocumentBytes)
+	}
+	data, err := compatGit("cat-file", "blob", fields[2])
+	if err != nil {
+		return nil, false, err
+	}
+	return append([]byte{}, data...), true, nil
+}
+
+// refuseMovedService refuses a base that holds no service.yaml at the path of the service folder while the service
+// in the working folder has a record: the folder moved, or the base is not a version of this service, and the check
+// cannot take an absent declaration as a first release.
+func refuseMovedService(base compiler.BaseSource) error {
+	if base.Declaration != nil {
+		return nil
+	}
+	state, err := compiler.LoadState(".stego/state.yaml")
+	if err != nil {
+		return err
+	}
+	if state.LastApplied == nil {
+		return nil
+	}
+	return fmt.Errorf("the base ref %s (commit %s) holds no service.yaml at the path of this service folder, and the service has a record, so a release of it has run: if the folder moved, run the check from the folder at the path that the base holds, or name a base that holds this folder", base.Ref, base.Commit)
+}
+
+// compatGit runs one git command in the working folder with a time limit and gives its standard output. Git gets
+// no GIT_ variable of the environment, so the caller's environment cannot point it at another repository or object
+// store, and it follows no replace ref and fetches no missing object.
 func compatGit(args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), compatGitTimeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, "git", args...)
 	var stdout, stderr bytes.Buffer
-	command.Stdout, command.Stderr, command.Env = &stdout, &stderr, append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	var env []string
+	for _, variable := range os.Environ() {
+		if !strings.HasPrefix(variable, "GIT_") {
+			env = append(env, variable)
+		}
+	}
+	env = append(env, "GIT_TERMINAL_PROMPT=0", "GIT_NO_REPLACE_OBJECTS=1", "GIT_NO_LAZY_FETCH=1", "LC_ALL=C")
+	command.Stdout, command.Stderr, command.Env = &stdout, &stderr, env
 	if err := command.Run(); err != nil {
 		return nil, fmt.Errorf("git %s: %v: %s", args[0], err, strings.TrimSpace(stderr.String()))
 	}
@@ -160,7 +219,12 @@ func compatGit(args ...string) ([]byte, error) {
 // a tag, a note or a ref outside the remote.
 func defaultBaseRef() (ref string, found bool, err error) {
 	if _, err := compatGit("rev-parse", "--is-inside-work-tree"); err != nil {
-		return "", false, nil
+		// Only git's own answer that the folder is in no repository means no repository; every other failure, such
+		// as a repository of another owner or no git at all, fails rather than skip the check.
+		if strings.Contains(err.Error(), "not a git repository") {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("git cannot read the repository of the service folder, so the base check cannot run: %w", err)
 	}
 	if target, err := compatGit("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"); err == nil {
 		name := strings.TrimSpace(string(target))
@@ -180,7 +244,7 @@ func defaultBaseRef() (ref string, found bool, err error) {
 			return name, true, nil
 		}
 	}
-	return "", false, nil
+	return "", false, fmt.Errorf("the repository of the service folder has no default branch: refs/remotes/origin/HEAD is not set and there is no branch main or master; name the base with --base")
 }
 
 // baseGate is what plan and apply learn from the check against the base before they plan: the base they took, and
@@ -203,7 +267,7 @@ func checkBaseBeforePlan(named string, stdout io.Writer) (baseGate, error) {
 			return gate, err
 		}
 		if !found {
-			fmt.Fprintln(stdout, "No base check: the service folder is in no Git repository with a default branch, and --base names none.")
+			fmt.Fprintln(stdout, "No base check: the service folder is in no Git repository, and --base names no base.")
 			return gate, nil
 		}
 		gate.ref = ref
@@ -211,6 +275,9 @@ func checkBaseBeforePlan(named string, stdout io.Writer) (baseGate, error) {
 		return gate, fmt.Errorf("the base ref %q starts with -, which git reads as an option", named)
 	}
 	base, err := readBase(gate.ref)
+	if err == nil {
+		err = refuseMovedService(base)
+	}
 	if err != nil {
 		return gate, err
 	}
@@ -235,7 +302,11 @@ func checkBaseBeforePlan(named string, stdout io.Writer) (baseGate, error) {
 		fmt.Fprint(stdout, formatBaseCheck(check))
 		return gate, fmt.Errorf("the check against the base ref %s refuses the declaration, so nothing is written: declare the schema changes that it names", gate.ref)
 	}
-	fmt.Fprintf(stdout, "Base: %s at commit %s; the declaration can run beside it.\n", gate.ref, base.Commit)
+	if check.Released {
+		fmt.Fprintf(stdout, "Base: %s at commit %s; the declaration can run beside it.\n", gate.ref, base.Commit)
+	} else {
+		fmt.Fprintf(stdout, "Base: %s at commit %s holds no record, so no release has run, and any stored shape is accepted.\n", gate.ref, base.Commit)
+	}
 	if len(steps) > 0 {
 		gate.steps = steps
 		if gate.data, err = compiler.AppendSchemaSteps(data, steps); err != nil {

@@ -110,4 +110,59 @@ func TestBaseCompat(t *testing.T) {
 			}
 		}
 	})
+	t.Run("ST-GEN-INV33-T A change to what a step of the base added, required or retyped, or to a unique invariant or an entity's table settings, is refused", func(t *testing.T) {
+		t.Parallel()
+		td01 := string(userManagementBase(t))
+		const metadata = "      - { name: metadata, type: jsonb, optional: true }\n"
+		added := withChanges(addNickname(td01), nicknameAdd, nicknameAddExpand)
+		withInvariant := strings.TrimRight(td01, "\n") + "\ninvariants:\n  - {name: user-email-org, kind: unique, on: User, by: [email, org_id]}\n"
+		retyped := withChanges(strings.Replace(td01, "{ name: display_name, type: string, min_length: 1, max_length: 100 }", "{ name: display_name, type: int64, optional: true }", 1),
+			"  - {id: user-display-name-retype, kind: retype, entity: User, field: display_name, from: string, conversion: text_to_int64, inverse_conversion: int64_to_text}\n",
+			"  - {change: user-display-name-retype, phase: expand}\n")
+		required := withChanges(strings.Replace(td01, metadata, metadata+"      - { name: priority, type: int64 }\n", 1),
+			"  - {id: user-priority-require, kind: require, entity: User, field: priority, fill_value: 0}\n",
+			"  - {change: user-priority-require, phase: expand}\n")
+		teamAdded := withChanges(addTeam(td01), teamAdd, teamAddExpand)
+		cases := []struct{ name, base, head, says string }{
+			{"retype of an added field", added, strings.Replace(added, nickname, "      - { name: nickname, type: int64, optional: true }\n", 1), "changes the stored shape of User.nickname"},
+			{"added field made required with no default", added, strings.Replace(added, nickname, "      - { name: nickname, type: string }\n", 1), "changes the stored shape of User.nickname"},
+			{"added field with a narrower max_length", added, strings.Replace(added, nickname, "      - { name: nickname, type: string, optional: true, max_length: 3 }\n", 1), "changes the stored shape of User.nickname"},
+			{"added field made unique", added, strings.Replace(added, nickname, "      - { name: nickname, type: string, optional: true, unique: true }\n", 1), "changes the stored shape of User.nickname"},
+			{"unique invariant changed under its name", withInvariant, strings.Replace(withInvariant, "by: [email, org_id]", "by: [display_name]", 1), "changes the invariant user-email-org"},
+			{"retyped field narrowed and made required", retyped, strings.Replace(retyped, "{ name: display_name, type: int64, optional: true }", "{ name: display_name, type: int64, max: 2, unique: true }", 1), "changes the stored shape of User.display_name"},
+			{"required field retyped", required, strings.Replace(required, "{ name: priority, type: int64 }", "{ name: priority, type: string, max_length: 1 }", 1), "changes the stored shape of User.priority"},
+			{"field of an added entity retyped", teamAdded, strings.Replace(teamAdded, "{ name: label, type: string }", "{ name: label, type: int64, unique: true }", 1), "changes the stored shape of Team.label"},
+			{"declared add of a unique field with a default", td01, withChanges(strings.Replace(td01, metadata, metadata+"      - { name: code, type: string, unique: true, default: x }\n", 1), "  - {id: add-user-code, kind: add, entity: User, field: code}\n", "  - {change: add-user-code, phase: expand}\n"), "both unique and a default"},
+			{"entity made versioned", td01, strings.Replace(td01, "  - name: User\n", "  - name: User\n    versioned: true\n", 1), "changes the table settings of User"},
+			{"entity tenant changed", td01, strings.Replace(td01, "  - name: OrgSetting\n", "  - name: OrgSetting\n    tenant: shared\n", 1), "changes the table settings of OrgSetting"},
+		}
+		for _, c := range cases {
+			if c.head == c.base {
+				t.Fatalf("%s: the head is the base", c.name)
+			}
+			base := []byte(c.base)
+			check, err := CheckBase(BaseSource{Ref: "main", Commit: "c0ffee", Declaration: base, Record: recordFor(base)}, parseHead(t, c.head))
+			if err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+			found := false
+			for _, fault := range check.Faults {
+				found = found || (fault.Rule == BaseCompatRule && strings.Contains(fault.Message, c.says))
+			}
+			if !found {
+				t.Errorf("%s: no fault says %q: %+v", c.name, c.says, check.Faults)
+			}
+		}
+		for _, c := range []struct{ name, base, head string }{
+			{"the base itself, with its add", added, added},
+			{"the base with its retype", retyped, retyped},
+			{"a new add after the base's add", added, withChanges(addNickname(addTeam(td01)), nicknameAdd+teamAdd, nicknameAddExpand+teamAddExpand)},
+		} {
+			base := []byte(c.base)
+			check, err := CheckBase(BaseSource{Ref: "main", Commit: "c0ffee", Declaration: base, Record: recordFor(base)}, parseHead(t, c.head))
+			if err != nil || check.HasFaults() {
+				t.Errorf("%s: want accepted, got %v %+v", c.name, err, check.Faults)
+			}
+		}
+	})
 }

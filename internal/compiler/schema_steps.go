@@ -34,7 +34,7 @@ func MissingAddSteps(base BaseSource, head *types.ServiceDeclaration) ([]types.S
 	if err != nil {
 		return nil, err
 	}
-	old, now := baselineOf(declaration), baselineOf(head)
+	old, now := shapeAt(declaration, len(declaration.SchemaHistory)+1), shapeAt(head, len(declaration.SchemaHistory))
 	used := map[string]bool{}
 	for _, change := range head.SchemaChanges {
 		used[change.ID] = true
