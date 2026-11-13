@@ -180,7 +180,8 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 		ctx    gen.Context
 		access string
 	}{{orderService("storage"), "access.json"}, {orderService("previous"), ""}, {widgetService(widgetEntities()), "widgets_access.json"}, {boundsService(), "bounds_access.json"},
-		{boardBase("boardsbase", "boardsbasetenancy"), "boardsbase_access.json"}, {boardSteps("boards", "boardtenancy"), "boards_access.json"}} {
+		{boardBase("boardsbase", "boardsbasetenancy"), "boardsbase_access.json"}, {boardSteps("boards", "boardtenancy"), "boards_access.json"},
+		{boardNoDefault("boardsnote", "boardsnotetenancy"), "boardsnote_access.json"}} {
 		files, wiring, err := new(postgresadapter.Generator).Generate(service.ctx)
 		if err != nil {
 			t.Fatal(err)

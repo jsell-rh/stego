@@ -50,6 +50,17 @@ func boardSteps(ns, tenancyNS string) gen.Context {
 	return ctx
 }
 
+// boardNoDefault is boardSteps with only its adds that give no default: the table Card and the optional field
+// Board.note, and not Board.rank, whose default the release before refuses until ST-GEN-Q15 (a) ships.
+func boardNoDefault(ns, tenancyNS string) gen.Context {
+	ctx := boardSteps(ns, tenancyNS)
+	fields := ctx.Entities[0].Fields
+	ctx.Entities[0].Fields = fields[:len(fields)-1]
+	ctx.SchemaChanges = ctx.SchemaChanges[:2]
+	ctx.SchemaHistory = ctx.SchemaHistory[:2]
+	return ctx
+}
+
 // boardBase is the release before boardSteps, as the base ref holds it.
 func boardBase(ns, tenancyNS string) gen.Context {
 	return runtimeService(ns, tenancyNS, boardEntities(), boardCollections(false))
