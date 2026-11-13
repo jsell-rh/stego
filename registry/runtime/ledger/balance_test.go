@@ -51,6 +51,8 @@ func TestBalance(t *testing.T) {
 		// 300 before the snapshot, which the snapshot of 1,000 does not match, so a Balance that sums every entry
 		// gives 550 and one that ignores the snapshot gives 550 too.
 		f.post(f.runtime, "before", dr("hot", 300), cr("cr", 300))
+		// The snapshot reads pg_snapshot_xmin, which another database's older transaction would hold back.
+		f.awaitOthers()
 		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
 			_, err := tx.ExecContext(f.ctx, `INSERT INTO balance_snapshots (tenant_id, ledger_id, account_id, through_xid, amount, entry_count, fence_token)
  VALUES ('acme', 'usd', 'cr', pg_snapshot_xmin(pg_current_snapshot()), 1000, 1, 0)`)
@@ -62,6 +64,8 @@ func TestBalance(t *testing.T) {
 			t.Fatalf("the balance is %v; want 1250 USD, the snapshot of 1000 and the entries of 200 and 50 after it", got)
 		}
 		// A later snapshot is the latest one.
+		// The snapshot reads pg_snapshot_xmin, which another database's older transaction would hold back.
+		f.awaitOthers()
 		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
 			_, err := tx.ExecContext(f.ctx, `INSERT INTO balance_snapshots (tenant_id, ledger_id, account_id, through_xid, amount, entry_count, fence_token)
  VALUES ('acme', 'usd', 'cr', pg_snapshot_xmin(pg_current_snapshot()), 5, 3, 0)`)
@@ -147,6 +151,8 @@ func TestBalance(t *testing.T) {
 	t.Run("ST-SUP-RP08-LC07-T05 A forged snapshot cannot be written", func(t *testing.T) {
 		f := newFixture(t)
 		f.post(f.runtime, "k1", dr("hot", 30), cr("cr", 30))
+		// The snapshot reads pg_snapshot_xmin, which another database's older transaction would hold back.
+		f.awaitOthers()
 		err := f.raw(`INSERT INTO balance_snapshots (tenant_id, ledger_id, account_id, through_xid, amount, entry_count, fence_token)
  VALUES ('acme', 'usd', 'cr', pg_snapshot_xmin(pg_current_snapshot()), 1000000, 1, 1)`)
 		if sqlState(err) != "42501" {

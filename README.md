@@ -242,6 +242,11 @@ with an `every` trigger gets `workers[i].single` with `true` and, when it is
 single, `workers[i].lease_ttl` with `15s`. Each schema change with a step gets
 `schema_changes[i].phase`, the phase of its last step in `schema_history`:
 `expand` while it is open, `contract` when it is finished.
+It also holds the `warnings`: notices about parts of the declaration that
+checking accepts, each with the parts of a fault, such as the mixin
+`event-publisher`, a deprecated alias of `durable-events` and `kafka-events`.
+Without `--json`, the warnings come after the faults. A warning does not change
+`accepted` or the exit code.
 
 Run `stego deps` after apply and after changes to application imports. It runs Go
 module resolution, module verification, and package dependency checks. It uses

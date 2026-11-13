@@ -37,7 +37,7 @@ func TestIdentityDefinition(t *testing.T) {
 }
 
 func TestVerifiedIdentityAndProtectedTokenOutput(t *testing.T) {
-	directory := t.TempDir()
+	directory := privateDir(t)
 	t.Setenv("TEST_CLI_CONFIG", filepath.Join(directory, "config.json"))
 	payload := `{"sub":"local-claim","private":"sensitive-claim","number":9007199254740993}`
 	token := "e30." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".signature"

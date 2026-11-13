@@ -24,6 +24,9 @@ const (
 	FieldTypeEnum      FieldType = "enum"
 	FieldTypeRef       FieldType = "ref"
 	FieldTypeJsonb     FieldType = "jsonb"
+	// FieldTypeMoney is an amount in integer minor units with the ISO 4217 currency that the field names
+	// (ST-VO61, ST-DECL-INV26).
+	FieldTypeMoney FieldType = "money"
 )
 
 // ValidFieldTypes is the set of all valid FieldType values.
@@ -39,6 +42,7 @@ var ValidFieldTypes = map[FieldType]bool{
 	FieldTypeEnum:      true,
 	FieldTypeRef:       true,
 	FieldTypeJsonb:     true,
+	FieldTypeMoney:     true,
 }
 
 // Operation enumerates the CRUD+ operations.
@@ -87,6 +91,8 @@ type Field struct {
 	Deleting        *string   `yaml:"deleting,omitempty" json:"Deleting,omitempty"`
 	// Sensitivity is public, pii or secret (ST-DECL-EN03). Omitted means public.
 	Sensitivity string `yaml:"sensitivity,omitempty" json:"Sensitivity,omitempty"`
+	// Currency is the ISO 4217 code of a field of type money (ST-DECL-INV26).
+	Currency string `yaml:"currency,omitempty" json:"Currency,omitempty"`
 }
 
 // Entity represents a domain entity with its fields.
@@ -104,6 +110,8 @@ type Entity struct {
 	// Kind is data or ledger (ST-DECL-EN02). Omitted means data. A ledger entity selects the ledger component
 	// (ST-GEN-INV37).
 	Kind string `yaml:"kind,omitempty" json:"Kind,omitempty"`
+	// Ledger holds the ledger settings and accounts of an entity of kind ledger (ST-DECL-EN14, ST-DECL-EN15).
+	Ledger *Ledger `yaml:"ledger,omitempty" json:"Ledger,omitempty"`
 	// EntityAuthorization holds the entity's resource type, permissions and relationships (ST-DECL-UC06).
 	EntityAuthorization `yaml:",inline"`
 }

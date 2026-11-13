@@ -368,7 +368,7 @@ func Migrate(ctx context.Context) error {
 		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
 	return service.Migrate(ctx, settings, service.Migration{
-		OwnerRole: OwnerRole, RuntimeRole: RuntimeRole, WorkerRole: WorkerRole, PurgeRole: PurgeRole, TenantConfig: svcstorage.TenantConfig,
+		OwnerRole: OwnerRole, RuntimeRole: RuntimeRole, WorkerRole: WorkerRole, PurgeRole: PurgeRole, OutboxRelayRole: OutboxRelayRole, TenantConfig: svcstorage.TenantConfig,
 		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error { return svcstorage.CheckLedger(ctx, conn) },
 		Ledger:      func(ctx context.Context, conn *sql.Conn) error { return svcstorage.Migrate(ctx, conn) },
 		Outbox:      queueText, Audit: auditText, Authorization: authzText,
