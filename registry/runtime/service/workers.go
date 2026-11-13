@@ -107,6 +107,9 @@ type WorkerParts struct {
 	AuditJobs func(lease audit.LeaseOf, tenants audit.TenantsOf, db *sql.DB, outbox audit.Enqueuer) (*audit.Anchorer, *audit.Maintainer, error)
 	// AnchorPeriod is the declared anchor period of the audit-log component, the interval of the anchor job.
 	AnchorPeriod time.Duration
+	// RetentionMonths is the declared retention of the audit-log component, whose value the source of audit_maintain
+	// holds, which the schema manifest check compares (ST-SUP-RP14-LC06).
+	RetentionMonths int
 	// TenantSchema is the schema of the tenant list stego_tenants, whose tenants the audit jobs visit
 	// (ST-SUP-RP04-LC07).
 	TenantSchema string

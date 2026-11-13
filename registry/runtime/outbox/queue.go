@@ -21,7 +21,7 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
-// The limits of the queue (ST-SUP-RC18-OC02).
+// The limits of the queue (ST-SUP-RP01-LC01, ST-SUP-RP01-LC28).
 const (
 	// MaxPayloadBytes is the largest payload of one message of a destination that sets no limit of its own.
 	MaxPayloadBytes = 64 << 10
@@ -673,13 +673,13 @@ func (q *Queue) Check(ctx context.Context) error {
 	return nil
 }
 
-// ValidateMessage checks one message with no database access (ST-SUP-RC18-OC02).
+// ValidateMessage checks one message with no database access (ST-SUP-RP01-LC01).
 func ValidateMessage(message Message) error { return validateMessage(message, MaxPayloadBytes) }
 
 // Enqueue writes messages inside the caller's transaction tx, which tenant.Begin opened (ST-SUP-RP01-LC01,
 // ST-SUP-RP01-LC19). It checks every payload before it sends a statement, then takes a transaction-scoped advisory
 // lock for each key, the tenant, the destination and the resource key, in a stable order before it allocates a
-// sequence (ST-SUP-RC18-OC13, ST-SUP-RP01-LC03), and writes each message with the tenant of the transaction under
+// sequence (ST-SUP-RP01-LC03), and writes each message with the tenant of the transaction under
 // the tenant policy. When the queue serves a live event source, each message sends a notice through pg_notify,
 // which PostgreSQL delivers only after the commit. Call Enqueue once for each transaction with the whole batch and
 // commit only when it succeeds; a rollback removes the messages and their notices with the application write.
@@ -761,8 +761,8 @@ func lockKey(tenantID, destination, resourceKey string) int64 {
 // parts read one snapshot, so a key whose message the first part moves is claimed in the next claim, not in this
 // one. A claim of a pending message moves it to dispatching and counts an attempt in the same statement
 // (ST-SUP-RP01-LC22). Claim returns no delivery when the statement, a row scan or the row iteration fails
-// (ST-SUP-RC18-OC08); the database may still hold the leases it wrote, and they expire (ST-SUP-RC18-OC09). A
-// cancellation of ctx is returned as such (ST-SUP-RC18-OC24).
+// (ST-SUP-RP01-LC04); the database may still hold the leases it wrote, and they expire (ST-SUP-RP01-LC04). A
+// cancellation of ctx is returned as such (ST-SUP-RP01-LC05).
 func (q *Queue) Claim(ctx context.Context, limit int, lease time.Duration) ([]Delivery, error) {
 	if limit < 1 || limit > MaxBatchSize || lease < time.Second || lease > 5*time.Minute {
 		return nil, errors.New("outbox: the claim limit or the lease is out of its bounds")
@@ -923,7 +923,7 @@ func (q *Queue) acknowledge(ctx context.Context, receipt Receipt) (bool, error) 
 // retry moves a claimed message back to pending, outside a tenant transaction and with no state hook; only the tests
 // of the package use it. It moves it after a known failure, due again after delay, with the short
 // failure code failureCode, never an error text that can hold a credential or the payload (ST-SUP-RP01-LC06). It
-// keeps the message's identity, payload and outgoing key, and its attempt count (ST-SUP-RC18-OC04). It never
+// keeps the message's identity, payload and outgoing key, and its attempt count (ST-SUP-RP01-LC03, ST-SUP-RP01-LC18). It never
 // removes a message. False means the lease is gone.
 func (q *Queue) retry(ctx context.Context, receipt Receipt, delay time.Duration, failureCode string) (bool, error) {
 	if !labelPattern.MatchString(failureCode) {
@@ -1069,7 +1069,7 @@ func (q *Queue) purgeDone(ctx context.Context, limit int, retention time.Duratio
 }
 
 // canceled returns the cancellation of ctx in the place of err when ctx ended, so a canceled queue operation
-// returns the cancellation as such (ST-SUP-RC18-OC24).
+// returns the cancellation as such (ST-SUP-RP01-LC05).
 func canceled(ctx context.Context, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil && err != nil {
 		return ctxErr
