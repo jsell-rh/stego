@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jsell-rh/stego/internal/compiler"
+	"github.com/jsell-rh/stego/internal/declaration"
 	"github.com/jsell-rh/stego/internal/lifecycle"
 	"github.com/jsell-rh/stego/internal/registry"
 )
@@ -66,6 +67,30 @@ func (r pinReport) problems() []string {
 		}
 	}
 	return problems
+}
+
+// pinStandingRule is the rule that a pin fault in the structured output of validate names.
+const pinStandingRule = "pin-standing"
+
+// faults are the pins that do not stand as faults of the structured output of validate: one fault for each pin,
+// with the pin found and the reason, or one fault when the standing could not be read.
+func (r pinReport) faults() []declaration.ValidationError {
+	var faults []declaration.ValidationError
+	for _, state := range r.states {
+		fault := declaration.ValidationError{Rule: pinStandingRule, Path: ".stego/state.yaml", Found: state.Pin.Name + " " + state.Pin.Digest}
+		switch {
+		case state.Unchecked:
+			return []declaration.ValidationError{{Rule: pinStandingRule, Path: ".stego/state.yaml", Message: "could not check the standing of the pins: " + state.Cause}}
+		case state.PastFailDate:
+			fault.Message = describePin(state) + " is past its fail date"
+		case state.Withdrawn && !r.held[state.Pin]:
+			fault.Message = describePin(state) + " is a new pin to a withdrawn digest"
+		default:
+			continue
+		}
+		faults = append(faults, fault)
+	}
+	return faults
 }
 
 func describePin(state lifecycle.PinState) string {
