@@ -463,31 +463,45 @@ func TestSmallListOrderWork(t *testing.T) {
 	e := newEnv(t)
 	// An index of the order field, which the planner walks when it may test the keys row by row.
 	e.insert(t, "CREATE INDEX orders_total ON app.orders (tenant_id, total)")
-	// In both tenants the caller sees the same 5000 orders; 200000 hidden orders sort before them by total in t1,
-	// and after them in t2.
+	// Each case loads its two tenants alone and drops the rows of the case before, so only one large set of rows is
+	// in the table at a time; the counts are the smallest at which the planner walks the index of total for the
+	// statement that tests the keys row by row.
+	const shown, hidden = 2000, 40000
+	load := func(t *testing.T, statements ...string) {
+		t.Helper()
+		e.insert(t, "TRUNCATE app.orders")
+		for _, statement := range statements {
+			e.insert(t, statement)
+		}
+		e.insert(t, "VACUUM ANALYZE app.orders")
+	}
+	visibleRows := func(total, tenants string) string {
+		return fmt.Sprintf("INSERT INTO app.orders (tenant_id, id, total) SELECT t, 'v-' || lpad(g::text, 5, '0'), %s FROM generate_series(0, %d) g, (VALUES %s) AS x(t)", total, shown-1, tenants)
+	}
+	hiddenRows := func(tenant, total string) string {
+		return fmt.Sprintf("INSERT INTO app.orders (tenant_id, id, total) SELECT '%s', 'h-' || g, %s FROM generate_series(1, %d) g", tenant, total, hidden)
+	}
+	// The caller sees the same orders in both tenants of a case.
 	var visible []string
-	for i := range 5000 {
+	for i := range shown {
 		visible = append(visible, fmt.Sprintf("v-%05d", i))
 	}
-	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT t, 'v-' || lpad(g::text, 5, '0'), 1000000 + g FROM generate_series(0, 4999) g, (VALUES ('t1'), ('t2')) AS x(t)")
-	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't1', 'h-' || g, g FROM generate_series(1, 200000) g")
-	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't2', 'h-' || g, 2000000 + g FROM generate_series(1, 200000) g")
-	// For a filter on the indexed field: the same visible orders, all of total 7, in t3 with 200000 hidden orders
-	// of total 7 that match the filter, and in t4 with 200000 hidden orders of total 8 that do not.
-	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT t, 'v-' || lpad(g::text, 5, '0'), 7 FROM generate_series(0, 4999) g, (VALUES ('t3'), ('t4')) AS x(t)")
-	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't3', 'h-' || g, 7 FROM generate_series(1, 200000) g")
-	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't4', 'h-' || g, 8 FROM generate_series(1, 200000) g")
-	// For a full search page in the order of the key: 5000 visible orders of total 77 in t5 and t6, whose keys are
-	// spread among the hidden keys, with 2000 hidden orders of total 77 and 198000 of total 78 in t5, and 200000 of
-	// total 78 in t6. Total 77 is rare in the table, so the filter field's index is selective enough for the planner
-	// to walk it.
-	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT t, md5('v' || g), 77 FROM generate_series(0, 4999) g, (VALUES ('t5'), ('t6')) AS x(t)")
-	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't5', md5('h' || g), CASE WHEN g <= 2000 THEN 77 ELSE 78 END FROM generate_series(1, 200000) g")
-	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't6', md5('h' || g), 78 FROM generate_series(1, 200000) g")
-	e.insert(t, "VACUUM ANALYZE app.orders")
+	// order: the hidden orders sort before the visible ones by total in t1, and after them in t2.
+	order := []string{visibleRows("1000000 + g", "('t1'), ('t2')"), hiddenRows("t1", "g"), hiddenRows("t2", "2000000 + g")}
+	// filtered: the visible orders all of total 7, in t3 with 4000 hidden orders of total 7 that match the filter and
+	// the rest of total 8, and in t4 with hidden orders of total 8 only.
+	filtered := []string{visibleRows("7", "('t3'), ('t4')"), hiddenRows("t3", "CASE WHEN g <= 4000 THEN 7 ELSE 8 END"), hiddenRows("t4", "8")}
+	// page: the visible orders of total 77 in t5 and t6, whose keys are spread among the hidden keys, with 1000
+	// hidden orders of total 77 in t5 and none in t6; total 77 is rare, so its index is selective enough for the
+	// planner to walk it.
+	page := []string{
+		fmt.Sprintf("INSERT INTO app.orders (tenant_id, id, total) SELECT t, md5('v' || g), 77 FROM generate_series(0, %d) g, (VALUES ('t5'), ('t6')) AS x(t)", shown-1),
+		fmt.Sprintf("INSERT INTO app.orders (tenant_id, id, total) SELECT 't5', md5('h' || g), CASE WHEN g <= 1000 THEN 77 ELSE 78 END FROM generate_series(1, %d) g", hidden),
+		fmt.Sprintf("INSERT INTO app.orders (tenant_id, id, total) SELECT 't6', md5('h' || g), 78 FROM generate_series(1, %d) g", hidden),
+	}
 	// spread are the visible keys of t5 and t6, md5('v' || g), in the order of the key.
 	var spread []string
-	for i := range 5000 {
+	for i := range shown {
 		sum := md5.Sum([]byte(fmt.Sprintf("v%d", i)))
 		spread = append(spread, hex.EncodeToString(sum[:]))
 	}
@@ -575,32 +589,39 @@ func TestSmallListOrderWork(t *testing.T) {
 		return nil, 0
 	}
 	t.Run("ST-SUP-RP11-LC20-T07 The work of an ordered list of an entity of small expected cardinality depends neither on where hidden rows sort nor on whether they match its filter", func(t *testing.T) {
+		load(t, order...)
 		beforeIDs, before := buffers(t, "t1", nil)
+		beforeRows := lastRowsRead
 		afterIDs, after := buffers(t, "t2", nil)
+		afterRows := lastRowsRead
 		want := []string{"v-00000", "v-00001", "v-00002", "v-00003"}
 		if !slices.Equal(beforeIDs, want) || !slices.Equal(afterIDs, want) {
 			t.Errorf("the first pages were %v and %v, want %v in both tenants", beforeIDs, afterIDs, want)
 		}
-		if before > 2*after+50 {
-			t.Errorf("the ordered list read %d buffers with hidden rows before the visible ones and %d with them after; the work depends on where hidden rows sort", before, after)
+		if before > 2*after+50 || beforeRows != afterRows {
+			t.Errorf("the ordered list read %d buffers and %v rows of the table with hidden rows before the visible ones, and %d buffers and %v rows with them after; the work depends on where hidden rows sort", before, beforeRows, after, afterRows)
 		}
 		// A filter on an indexed field: hidden rows that match it cost no more than hidden rows that do not.
+		load(t, filtered...)
 		seven := []Equal{{Field: "total", Value: int64(7)}}
 		matchIDs, match := buffers(t, "t3", seven)
+		matchRows := lastRowsRead
 		noneIDs, none := buffers(t, "t4", seven)
+		noneRows := lastRowsRead
 		if !slices.Equal(matchIDs, want) || !slices.Equal(noneIDs, want) {
 			t.Errorf("the filtered first pages were %v and %v, want %v in both tenants", matchIDs, noneIDs, want)
 		}
-		if match > 2*none+50 {
-			t.Errorf("the filtered ordered list read %d buffers with hidden rows that match the filter and %d with hidden rows that do not; the work depends on hidden matches", match, none)
+		if match > 2*none+50 || matchRows != noneRows {
+			t.Errorf("the filtered ordered list read %d buffers and %v rows of the table with hidden rows that match the filter, and %d buffers and %v rows with hidden rows that do not; the work depends on hidden matches", match, matchRows, none, noneRows)
 		}
 	})
 	t.Run("ST-SUP-RP11-LC20-T09 The work of a filtered list of an entity of small expected cardinality in the order of the key does not depend on whether hidden rows match its filter", func(t *testing.T) {
 		// A full search page of 1000 keys with the filter total = 77, which reads the search page (searchPage).
-		page := ListRequest{Limit: 1000, Where: []Equal{{Field: "total", Value: int64(77)}}}
-		matchIDs, match := listBuffers(t, "t5", page)
+		load(t, page...)
+		request := ListRequest{Limit: 1000, Where: []Equal{{Field: "total", Value: int64(77)}}}
+		matchIDs, match := listBuffers(t, "t5", request)
 		matchRows := lastRowsRead
-		noneIDs, none := listBuffers(t, "t6", page)
+		noneIDs, none := listBuffers(t, "t6", request)
 		noneRows := lastRowsRead
 		if len(matchIDs) != 1000 || !slices.Equal(matchIDs, noneIDs) {
 			t.Errorf("the filtered pages gave %d and %d visible orders, want the same 1000 in both tenants", len(matchIDs), len(noneIDs))
