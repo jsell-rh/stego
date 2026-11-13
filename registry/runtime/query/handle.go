@@ -16,6 +16,8 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/internal/loaded"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
+
+	"go.opentelemetry.io/otel/metric"
 )
 
 // ErrClosed is the error of every method of a handle, of its repositories and of its authorization part after the
@@ -405,6 +407,8 @@ type core struct {
 	authz     *authz.Handle
 	audit     *auditor
 	requestID string
+	// overBound is the counter of lists over MaxSearchKeys of the runtime, or nil.
+	overBound metric.Int64Counter
 }
 
 // Handle is the query handle that a query fill gets (ST-SUP-RP11-LC01): bound to one READ ONLY store transaction,
@@ -458,7 +462,7 @@ func bind[P any](ctx context.Context, rt *Runtime, tx *sql.Tx, t tenant.Tenant, 
 	if isolation != "read committed" {
 		return nil, errors.New("query: the transaction of a query is not READ COMMITTED")
 	}
-	c := &core{tx: tx, tenant: t, principal: p, query: q, reads: map[*entity]bool{}}
+	c := &core{tx: tx, tenant: t, principal: p, query: q, reads: map[*entity]bool{}, overBound: rt.overBound}
 	for _, r := range q.reads {
 		e := r.info()
 		c.reads[e] = true
