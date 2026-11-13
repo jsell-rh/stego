@@ -75,8 +75,16 @@ reference field to an entity of the base adds such a foreign key, so a pod of
 the release before the add fails its schema check when it restarts after the
 add's migration. During the rolling deploy, do not restart the pods of the
 release before. An add of a new entity, or of a field that is not a
-reference, has no such limit. The question ST-GEN-Q14 asks how the check of the
+reference and has no default, has no such limit. The question ST-GEN-Q14 asks how the check of the
 release before can accept that foreign key in its exact form.
+
+The schema check of a release also refuses a default of a column that it
+does not state. An add of a field with a default gives its new column that
+default, so a pod of the release before the add fails its schema check when
+it restarts after the add's migration. During the rolling deploy, do not
+restart the pods of the release before. An add of a field with no default
+has no such limit. A later release of the schema check accepts a constant
+default on a column that it does not name (ST-GEN-Q15).
 
 The expand step of a rename, a retype or a require adds a sync trigger. Until
 the schema check of a release accepts the sync trigger of a later step, a pod

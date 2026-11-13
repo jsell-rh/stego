@@ -13,6 +13,7 @@ import (
 
 	"example.com/tables-check/boards"
 	"example.com/tables-check/boardsbase"
+	"example.com/tables-check/boardsnote"
 	"example.com/tables-check/bounds"
 	"example.com/tables-check/previous"
 	"example.com/tables-check/storage"
@@ -474,8 +475,13 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		if err := boardsbase.VerifySchema(ctx, up); err != nil {
 			t.Errorf("the schema check of the release before refuses the database: %v", err)
 		}
-		if err := manifest.Check(ctx, reader, boardsbase.SchemaManifest); err != nil {
-			t.Errorf("the schema manifest of the release before refuses the database: %v", err)
+		// Interim rule (b) of ST-GEN-Q15: the schema manifest of the release before refuses the default of the column
+		// rank that a later add gives, so its pods must not restart after such an add. The strict-trigger change makes
+		// this case pass (ST-GEN-Q15 (a)).
+		var mismatch *manifest.Mismatch
+		if err := manifest.Check(ctx, reader, boardsbase.SchemaManifest); !errors.As(err, &mismatch) ||
+			strings.Join(mismatch.Faults, "; ") != "table public.boards: column rank has a default that the manifest does not state" {
+			t.Errorf("the schema manifest of the release before gives %v after an add with a default, want only the fault of the default of rank (ST-GEN-Q15 (b))", err)
 		}
 		if err := manifest.Check(ctx, reader, boards.SchemaManifest); err != nil {
 			t.Errorf("the schema manifest of the release with the steps refuses the database: %v", err)
@@ -521,6 +527,31 @@ FROM pg_catalog.pg_class c WHERE c.oid = $1::pg_catalog.regclass`, "public."+tab
 		migrate(t, upCfg, up, func(ctx context.Context, conn *sql.Conn) error { return boardsbase.Migrate(ctx, conn) }, "boardsbase_access.json")
 		if after := catalog(t, up); strings.Join(before, "\n") != strings.Join(after, "\n") {
 			t.Error("the migration job of the release before changed the database after the steps")
+		}
+
+		// An add with no default, here of the table cards and the optional field note: the release before restarts
+		// on the database after the add migrations, and its ledger, schema and manifest checks accept it.
+		noteCfg, noted := database(t, cfg, admin)
+		migrate(t, noteCfg, noted, func(ctx context.Context, conn *sql.Conn) error { return boardsbase.Migrate(ctx, conn) }, "boardsbase_access.json")
+		migrate(t, noteCfg, noted, func(ctx context.Context, conn *sql.Conn) error { return boardsnote.Migrate(ctx, conn) }, "boardsnote_access.json")
+		if _, err := noted.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
+			t.Fatal(err)
+		}
+		noteRuntime := noteCfg.Copy()
+		noteRuntime.User, noteRuntime.Password = tenancy.RuntimeRole, "tables-check"
+		noteReader := stdlib.OpenDB(*noteRuntime)
+		defer noteReader.Close()
+		if err := boardsbase.CheckLedger(ctx, noted); err != nil {
+			t.Errorf("the ledger check of the release before refuses the adds with no default: %v", err)
+		}
+		if err := boardsbase.VerifySchema(ctx, noted); err != nil {
+			t.Errorf("the schema check of the release before refuses the adds with no default: %v", err)
+		}
+		if err := manifest.Check(ctx, noteReader, boardsbase.SchemaManifest); err != nil {
+			t.Errorf("the schema manifest of the release before refuses the adds with no default: %v", err)
+		}
+		if err := manifest.Check(ctx, noteReader, boardsnote.SchemaManifest); err != nil {
+			t.Errorf("the schema manifest of the release with the adds refuses the database: %v", err)
 		}
 
 		// A new database that the migrations of the release with the steps make has the same schema (ST-GEN-INV35).
