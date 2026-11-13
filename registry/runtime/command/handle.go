@@ -309,6 +309,45 @@ func (r *Repository[T]) relateDeclared(ctx context.Context, touch, drop []authz.
 	return nil
 }
 
+// unrelateAll enqueues, through the authorization handle in the transaction of the delete of the row id, the
+// filtered delete of every tuple of the row's resource in the relation of each caller-sourced relationship and of
+// each reference, whatever its subject (ST-SUP-Q118, delete path 1). Each filter names exactly the row's resource
+// type, its tenant-qualified ID and the one relation, so the tuples of every other row stay. A field-sourced
+// relationship is deleted by its exact tuple in declared.
+func (r *Repository[T]) unrelateAll(ctx context.Context, id string) error {
+	s, e := r.st, r.entity
+	if e.spec.ResourceType == "" {
+		return nil
+	}
+	var relations []string
+	for _, rel := range e.spec.Relationships {
+		if rel.Field == nil {
+			relations = append(relations, rel.Relation)
+		}
+	}
+	for _, ref := range e.spec.Parent {
+		if ref.Relation != "" && ref.ResourceType != "" && !slices.Contains(relations, ref.Relation) {
+			relations = append(relations, ref.Relation)
+		}
+	}
+	if len(relations) == 0 {
+		return nil
+	}
+	resource, err := authz.NewResource(s.tenant, e.spec.ResourceType, id)
+	if err != nil {
+		return s.breakWith(internalf("the row of %s has a key that is not a resource key", e.spec.Name))
+	}
+	for _, relation := range relations {
+		if err := s.setLockTimeout(ctx); err != nil {
+			return s.fail(ctx, "relate", err)
+		}
+		if _, err := s.az.UnrelateAll(ctx, resource, relation); err != nil {
+			return s.decisionError(ctx, "relate", err)
+		}
+	}
+	return nil
+}
+
 // Entity is the repository declaration of one entity, which NewEntity checks once.
 type Entity[T any] struct {
 	spec EntitySpec[T]
@@ -1468,6 +1507,9 @@ func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T], parent ...Re
 		return err
 	}
 	if err := r.relateDeclared(ctx, nil, gone); err != nil {
+		return err
+	}
+	if err := r.unrelateAll(ctx, from2.meta.ID); err != nil {
 		return err
 	}
 	if err := s.buffer(e.auditType(), e.spec.Fields, from2.meta.ID, e.spec.State(from2.value), nil); err != nil {

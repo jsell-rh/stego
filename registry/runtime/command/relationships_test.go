@@ -90,8 +90,52 @@ func TestDeclaredRelationships(t *testing.T) {
 			t.Fatal(err)
 		}
 		added = e.tuples()[len(before):]
-		if want := []string{"delete order:r1#buyer@customer:c2"}; !slices.Equal(added, want) {
+		// The field-sourced tuple goes by its exact tuple, and the caller's by the filtered delete of its relation
+		// (ST-SUP-Q118, delete path 1), which names no subject.
+		if want := []string{"delete order:r1#buyer@customer:c2", "delete_relation order:r1#owner@:UNQUALIFIED()"}; !slices.Equal(added, want) {
 			t.Fatalf("the delete enqueued %v, want %v", added, want)
+		}
+	})
+	t.Run("ST-SUP-RP10-LC05-T15 A delete enqueues the filtered delete of each caller-sourced relationship and each reference of the row", func(t *testing.T) {
+		e := newEnv(t)
+		_, referring, _ := referenceEntities(e)
+		s := referring.spec
+		s.Relationships = []Relationship[placedOrder]{{Relation: "owner", SubjectType: "user"}}
+		withReferences, err := NewEntity(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The rows are made through the same table with no Parent, so the create decides no reference.
+		s.Parent = nil
+		plain, err := NewEntity(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		make := e.command("make", nil, plain)
+		drop := e.command("drop", nil, withReferences)
+		for _, id := range []string{"r3", "r4"} {
+			if _, err := e.run(make, e.request("t1", u7(t), "k-t15-"+id, `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+				_, err := repo(t, h, plain).Create(ctx, placedOrder{ID: id, CustomerID: "c1", ProductID: "p1"})
+				return err
+			})); err != nil {
+				t.Fatal(err)
+			}
+		}
+		before := e.tuples()
+		if _, err := e.run(drop, e.request("t1", u7(t), "k-t15-drop", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+			r := repo(t, h, withReferences)
+			from, err := r.GetForDelete(ctx, "r3")
+			if err != nil {
+				return err
+			}
+			return r.Delete(ctx, from)
+		})); err != nil {
+			t.Fatal(err)
+		}
+		added := e.tuples()[len(before):]
+		want := []string{"delete_relation order:r3#owner@:UNQUALIFIED()", "delete_relation order:r3#customer@:UNQUALIFIED()", "delete_relation order:r3#product@:UNQUALIFIED()"}
+		if !slices.Equal(added, want) {
+			t.Fatalf("the delete of r3 enqueued %v, want %v: each filter names r3 and one relation, so r4 keeps its tuples", added, want)
 		}
 	})
 	t.Run("ST-SUP-RP10-LC05-T14 A create whose caller is not of the relationship's subject type is refused and writes nothing", func(t *testing.T) {

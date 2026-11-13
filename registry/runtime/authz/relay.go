@@ -271,7 +271,13 @@ func (r *Relay) Deliver(ctx context.Context, tx *sql.Tx, delivery outbox.Deliver
 	tuple := message.Tuple.tuple()
 	// Every resource ID of the tuple names the tenant of the outbox row, which the staging transaction wrote from its
 	// own tenant; a tuple of another tenant, or one that is not tenant-qualified, is never written (ST-SUP-RP06-LC22).
-	key, err := tupleKey(delivery.Tenant, tuple)
+	// The filtered delete of a relation has no subject.
+	var key string
+	if message.Operation == OperationDeleteRelation {
+		key, err = keyIn(delivery.Tenant, tuple.Resource.ID)
+	} else {
+		key, err = tupleKey(delivery.Tenant, tuple)
+	}
 	if err != nil {
 		return outbox.PermanentRefusal(fmt.Errorf("authz: the tuple %s is refused: %w", tuple.Resource.Type+"#"+tuple.Relation, err))
 	}
@@ -312,6 +318,19 @@ func (r *Relay) writeWithFloor(ctx context.Context, operation Operation, tuple T
 		touches = append([]Tuple{tuple}, r.marker)
 	case OperationDelete:
 		deletes = []Filter{FilterOf(tuple)}
+	case OperationDeleteRelation:
+		// A filtered delete cannot go in one request with the marker. It is made first, under the floor lock, and
+		// the marker TOUCH after it gives the token, which is then at least as fresh as the delete.
+		filter, err := RelationFilter(tuple.Resource, tuple.Relation)
+		if err != nil {
+			return Token{}, outbox.PermanentRefusal(err)
+		}
+		if _, err := r.relationships.Delete(ctx, []Filter{filter}, nil); err != nil {
+			if IsRefused(err) {
+				return Token{}, outbox.PermanentRefusal(fmt.Errorf("authz: the provider refused the %s of %s: %w", operation, tuple.Resource.Type+"#"+tuple.Relation, err))
+			}
+			return Token{}, fmt.Errorf("authz: the %s of %s failed: %w", operation, tuple.Resource.Type+"#"+tuple.Relation, err)
+		}
 	}
 	token, err := r.relationships.Write(ctx, touches, deletes, nil)
 	if err != nil {
@@ -374,12 +393,22 @@ func readPayload(body []byte, t tenant.Tenant) (payload, error) {
 	default:
 		return payload{}, errors.New("authz: the relay payload has an unknown version")
 	}
-	if message.Operation != OperationTouch && message.Operation != OperationDelete {
-		return payload{}, errors.New("authz: the relay payload has an unknown operation")
-	}
 	tuple := message.Tuple.tuple()
-	if err := tuple.valid(); err != nil {
-		return payload{}, err
+	switch message.Operation {
+	case OperationTouch, OperationDelete:
+		if err := tuple.valid(); err != nil {
+			return payload{}, err
+		}
+	case OperationDeleteRelation:
+		// The filtered delete names one resource and one relation, and no subject (ST-SUP-Q118).
+		if tuple.Subject != (Subject{}) || tuple.SubjectRelation != "" {
+			return payload{}, errors.New("authz: the relay payload of a filtered delete names a subject")
+		}
+		if _, err := RelationFilter(tuple.Resource, tuple.Relation); err != nil {
+			return payload{}, err
+		}
+	default:
+		return payload{}, errors.New("authz: the relay payload has an unknown operation")
 	}
 	return message, nil
 }

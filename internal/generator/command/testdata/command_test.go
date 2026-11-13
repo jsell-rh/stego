@@ -698,7 +698,7 @@ func TestCommand(t *testing.T) {
 		e.holdUpdate(t, a, "rc29-oc05-t01-update", order, hold, "u2")
 		e.holdDelete(t, a, "rc29-oc05-t01-delete", order, hold)
 		got := e.holdTuples(a, hold)
-		want := []string{"touch creator@user:" + a.subject(), "touch owner@user:u1", "delete owner@user:u1", "touch owner@user:u2", "delete owner@user:u2"}
+		want := []string{"touch creator@user:" + a.subject(), "touch owner@user:u1", "delete owner@user:u1", "touch owner@user:u2", "delete owner@user:u2", "delete_relation creator@:"}
 		if len(got) != len(want) {
 			t.Fatalf("the authz outbox holds %v for the Hold, want %v", got, want)
 		}
