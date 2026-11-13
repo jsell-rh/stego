@@ -248,9 +248,8 @@ func validateJSON(t *testing.T, project string) (declaration.FaultsDocument, ste
 	if err := decoder.Decode(&document); err != nil {
 		t.Fatalf("stego validate --json printed no JSON document: %v\nstdout:\n%s\nstderr:\n%s", err, run.stdout, run.stderr)
 	}
-	var extra json.RawMessage
-	if err := decoder.Decode(&extra); err == nil {
-		t.Fatalf("stego validate --json printed more than one document:\n%s", run.stdout)
+	if rest := strings.TrimSpace(run.stdout[decoder.InputOffset():]); rest != "" {
+		t.Fatalf("stego validate --json printed more than one JSON document on standard output; after it:\n%s", rest)
 	}
 	return document, run
 }
@@ -295,6 +294,15 @@ func faultKeys(document declaration.FaultsDocument) []string {
 
 func TestRepairARefusedDeclaration(t *testing.T) {
 	t.Parallel()
+	t.Run("ST-DECL-UC02-R02-T02 stego validate --json of an accepted declaration prints only its JSON document on standard output", func(t *testing.T) {
+		document, run := validateJSON(t, td02Project(t, td02))
+		if run.code != 0 || !document.Accepted {
+			t.Fatalf("stego validate refused the declaration (exit %d):\n%s%s", run.code, run.stdout, run.stderr)
+		}
+		if !strings.Contains(run.stderr, "Pin standing:") {
+			t.Fatalf("stego validate --json printed no pin standing on standard error:\n%s", run.stderr)
+		}
+	})
 	t.Run("ST-DECL-UC04-R01-T01 Each fault is in the structured output, and no fault is only in prose", func(t *testing.T) {
 		project := td02Project(t, threeFaults)
 		document, run := validateJSON(t, project)

@@ -229,13 +229,13 @@ func gitHeadLifecycles(url, subfolder string) ([]lifecycle.Lifecycle, error) {
 	return store.All()
 }
 
-// checkPinStanding prints the standing of each pin of the run, and refuses the run when a pin does not stand: past
-// its fail date, a new pin to a withdrawn digest, or a standing that could not be read (ST-DIS-UC05-R03,
+// checkPinStanding prints the standing of each pin of the run to out, and refuses the run when a pin does not stand:
+// past its fail date, a new pin to a withdrawn digest, or a standing that could not be read (ST-DIS-UC05-R03,
 // ST-DIS-UC05-R04, ST-DIS-UC07-R03). A superseded pin before its fail date is reported and does not fail the run
 // (ST-DIS-UC05-R01).
-func checkPinStanding(input compiler.ReconcilerInput, plan *compiler.Plan) error {
+func checkPinStanding(input compiler.ReconcilerInput, plan *compiler.Plan, out io.Writer) error {
 	report := readPinStanding(input, plan, time.Now())
-	report.write(os.Stdout)
+	report.write(out)
 	if problems := report.problems(); len(problems) > 0 {
 		return fmt.Errorf("a pin does not stand: %s", strings.Join(problems, "; "))
 	}
