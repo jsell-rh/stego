@@ -27,19 +27,19 @@ last_applied:
                 mode: 420
             service.yaml:
                 exists: true
-                sha256: 5b828f37efb0c74cdd3d2535c7ad16713f9784d20421fd415f54adfa1d17fad7
+                sha256: 57f491b2bcbc66d8735ede7923556203fb6bc4c387029904e670fcfce15fadbd
                 mode: 420
-        sha256: 82028bdc303c093e15567071cd8912fcfde8b0bdf60ca9e9e78106b3c54e78b1
+        sha256: dcfb17935786a0713b202944e6206b8beee92fb34cf1e656c47deb928ce16f89
     compiler_build:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261113063414-b6bc8ee9b99e
+        module_version: v0.0.0-20261113063612-a564f09360f5
         vcs: git
-        revision: b6bc8ee9b99ecf4d23838b2fd5edc56d2c6e25b1
+        revision: a564f09360f58cfc1b4e3cd80d195eff697384a4
         source_state: clean
     service_name: user-management
-    service_hash: 5b828f37efb0c74cdd3d2535c7ad16713f9784d20421fd415f54adfa1d17fad7
+    service_hash: 57f491b2bcbc66d8735ede7923556203fb6bc4c387029904e670fcfce15fadbd
     registry_sha: env-override
     registry_content_sha256: 7fd917f2141fc87599e0e069144a9ba8678e0b11b4df32aae2ef8fc1fcf3d2ea
     components:
@@ -148,7 +148,7 @@ last_applied:
         internal/api/openapi.json: 0d457a9140061fbffbcef264169911412e38a797667c70a67cb5981c7288ccb7
         internal/api/org_activity_handler.go: caf0d67ae233887cc82af73e2350821d2a5c0bcd9f6ab7e7e930bc91d234cc23
         internal/api/org_settings_handler.go: ad39327edf2d642dc7f3affb093c9496fa07d38111af07928f304eb37573637b
-        internal/api/org_users_handler.go: 2f4ca28c55b1f58bb2dc768bc998515eea11a3a1cc888829bc2a4e404906391e
+        internal/api/org_users_handler.go: a8fa3603de5affa7edeed5a192f6a62609cc17c062656c26368608bf35b8482d
         internal/api/organizations_handler.go: 8cac03d6e827c0c5d1ffb59764f8cc7e6298d4d6f998e47c854f12133917c9fb
         internal/api/router.go: d6124ed4af38af0415a23e5bfcc77ada26e18fe0cea5cf71dee839d28ff93fa6
         internal/api/runtime.go: 3986798f77afe2614f86f11e215f571c3ddeafab84face282697302f640e64ed
@@ -158,7 +158,7 @@ last_applied:
         internal/authz/authz.go: 12e919abea5effc80b1c40747f85d71283cde21d65d0ff026a70a86ee4f1d878
         internal/authz/schema.zed: d4862acfa0f82e11d3394e12c6476447940cff59b2affb6650b096fdce52bccd
         internal/outbox/outbox.go: 5f090d5ae397ff12f1e888f4d3fa758131767e7cc1ec5102fe6962e2397b410a
-        internal/stegoruntime/runtime.go: d8164e98008ab3e6ba156a7eedb055b5de2a1836434af4441a348d98444be460
+        internal/stegoruntime/runtime.go: 61a106940f0a03f84cee576ebd6018c9834479a195046837abe104186c96862a
         internal/storage/database.go: 2969e645f09850b504ad2725978a15d1ccad3147efb4a450d7360be23ffef627
         internal/storage/migrate.go: 029d2589ebd1ae4d89159fc497d5d46f18dd8b2dfe46827b06247aef15c49ff4
         internal/storage/migrations/001_initial.sql: 8561b6d30aa26aeb145ee71633ecb53242fc7ef58dd6629aa917ac290e33085a
@@ -169,9 +169,9 @@ last_applied:
         internal/tenancy/migrations/roles.sql: 131dcb112a94f82ead145bcb5797c5915ad94a230564e2181883d19944450fc9
         internal/tenancy/migrations/row_security.sql: 6813d74ed06f5df636433d5335339bcb4338f05de418002cd7ef94b60f44b6d9
         internal/tenancy/row_security.go: b49ceb1b85177e84037254ebc7872f9c1d048f24a27b02babc9937603a2360e1
-        main.go: dabc84ecd7d32848c725db92f5d134b4e7fa3ddc86552c989f8b4946de873332
+        main.go: 6e3b2d4a8ed577fdb120a89c26782152e0349fd43ff20cd91e7ac56976fcb9ba
         probes/observations.json: 3219f8292bdb4a47a2882aa87528a231132ea9219db88c094ea0051559fad046
-        probes/probes.go: 44414a0d30842c921bb57b82666d9d9256db3eea8dc01ebb94d4f26d69bb7afb
+        probes/probes.go: 7b1f0c4ba4b67cf9ba9890be0743d793cc9603cfbf4e43b1193cc2e8b1fe8bf9
         slots/after_create.go: 03242bcad46578176c9ac819f42390080ebebb94f72c480316f09740289ad80f
         slots/after_create_operators.go: c72f22f8bd303c7e04c678806d36c11c7c95f7d0519c9fc34bf80d1d597c5e5b
         slots/after_delete.go: 4bef3c50640584d2414a8413ccacd72bd6b6415d0b61ac45523f26f948490ed5
