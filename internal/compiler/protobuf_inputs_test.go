@@ -2,7 +2,7 @@ package compiler
 
 import (
 	"github.com/jsell-rh/stego/internal/gen"
-		"github.com/jsell-rh/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/types"
 	"os"
 	"path/filepath"
 	"strings"
