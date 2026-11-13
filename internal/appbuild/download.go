@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -151,6 +152,19 @@ func lookupSumDBAt(ctx context.Context, server sumDBServer, path, version string
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	ops := &sumDBOps{ctx: ctx, server: server, config: map[string][]byte{"key": []byte(server.key)}, cache: map[string][]byte{}}
+	if server.state != "" {
+		// The kept tree is read, compared and written under the lock of its
+		// folder, so two runs cannot put an older tree back. A folder that is
+		// not safe to keep it in is left out with a warning, and the lookup
+		// runs as with no kept tree.
+		kept, err := openKeptTree(ctx, server.state, server.key)
+		if err != nil {
+			slog.WarnContext(ctx, "the kept tree of the sum database is not used; the lookup starts from no tree", "folder", server.state, "error", err)
+		} else {
+			defer kept.close()
+			ops.kept = kept
+		}
+	}
 	lines, err := sumdb.NewClient(ops).Lookup(path, version)
 	if ops.security != "" {
 		return "", false, fmt.Errorf("%w: %s", errSumDBInconsistent, ops.security)
@@ -185,6 +199,8 @@ type sumDBOps struct {
 	cache    map[string][]byte
 	notFound bool
 	security string
+	// kept is the kept signed tree of the database under its lock, or nil.
+	kept *keptTree
 }
 
 func (o *sumDBOps) ReadRemote(path string) ([]byte, error) {
@@ -211,14 +227,8 @@ func (o *sumDBOps) ReadRemote(path string) ([]byte, error) {
 }
 
 func (o *sumDBOps) ReadConfig(file string) ([]byte, error) {
-	if latest, ok := o.latestFile(file); ok {
-		data, err := readBounded(latest, maxSignedTree)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		if err != nil {
-			return nil, err
-		}
+	if o.kept != nil && strings.HasSuffix(file, "/latest") {
+		data := o.kept.read(o.ctx)
 		o.config[file] = data
 		return data, nil
 	}
@@ -229,64 +239,13 @@ func (o *sumDBOps) WriteConfig(file string, old, new []byte) error {
 	if !bytes.Equal(o.config[file], old) {
 		return sumdb.ErrWriteConflict
 	}
-	if latest, ok := o.latestFile(file); ok {
-		// The latest tree is written to a new file and renamed over the old
-		// one, so a reader sees one whole tree or the one before it.
-		if err := os.MkdirAll(filepath.Dir(latest), 0o700); err != nil {
-			return err
-		}
-		temporary, err := os.CreateTemp(filepath.Dir(latest), ".latest-*")
-		if err != nil {
-			return err
-		}
-		_, err = temporary.Write(new)
-		if closeErr := temporary.Close(); err == nil {
-			err = closeErr
-		}
-		if err == nil {
-			err = os.Rename(temporary.Name(), latest)
-		}
-		if err != nil {
-			_ = os.Remove(temporary.Name())
+	if o.kept != nil && strings.HasSuffix(file, "/latest") {
+		if err := o.kept.write(new); err != nil {
 			return err
 		}
 	}
 	o.config[file] = new
 	return nil
-}
-
-// readBounded reads the file at path, which must be a regular file of at
-// most limit bytes.
-func readBounded(path string, limit int64) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", path)
-	}
-	data, err := io.ReadAll(io.LimitReader(file, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("%s is larger than %d bytes", path, limit)
-	}
-	return data, nil
-}
-
-// latestFile gives the file of the latest signed tree when file is the
-// latest tree of the database and the lookup keeps its state.
-func (o *sumDBOps) latestFile(file string) (string, bool) {
-	if o.server.state == "" || !strings.HasSuffix(file, "/latest") {
-		return "", false
-	}
-	return filepath.Join(o.server.state, "latest"), true
 }
 
 func (o *sumDBOps) ReadCache(file string) ([]byte, error) {
@@ -631,6 +590,11 @@ func stageRuntimeFolder(ctx context.Context, folder string, pin *moduleVersion, 
 	known, foundKnown, lookupErr := trust.lookup(ctx, pin.path, pin.version)
 	if errors.Is(lookupErr, errSumDBInconsistent) {
 		return nil, fmt.Errorf("module %s %s: %w", pin.path, pin.version, lookupErr)
+	}
+	if lookupErr != nil {
+		// A database that cannot be reached leaves the registry pin as the
+		// check; the warning shows that the database did not check this run.
+		slog.WarnContext(ctx, "the sum database did not answer; the registry pin is the only check of the runtime folder", "module", pin.path, "version", pin.version, "error", lookupErr)
 	}
 	if lookupErr == nil && foundKnown && known != found {
 		return nil, fmt.Errorf("module %s %s differs from the sum database: sum.golang.org states %s, the runtime folder %s is %s", pin.path, pin.version, known, RuntimeFolder, found)

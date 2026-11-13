@@ -2,11 +2,13 @@ package appbuild
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/sumdb"
@@ -400,13 +403,131 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 			t.Fatalf("the kept tree is %v (%v), want a file that only its owner reads", info, err)
 		}
 		// A run against the fork, whose tree of the same size differs, is refused as not consistent.
+		// The fork shows as tiles that do not prove the kept tree: the client's text "downloaded inconsistent tile",
+		// which an upgrade of golang.org/x/mod that changes it makes this test fail.
 		served, err := stage(trustOf(other, state))
-		if err == nil || served != nil || !strings.Contains(err.Error(), "not consistent") {
-			t.Fatalf("a run against a fork of the kept tree gave %v, %v; want a refusal that the database is not consistent", served, err)
+		if err == nil || served != nil || !strings.Contains(err.Error(), "not consistent: its tiles do not prove a signed tree") {
+			t.Fatalf("a run against a fork of the kept tree gave %v, %v; want a refusal that its tiles do not prove a signed tree", served, err)
 		}
 		// With no kept tree, one answer of the fork alone shows nothing: the registry pin stays the check.
 		if served, err := stage(trustOf(other, "")); err != nil || served == nil {
 			t.Fatalf("a run against the fork with no kept tree was refused: %v", err)
+		}
+	})
+	t.Run("ST-BLD-UC02-R05-T06 A bad kept tree is removed with a warning and kept again, an unsafe folder is left out with a warning, and the lock of the folder holds a second run", func(t *testing.T) {
+		folder := filepath.Join(t.TempDir(), "runtime")
+		sum, modSum := runtimeFixture(t, folder, version)
+		sums, modSums := map[moduleVersion]string{*pin: sum}, map[moduleVersion]string{*pin: modSum}
+		signer, verifier, err := note.GenerateKey(rand.Reader, "sum.test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		server := httptest.NewTLSServer(sumdb.NewServer(sumdb.NewTestServer(signer, func(path, vers string) ([]byte, error) {
+			if path == RuntimeModule && vers == version {
+				return []byte(fmt.Sprintf("%s %s %s\n%s %s/go.mod %s\n", path, vers, sum, path, vers, modSum)), nil
+			}
+			return nil, os.ErrNotExist
+		})))
+		t.Cleanup(server.Close)
+		var logged strings.Builder
+		previous := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+		t.Cleanup(func() { slog.SetDefault(previous) })
+		stage := func(state string) {
+			t.Helper()
+			trust := runtimeTrust{pins: map[string]string{version: sum}, lookup: func(ctx context.Context, path, vers string) (string, bool, error) {
+				return lookupSumDBAt(ctx, sumDBServer{url: server.URL, key: verifier, client: server.Client(), state: state}, path, vers)
+			}}
+			if served, err := stageRuntimeFolder(context.Background(), folder, pin, sums, modSums, filepath.Join(t.TempDir(), "proxy"), t.TempDir(), trust); err != nil || served == nil {
+				t.Fatalf("the run was refused: %v", err)
+			}
+		}
+		state := filepath.Join(t.TempDir(), "sumdb")
+		latest := filepath.Join(state, "latest")
+		stage(state)
+		good, err := os.ReadFile(latest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A kept tree that is not a signed tree, is too large or is a link is removed with a warning that names it,
+		// and the run keeps a good tree again.
+		other := filepath.Join(t.TempDir(), "other")
+		if err := os.WriteFile(other, good, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for name, plant := range map[string]func() error{
+			"garbage":   func() error { return os.WriteFile(latest, []byte("not a tree"), 0o600) },
+			"oversized": func() error { return os.WriteFile(latest, bytes.Repeat([]byte("x"), maxSignedTree+1), 0o600) },
+			"a link": func() error {
+				if err := os.Remove(latest); err != nil {
+					return err
+				}
+				return os.Symlink(other, latest)
+			},
+			"writable by others": func() error {
+				if err := os.WriteFile(latest, good, 0o600); err != nil {
+					return err
+				}
+				return os.Chmod(latest, 0o666)
+			},
+		} {
+			if err := plant(); err != nil {
+				t.Fatal(err)
+			}
+			logged.Reset()
+			stage(state)
+			if !strings.Contains(logged.String(), "the kept tree of the sum database is not valid") || !strings.Contains(logged.String(), latest) {
+				t.Errorf("a kept tree that is %s logged %q, want a warning that names the file", name, logged.String())
+			}
+			info, err := os.Lstat(latest)
+			kept, _ := os.ReadFile(latest)
+			if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || !bytes.Equal(kept, good) {
+				t.Errorf("after a kept tree that is %s the file is %v (%v), want the good tree kept again", name, info, err)
+			}
+		}
+		// A folder that others may write is left out with a warning, and nothing is kept there.
+		unsafe := filepath.Join(t.TempDir(), "unsafe")
+		if err := os.Mkdir(unsafe, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(unsafe, 0o777); err != nil {
+			t.Fatal(err)
+		}
+		logged.Reset()
+		stage(unsafe)
+		if !strings.Contains(logged.String(), "the kept tree of the sum database is not used") || !strings.Contains(logged.String(), "others may write") {
+			t.Errorf("a folder that others may write logged %q, want a warning that the kept tree is not used", logged.String())
+		}
+		if _, err := os.Lstat(filepath.Join(unsafe, "latest")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a tree was kept in a folder that others may write: %v", err)
+		}
+		// A folder that is a link is left out too.
+		linked := filepath.Join(t.TempDir(), "linked")
+		if err := os.Symlink(state, linked); err != nil {
+			t.Fatal(err)
+		}
+		logged.Reset()
+		stage(linked)
+		if !strings.Contains(logged.String(), "is not a folder") {
+			t.Errorf("a folder that is a link logged %q, want a warning that it is not a folder", logged.String())
+		}
+		// While another run holds the lock of the folder, a run waits for it.
+		held, err := openKeptTree(context.Background(), state, verifier)
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan struct{})
+		go func() { stage(state); close(done) }()
+		select {
+		case <-done:
+			t.Error("a run went on while another run held the lock of the kept tree")
+		case <-time.After(300 * time.Millisecond):
+		}
+		held.close()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the run did not go on after the lock was released")
 		}
 	})
 	t.Run("ST-BLD-UC02-R05-T05 GOPROXY names the runtime proxy first as an escaped file URL, then the module proxy", func(t *testing.T) {
