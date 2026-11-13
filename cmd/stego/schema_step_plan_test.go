@@ -170,6 +170,24 @@ func TestSchemaStepPlan(t *testing.T) {
 			t.Error("the refused apply wrote a step in service.yaml")
 		}
 	})
+	t.Run("ST-GEN-UC12-R02-T01 Plan and apply refuse a declared schema change whose kind generation does not carry out yet", func(t *testing.T) {
+		t.Parallel()
+		s := newSmallService(t)
+		s.write(t, "service.yaml", noteFields(renamedTitle)+titleRename)
+		before := tree(t, s.service)
+		for _, command := range []string{"plan", "apply"} {
+			stdout, stderr, err := s.stego(t, command, "--base", "HEAD")
+			if err == nil || !strings.Contains(stdout+stderr, "does not carry out the schema change note-title-rename (rename) yet") {
+				t.Errorf("stego %s of a declared rename: %v, want a refusal that names the change and its kind:\n%s%s", command, err, stdout, stderr)
+			}
+		}
+		if !maps.Equal(before, tree(t, s.service)) {
+			t.Error("a refused plan or apply changed a file")
+		}
+		if stdout, stderr, err := s.stego(t, "validate"); err != nil {
+			t.Errorf("stego validate refuses the declared rename, which checking accepts: %v\n%s%s", err, stdout, stderr)
+		}
+	})
 	t.Run("ST-GEN-UC12-R06-T02 Without apply, the check refuses a new field that has no add step", func(t *testing.T) {
 		t.Parallel()
 		s := newSmallService(t)
