@@ -34,9 +34,9 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261113000038-f0ff115ebbbe
+        module_version: v0.0.0-20261113000237-aa5abc218d26
         vcs: git
-        revision: f0ff115ebbbe08e97857e8fc25ada77f42d980df
+        revision: aa5abc218d26a52ec26c053a2e365c2f20d299c1
         source_state: clean
     service_name: user-management
     service_hash: 105db060dc021906a22c74d952724b23f43f78c2596f33ca0619f3a6c87a8f6a
@@ -142,7 +142,7 @@ last_applied:
         internal/outbox/outbox.go: 2c28822e787f727c372f6620e84147d92ac6d75def98fc465e42c5a121e2859f
         internal/stegoruntime/runtime.go: 8c57c161ee7e32fd9c35fc2fd15935756c95f961cfe894c4f62d857251eadcf3
         internal/storage/database.go: 2969e645f09850b504ad2725978a15d1ccad3147efb4a450d7360be23ffef627
-        internal/storage/migrate.go: c6a19755bb925d65fae1980f62185cb4151e3d884f61a9fdb13d420fe8717f08
+        internal/storage/migrate.go: 029d2589ebd1ae4d89159fc497d5d46f18dd8b2dfe46827b06247aef15c49ff4
         internal/storage/migrations/001_initial.sql: ab78775163028811859a9a67ca89769c43529c4a72451340e6551134668393f9
         internal/storage/runtime_access.go: cdd1d2a7e9bb42ed2695cb2b1cb337a9b3490f847694efb15c07a4e6da83fb6a
         internal/storage/schema_generation.go: 89fe1b88f7882a73ce9a537c2443532f5d6869241443e6c4471b7eaeae75f0fd
