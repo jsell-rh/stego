@@ -145,7 +145,7 @@ func TestJobs(t *testing.T) {
 		j := f.jobs(h)
 		f.post(f.runtime, "a-1", dr("dr", 10), dr("dr", 20), dr("dr", 30), cr("cr", 60))
 		f.post(f.runtime, "b-1", dr("plain", 5), dr("plain", 6), cr("hot", 11))
-		if _, err := j.Snapshot(f.ctx); err != nil {
+		if _, err := f.settled(j).Snapshot(f.ctx); err != nil {
 			t.Fatal(err)
 		}
 		first := f.snapshots("dr")
@@ -157,14 +157,14 @@ func TestJobs(t *testing.T) {
 		}
 		// A pending transfer's entries count toward no snapshot.
 		f.pend("held", dr("dr", 1), dr("dr", 1), dr("dr", 1), cr("plain", 3))
-		if _, err := j.Snapshot(f.ctx); err != nil {
+		if _, err := f.settled(j).Snapshot(f.ctx); err != nil {
 			t.Fatal(err)
 		}
 		if got := f.snapshots("dr"); len(got) != 1 {
 			t.Fatalf("A has the snapshots %v after a pending transfer; want the first only", got)
 		}
 		f.post(f.runtime, "a-2", dr("dr", 1), dr("dr", 2), cr("hot", 3), cr("hot", 4), dr("dr", 4))
-		if _, err := j.Snapshot(f.ctx); err != nil {
+		if _, err := f.settled(j).Snapshot(f.ctx); err != nil {
 			t.Fatal(err)
 		}
 		second := f.snapshots("dr")
@@ -186,7 +186,7 @@ func TestJobs(t *testing.T) {
 		h.take(t)
 		j := f.jobs(h)
 		tr := f.post(f.runtime, "k1", dr("dr", 10), cr("cr", 10))
-		if err := j.Check(f.ctx); err != nil {
+		if err := f.settled(j).Check(f.ctx); err != nil {
 			t.Fatalf("Check of a sound ledger: %v", err)
 		}
 		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
@@ -200,7 +200,7 @@ func TestJobs(t *testing.T) {
 			_, err := tx.ExecContext(f.ctx, "ALTER TABLE entries ENABLE TRIGGER entries_balance")
 			return err
 		})
-		err := j.Check(f.ctx)
+		err := f.settled(j).Check(f.ctx)
 		if err == nil || !strings.Contains(err.Error(), "the ledger usd of the tenant acme does not sum to zero") {
 			t.Fatalf("Check: %v; want a failure that names the ledger usd", err)
 		}
@@ -212,12 +212,12 @@ func TestJobs(t *testing.T) {
 		h.take(t)
 		j := f.jobs(h)
 		f.post(f.runtime, "k1", dr("dr", 10), dr("dr", 20), dr("dr", 30), cr("cr", 60))
-		if n, err := j.Snapshot(f.ctx); err != nil || n != 1 {
+		if n, err := f.settled(j).Snapshot(f.ctx); err != nil || n != 1 {
 			t.Fatalf("Snapshot: %d, %v", n, err)
 		}
 		// A Jobs that has checked the snapshot once does not read it again; this check runs on another Jobs, as a
 		// replica that took the lease over would.
-		if err := j.Check(f.ctx); err != nil {
+		if err := f.settled(j).Check(f.ctx); err != nil {
 			t.Fatalf("Check of a sound snapshot: %v", err)
 		}
 		j = f.jobs(h)
@@ -225,7 +225,7 @@ func TestJobs(t *testing.T) {
 		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
 			return tx.QueryRowContext(f.ctx, "UPDATE balance_snapshots SET amount = amount + 1 WHERE account_id = 'dr' RETURNING through_xid::text").Scan(&through)
 		})
-		err := j.Check(f.ctx)
+		err := f.settled(j).Check(f.ctx)
 		want := fmt.Sprintf("the snapshot through_xid %s of the account dr", through)
 		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "holds 61") {
 			t.Fatalf("Check: %v; want a failure that names the account dr and the snapshot %s", err, through)
@@ -244,16 +244,18 @@ func TestJobs(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if err := j.Check(f.ctx); err != nil {
+		// A posting waits for older transactions of other databases (awaitOthers), so on a busy server the expiry may
+		// have passed already; the check before it holds only while it has not.
+		if err := f.settled(j).Check(f.ctx); err != nil && time.Now().Before(p.ExpiresAt.Add(-100*time.Millisecond)) {
 			t.Fatalf("Check before the expiry: %v", err)
 		}
 		// Within one sweep period of the expiry, the sweep has its grace.
 		f.waitPast(p.ExpiresAt)
-		if err := j.Check(f.ctx); err != nil && time.Now().Before(p.ExpiresAt.Add(gracePeriod-100*time.Millisecond)) {
+		if err := f.settled(j).Check(f.ctx); err != nil && time.Now().Before(p.ExpiresAt.Add(gracePeriod-100*time.Millisecond)) {
 			t.Fatalf("Check within the grace of the sweep: %v", err)
 		}
 		f.waitPast(p.ExpiresAt.Add(gracePeriod))
-		err := j.Check(f.ctx)
+		err := f.settled(j).Check(f.ctx)
 		if err == nil || !strings.Contains(err.Error(), "the expiry sweep did not void the pending transfer "+p.ID) || strings.Contains(err.Error(), voided.ID) {
 			t.Fatalf("Check after the expiry: %v; want a failure of the sweep that names %s only", err, p.ID)
 		}
@@ -261,7 +263,7 @@ func TestJobs(t *testing.T) {
 		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) { return f.usd.Void(f.ctx, tx, tn, p.ID, "void-2") }); err != nil {
 			t.Fatal(err)
 		}
-		if err := j.Check(f.ctx); err != nil {
+		if err := f.settled(j).Check(f.ctx); err != nil {
 			t.Fatalf("Check after the void: %v", err)
 		}
 	})
@@ -294,10 +296,10 @@ func TestJobs(t *testing.T) {
 		if _, err := h.client.Acquire(f.ctx); !errors.Is(err, lease.ErrTaken) {
 			t.Fatalf("acquire while another holder has the lease: %v", err)
 		}
-		if n, err := j.Snapshot(f.ctx); n != 0 || err != nil || len(f.snapshots("dr")) != 0 {
+		if n, err := f.settled(j).Snapshot(f.ctx); n != 0 || err != nil || len(f.snapshots("dr")) != 0 {
 			t.Fatalf("Snapshot without the lease: %d, %v", n, err)
 		}
-		if err := j.Check(f.ctx); err != nil {
+		if err := f.settled(j).Check(f.ctx); err != nil {
 			t.Fatalf("Check without the lease: %v", err)
 		}
 		// As the holder, in the controller mode: the snapshot carries the holder's token.
@@ -327,7 +329,7 @@ func TestJobs(t *testing.T) {
 			_, err := tx.ExecContext(f.ctx, "UPDATE leases SET token = token + 5, holder = 'usurper' WHERE name = $1", leaseName)
 			return err
 		})
-		if n, err := j.Snapshot(f.ctx); !errors.Is(err, lease.ErrFenced) || n != 0 {
+		if n, err := f.settled(j).Snapshot(f.ctx); !errors.Is(err, lease.ErrFenced) || n != 0 {
 			t.Fatalf("Snapshot after the token was raised: %d, %v; want the fenced error", n, err)
 		}
 		if got := f.snapshots("dr"); len(got) != 1 {
@@ -340,7 +342,7 @@ func TestJobs(t *testing.T) {
 		h := f.holder()
 		h.take(t)
 		j := f.jobs(h)
-		if err := j.Check(f.ctx); err != nil {
+		if err := f.settled(j).Check(f.ctx); err != nil {
 			t.Fatal(err)
 		}
 		if ok, reason := j.Health(); !ok || reason != "" {
@@ -348,7 +350,7 @@ func TestJobs(t *testing.T) {
 		}
 		p := f.pend("hold", dr("dr", 5), cr("cr", 5))
 		f.waitPast(p.ExpiresAt.Add(gracePeriod))
-		if err := j.Check(f.ctx); err == nil {
+		if err := f.settled(j).Check(f.ctx); err == nil {
 			t.Fatal("Check passed with an expired pending transfer")
 		}
 		ok, reason := j.Health()
@@ -365,11 +367,16 @@ func TestJobs(t *testing.T) {
 		// The transaction IDs of the rounds cross a power of ten, so an order of the snapshots as text would differ
 		// from their order as xid8.
 		f.burnTo(t, 550)
+		// An autovacuum ANALYZE of the entries would count in their read statistics.
+		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(f.ctx, "ALTER TABLE entries SET (autovacuum_enabled = false)")
+			return err
+		})
 		for round := range 50 {
 			for i := range 10 {
 				f.post(f.runtime, fmt.Sprintf("k-%d-%d", round, i), dr("dr", int64(round+1)), cr("cr", int64(round+1)))
 			}
-			if n, err := j.Snapshot(f.ctx); err != nil || n != 2 {
+			if n, err := f.settled(j).Snapshot(f.ctx); err != nil || n != 2 {
 				t.Fatalf("Snapshot in round %d: %d, %v; want 2 rows", round, n, err)
 			}
 		}
@@ -420,7 +427,7 @@ func TestJobs(t *testing.T) {
 		before := entriesRead()
 		checkDB := f.open(runtimeRole, nil)
 		j2 := f.jobsOn(h, checkDB)
-		err := j2.Check(f.ctx)
+		err := f.settled(j2).Check(f.ctx)
 		checkDB.Close()
 		time.Sleep(300 * time.Millisecond)
 		read := entriesRead() - before
@@ -435,11 +442,11 @@ func TestJobs(t *testing.T) {
 		// passes, and a later check reads only the entries after the last checked position.
 		f.runtime, f.owner, f.traced = f.open(runtimeRole, nil), f.open(ownerRole, nil), f.open(runtimeRole, f.trace)
 		j2.cfg.DB = f.runtime
-		if err := j2.Check(f.ctx); err == nil || !strings.Contains(err.Error(), "the snapshot through_xid "+through+" of the account dr") {
+		if err := f.settled(j2).Check(f.ctx); err == nil || !strings.Contains(err.Error(), "the snapshot through_xid "+through+" of the account dr") {
 			t.Fatalf("the second Check: %v; want the same failure", err)
 		}
 		mark := f.trace.mark()
-		if err := f.jobsOn(h, f.traced).Check(f.ctx); err == nil {
+		if err := f.settled(f.jobsOn(h, f.traced)).Check(f.ctx); err == nil {
 			t.Fatal("a new Jobs passed the check before the mend")
 		}
 		sent := strings.ToLower(strings.Join(f.trace.since(mark), "\n"))
@@ -450,13 +457,13 @@ func TestJobs(t *testing.T) {
 			_, err := tx.ExecContext(f.ctx, "UPDATE balance_snapshots SET amount = amount - 1 WHERE account_id = 'dr' AND through_xid = $1::xid8", through)
 			return err
 		})
-		if err := j2.Check(f.ctx); err != nil {
+		if err := f.settled(j2).Check(f.ctx); err != nil {
 			t.Fatalf("Check after the mend: %v", err)
 		}
 		for i := range 10 {
 			f.post(f.runtime, fmt.Sprintf("late-%d", i), dr("dr", 1), cr("cr", 1))
 		}
-		if n, err := j2.Snapshot(f.ctx); err != nil || n != 2 {
+		if n, err := f.settled(j2).Snapshot(f.ctx); err != nil || n != 2 {
 			t.Fatalf("the late Snapshot: %d, %v", n, err)
 		}
 		f.runtime.Close()
@@ -464,7 +471,7 @@ func TestJobs(t *testing.T) {
 		before = entriesRead()
 		checkDB = f.open(runtimeRole, nil)
 		j2.cfg.DB = checkDB
-		if err := j2.Check(f.ctx); err != nil {
+		if err := f.settled(j2).Check(f.ctx); err != nil {
 			t.Fatalf("the incremental Check: %v", err)
 		}
 		checkDB.Close()
@@ -518,7 +525,7 @@ func TestJobs(t *testing.T) {
 			time.Sleep(c.late)
 			done := make(chan error, 1)
 			go func() {
-				_, err := j.Snapshot(f.ctx)
+				_, err := f.settled(j).Snapshot(f.ctx)
 				done <- err
 			}()
 			if c.late == 0 {
@@ -562,7 +569,7 @@ func TestJobs(t *testing.T) {
 		a := f.holder()
 		a.take(t)
 		f.waitPast(p.ExpiresAt)
-		if n, err := f.jobs(b).Sweep(f.ctx); n != 0 || !errors.Is(err, lease.ErrFenced) {
+		if n, err := f.settled(f.jobs(b)).Sweep(f.ctx); n != 0 || !errors.Is(err, lease.ErrFenced) {
 			t.Fatalf("the sweep of the fenced replica: %d, %v; want the fenced error", n, err)
 		}
 		if n := f.count("transfers", "pending_id = $1", p.ID); n != 0 {
@@ -570,14 +577,14 @@ func TestJobs(t *testing.T) {
 		}
 		ja := f.jobs(a)
 		for run, want := range []int{1, 0} {
-			if n, err := ja.Sweep(f.ctx); err != nil || n != want {
+			if n, err := f.settled(ja).Sweep(f.ctx); err != nil || n != want {
 				t.Fatalf("sweep %d: %d, %v; want %d voids", run+1, n, err, want)
 			}
 		}
 		if n := f.count("transfers", "pending_id = $1 AND kind = 'void' AND idempotency_key = ledger_key('acme', $2)", p.ID, "expire:"+p.ID); n != 1 {
 			t.Fatalf("%d voids with the key expire:%s; want 1", n, p.ID)
 		}
-		if err := ja.Check(f.ctx); err != nil {
+		if err := f.settled(ja).Check(f.ctx); err != nil {
 			t.Fatalf("Check after the sweep: %v", err)
 		}
 	})
