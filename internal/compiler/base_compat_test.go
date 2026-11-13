@@ -134,6 +134,10 @@ func TestBaseCompat(t *testing.T) {
 			{"field of an added entity retyped", teamAdded, strings.Replace(teamAdded, "{ name: label, type: string }", "{ name: label, type: int64, unique: true }", 1), "changes the stored shape of Team.label"},
 			{"declared add of a unique field with a default", td01, withChanges(strings.Replace(td01, metadata, metadata+"      - { name: code, type: string, unique: true, default: x }\n", 1), "  - {id: add-user-code, kind: add, entity: User, field: code}\n", "  - {change: add-user-code, phase: expand}\n"), "both unique and a default"},
 			{"entity made versioned", td01, strings.Replace(td01, "  - name: User\n", "  - name: User\n    versioned: true\n", 1), "changes the table settings of User"},
+			{"base unique invariant removed", withInvariant, td01, "removes or changes the invariant user-email-org"},
+			{"new unique change takes over a base invariant's name", withInvariant, withChanges(strings.Replace(withInvariant, "by: [email, org_id]", "by: [display_name]", 1), "  - {id: user-email-org-unique, kind: unique, entity: User, field: user-email-org}\n", "  - {change: user-email-org-unique, phase: expand}\n"), "names user-email-org, an invariant that the base declares"},
+			{"declared add of a field unique when live with a default", td01, withChanges(strings.Replace(td01, metadata, metadata+"      - { name: code, type: string, unique_when_live: true, default: x }\n", 1), "  - {id: add-user-code, kind: add, entity: User, field: code}\n", "  - {change: add-user-code, phase: expand}\n"), "both unique and a default"},
+			{"constraints of a base field changed with its type kept", td01, strings.Replace(td01, "{ name: display_name, type: string, min_length: 1, max_length: 100 }", "{ name: display_name, type: string, max_length: 5, unique: true }", 1), "keeps its type"},
 			{"entity tenant changed", td01, strings.Replace(td01, "  - name: OrgSetting\n", "  - name: OrgSetting\n    tenant: shared\n", 1), "changes the table settings of OrgSetting"},
 		}
 		for _, c := range cases {

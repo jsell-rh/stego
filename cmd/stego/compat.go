@@ -173,8 +173,9 @@ func readBaseFile(commit, name string) ([]byte, bool, error) {
 	return append([]byte{}, data...), true, nil
 }
 
-// refuseMovedService refuses a base that holds no service.yaml at the path of the service folder while the service
-// in the working folder has a record: the folder moved, or the base is not a version of this service, and the check
+// refuseMovedService refuses a base that holds no service.yaml at the path of the service folder while a release of
+// the service may have run: when the service in the working folder has a record, or when the base tree holds a
+// record of a release at another path. The folder moved, or the base is not a version of this service, and the check
 // cannot take an absent declaration as a first release.
 func refuseMovedService(base compiler.BaseSource) error {
 	if base.Declaration != nil {
@@ -184,10 +185,54 @@ func refuseMovedService(base compiler.BaseSource) error {
 	if err != nil {
 		return err
 	}
-	if state.LastApplied == nil {
-		return nil
+	if state.LastApplied != nil {
+		return fmt.Errorf("the base ref %s (commit %s) holds no service.yaml at the path of this service folder, and the service has a record, so a release of it has run: if the folder moved, run the check from the folder at the path that the base holds, or name a base that holds this folder", base.Ref, base.Commit)
 	}
-	return fmt.Errorf("the base ref %s (commit %s) holds no service.yaml at the path of this service folder, and the service has a record, so a release of it has run: if the folder moved, run the check from the folder at the path that the base holds, or name a base that holds this folder", base.Ref, base.Commit)
+	released, err := releasedFolders(base.Commit)
+	if err != nil {
+		return fmt.Errorf("read the records of the base ref %s (commit %s): %w", base.Ref, base.Commit, err)
+	}
+	if len(released) > 0 {
+		return fmt.Errorf("the base ref %s (commit %s) holds no service.yaml at the path of this service folder, and it holds the record of a release in %s: if the service folder moved, run the check from the folder at the path that the base holds", base.Ref, base.Commit, strings.Join(released, ", "))
+	}
+	return nil
+}
+
+// maxBaseRecords bounds the records that releasedFolders reads in one base tree.
+const maxBaseRecords = 64
+
+// releasedFolders gives each folder of the commit whose .stego/state.yaml records a release. A record that cannot
+// be read counts as one.
+func releasedFolders(commit string) ([]string, error) {
+	listing, err := compatGit("ls-tree", "-r", "-z", "--name-only", "--full-tree", commit)
+	if err != nil {
+		return nil, err
+	}
+	var folders []string
+	read := 0
+	for _, name := range strings.Split(strings.TrimSuffix(string(listing), "\x00"), "\x00") {
+		if name != ".stego/state.yaml" && !strings.HasSuffix(name, "/.stego/state.yaml") {
+			continue
+		}
+		if read++; read > maxBaseRecords {
+			return nil, fmt.Errorf("the commit holds more than %d records", maxBaseRecords)
+		}
+		data, found, err := readBaseFile(commit, name)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			continue
+		}
+		if released, err := compiler.RecordsRelease(data, name); err != nil || released {
+			folder := strings.TrimSuffix(strings.TrimSuffix(name, ".stego/state.yaml"), "/")
+			if folder == "" {
+				folder = "the root"
+			}
+			folders = append(folders, folder)
+		}
+	}
+	return folders, nil
 }
 
 // compatGit runs one git command in the working folder with a time limit and gives its standard output. Git gets

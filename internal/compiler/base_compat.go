@@ -81,6 +81,15 @@ func (c SuggestedChange) String() string {
 	return text + " at " + c.Phase
 }
 
+// RecordsRelease tells whether the bytes of a record name a release of its service: an apply that wrote it.
+func RecordsRelease(data []byte, name string) (bool, error) {
+	state, err := decodeState(data, name)
+	if err != nil {
+		return false, err
+	}
+	return state.LastApplied != nil, nil
+}
+
 // HasFaults tells whether the check refused the head.
 func (c BaseCheck) HasFaults() bool { return len(c.Faults) > 0 }
 
@@ -156,9 +165,17 @@ func uniqueAddFaults(base, head *types.ServiceDeclaration) []BaseFault {
 		}
 		entity, _ := findStoredEntity(head, change.Entity)
 		for _, field := range entity.Fields {
-			if field.Name == change.Field && (field.Unique || len(field.UniqueComposite) > 0) && field.Default != nil {
+			if field.Name == change.Field && (field.Unique || field.UniqueWhenLive || len(field.UniqueComposite) > 0) && field.Default != nil {
 				faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: change.Entity, Field: change.Field, Message: fmt.Sprintf("the add %s gives %s.%s both unique and a default; every row of the table gets the default, so its unique index cannot be built: remove the default and make the field optional, or leave out unique", change.ID, change.Entity, change.Field)})
 			}
+		}
+	}
+	for _, change := range head.SchemaChanges {
+		if change.Kind != "unique" || slices.ContainsFunc(base.SchemaChanges, func(c types.SchemaChange) bool { return c.ID == change.ID }) {
+			continue
+		}
+		if slices.ContainsFunc(base.Invariants, func(invariant types.DeclaredInvariant) bool { return invariant.Name == change.Field }) {
+			faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: change.Entity, Field: change.Field, Message: fmt.Sprintf("the unique change %s names %s, an invariant that the base declares; a unique change makes a new invariant, so give it a name that the base does not use", change.ID, change.Field)})
 		}
 	}
 	return faults
@@ -472,7 +489,15 @@ func baselineFaults(base, head []*storedEntity) []BaseFault {
 		}
 	}
 	for _, entity := range base {
-		if byName(head, entity.Name) == nil {
+		now := byName(head, entity.Name)
+		if now != nil && !now.Loose && !entity.Loose {
+			for _, unique := range entity.Uniques {
+				if !slices.ContainsFunc(now.Uniques, func(u storedUnique) bool { return u.Name == unique.Name }) {
+					faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: entity.Name, Field: unique.Name, Message: fmt.Sprintf("the head removes or changes the invariant %s of kind unique on %s, which the base declares; a unique invariant of the base stays as it is, so keep it", unique.Name, entity.Name)})
+				}
+			}
+		}
+		if now == nil {
 			faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: entity.Name, Message: fmt.Sprintf("the head removes the entity %s, which no schema step declares; the release that runs now still reads and writes its table", entity.Name),
 				Declare: []SuggestedChange{{ID: kebab(entity.Name) + "-drop", Kind: "drop", Entity: entity.Name, Needs: "the Definition of its fields", Phase: "expand"}}})
 		}
@@ -513,6 +538,11 @@ func fieldFaults(base, head *storedEntity) []BaseFault {
 				continue
 			}
 		} else if reflect.DeepEqual(field.Shape, now.Shape) {
+			continue
+		}
+		if field.Shape.Type == now.Shape.Type {
+			// A retype changes the type, so no schema change moves the constraints of a field that keeps its type.
+			faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: head.Name, Field: field.Name, Message: fmt.Sprintf("the head changes the stored shape of %s.%s from %s and keeps its type, which no schema step declares; no schema change changes the constraints of a field of the base, so keep them, or add a new field with the new constraints and drop this one", head.Name, field.Name, definitionOf(field.Shape))})
 			continue
 		}
 		faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: head.Name, Field: field.Name, Message: fmt.Sprintf("the head changes the stored shape of %s.%s from %s, which no schema step declares; a new column takes the new shape, and the release that runs now keeps the old one", head.Name, field.Name, definitionOf(field.Shape)),
