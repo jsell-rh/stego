@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -42,9 +43,36 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	result, err := validateSource(input, source)
 	if result != nil {
 		result.Settings = declaration.ResolvedSettings(source.Service)
-		result.Warnings = declaration.Warnings(source.Service)
+		result.Warnings = aliasNotices(source.Registry, source.Service, declaration.Warnings(source.Service))
 	}
 	return result, err
+}
+
+// aliasNotices gives, for each deprecated alias that the declaration binds, one notice that names the mixins of the
+// alias and the sunset date that the registry states for it (ST-SUP-INV17, decision on ST-SUP-Q117 (b)). The notice
+// takes the place of the notice of the declaration at the same path, which cannot know the date.
+func aliasNotices(reg *registry.Registry, service *types.ServiceDeclaration, warnings []ValidationError) []ValidationError {
+	if reg == nil || service == nil {
+		return warnings
+	}
+	for i, name := range service.Mixins {
+		alias := reg.Mixin(name)
+		if alias == nil || len(alias.AliasOf) == 0 {
+			continue
+		}
+		notice := ValidationError{Category: "mixin", Rule: "deprecated-alias", Path: fmt.Sprintf("mixins[%d]", i), Found: name, Allowed: slices.Clone(alias.AliasOf),
+			Message: fmt.Sprintf("the mixin %s is a deprecated alias of the mixins %s, and the registry removes it at its sunset on %s; bind %s instead", name, strings.Join(alias.AliasOf, " and "), alias.Sunset, strings.Join(alias.AliasOf, " and "))}
+		replaced := false
+		for j := range warnings {
+			if warnings[j].Rule == notice.Rule && warnings[j].Path == notice.Path {
+				warnings[j], replaced = notice, true
+			}
+		}
+		if !replaced {
+			warnings = append(warnings, notice)
+		}
+	}
+	return warnings
 }
 
 // validateSource is the common semantic gate for validate, plan, and apply.

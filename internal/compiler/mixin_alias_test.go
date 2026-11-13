@@ -8,19 +8,20 @@ import (
 )
 
 // aliasRegistry adds to the registry of a test input the mixins store-m, send-m, which requires store-m, and the
-// alias pub of both, and gives the archetype the compatible mixins named.
+// alias pub of both, deprecated with a ga window of 6 months, and gives the archetype the compatible mixins named.
 func aliasRegistry(t *testing.T, input ReconcilerInput, compatible ...string) {
 	t.Helper()
 	for name, yaml := range map[string]string{
 		"store-m": "kind: mixin\nname: store-m\nversion: 1.0.0\nadds_components: []\nadds_slots: []\noverrides: none\n",
 		"send-m":  "kind: mixin\nname: send-m\nversion: 1.0.0\nrequires_mixins: [store-m]\nadds_components: []\nadds_slots: []\noverrides: none\n",
-		"pub":     "kind: mixin\nname: pub\nversion: 1.0.0\nalias_of: [store-m, send-m]\nadds_components: []\nadds_slots: []\noverrides: none\n",
+		"pub":     "kind: mixin\nname: pub\nversion: 1.0.0\ndeprecated_on: 2026-11-13\nsunset: 2027-05-13\nalias_of: [store-m, send-m]\nadds_components: []\nadds_slots: []\noverrides: none\n",
 	} {
 		if err := os.MkdirAll(filepath.Join(input.RegistryDir, "mixins", name), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		writeFile(t, filepath.Join(input.RegistryDir, "mixins", name, "mixin.yaml"), yaml)
 	}
+	writeFile(t, filepath.Join(input.RegistryDir, "policy.yaml"), "kind: policy\nwindows:\n  ga: 6\n")
 	path := filepath.Join(input.RegistryDir, "archetypes", "test-arch", "archetype.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
