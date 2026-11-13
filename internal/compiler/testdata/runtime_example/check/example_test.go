@@ -1,6 +1,8 @@
 // Package check runs the example user-management on the runtime data path as an operator runs it: the migration
 // job and then the service binary, built from the generated main.go, against a local PostgreSQL server
 // (STEGO_TEST_POSTGRES_DSN) and a local SpiceDB container (STEGO_TEST_SPICEDB), and calls its collections over HTTP.
+// The example binds the event-publisher mixin, so its worker mode sends the change events to the local Kafka broker
+// of kafkatest (ST-SUP-RC20-OC40).
 package check
 
 import (
@@ -20,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,6 +34,8 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/authn"
 	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/kafkatest"
+	"github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 
 	"github.com/example/service/out/internal/stegoruntime"
@@ -81,6 +86,15 @@ type service struct {
 	cursor     []byte
 	processEnv func(port string) []string
 }
+
+// TestMain removes the Kafka container of kafkatest when the tests end.
+func TestMain(m *testing.M) { os.Exit(kafkatest.Wrap(m.Run)) }
+
+// changeTopic is the declared topic of the change events of the example, which the first test that starts the
+// service makes once.
+const changeTopic = "user-management.changes"
+
+var topicOnce sync.Once
 
 // start makes a database of its own with the roles of the tenancy component, runs the migration job, and starts the
 // service until it answers. The database is on the loopback address, which the loopback test mode of the adapter
@@ -144,6 +158,10 @@ func migrated(t *testing.T) *service {
 	if output, err := migrate.CombinedOutput(); err != nil {
 		t.Fatalf("the migration job failed: %v\n%s", err, output)
 	}
+	broker := kafkatest.Start(t)
+	topicOnce.Do(func() { broker.CreateTopic(t, changeTopic, 3) })
+	env = append(env, kafkaoutbox.BrokersSetting+"="+broker.Plain.Addr(), kafkaoutbox.InsecureLoopbackSetting+"=1",
+		kafkaoutbox.TopicSetting+"="+changeTopic)
 	s.processEnv = func(port string) []string {
 		return append(append(os.Environ(), env...), "PORT="+port, "DATABASE_URL="+as(stegoruntime.RuntimeRole),
 			"STEGO_WORKER_DATABASE_URL="+as(stegoruntime.WorkerRole), "STEGO_RELAY_DATABASE_URL="+as(stegoruntime.RelayRole),
