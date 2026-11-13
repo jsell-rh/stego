@@ -18,7 +18,7 @@ import (
 
 func TestScopedCredentialOutput(t *testing.T) {
 	proof := func(t *testing.T) {
-		directory := t.TempDir()
+		directory := privateDir(t)
 		t.Setenv("TEST_CLI_CONFIG", filepath.Join(directory, "config.json"))
 		token := filepath.Join(directory, "token")
 		if err := os.WriteFile(token, []byte("private-token"), 0600); err != nil {
@@ -159,7 +159,7 @@ func TestCredentialOutputWriteFailures(t *testing.T) {
 				t.Fatal("output failure leaked data or passed")
 			}
 		}
-		name := filepath.Join(t.TempDir(), "output")
+		name := filepath.Join(privateDir(t), "output")
 		var stdout bytes.Buffer
 		reserved, err := reserveOutput(name, &stdout)
 		if err != nil {

@@ -79,9 +79,11 @@ func openKeptTree(ctx context.Context, folder, key string) (*keptTree, error) {
 // cache root such as ~/.cache, which it opens as a folder, through the
 // parent such as stego and then the folder such as sumdb, each with openat
 // and O_DIRECTORY|O_NOFOLLOW from the handle of the step before, and makes
-// each with mkdirat (mode 0700) when it is missing. Each of the two must be a
-// folder, not a link, owned by the user and not writable by its group or
-// others; else the kept tree is not used. No path is followed below the
+// each with mkdirat (mode 0700) when it is missing. The cache root must be
+// the user's own folder that its group and others may not write, or a folder
+// of root with the sticky bit, and each of the two must be a folder, not a
+// link, owned by the user and not writable by its group or others; else the
+// kept tree is not used. No path is followed below the
 // cache root, so a link at the parent cannot send the tree elsewhere.
 func walkKeptFolder(folder string) (*os.File, error) {
 	root := filepath.Dir(filepath.Dir(folder))
@@ -94,6 +96,16 @@ func walkKeptFolder(folder string) (*os.File, error) {
 		return nil, &os.PathError{Op: "open", Path: root, Err: err}
 	}
 	current := os.NewFile(uintptr(fd), root)
+	// The root is a folder of the user's that its group and others may not write, or a shared folder of root with
+	// the sticky bit, such as /tmp, where no other user can move or replace what the user made in it; else another
+	// user could replace the parent before it is opened, and the kept tree is not used.
+	if info, err := current.Stat(); err != nil || cacheRootSafe(info) != nil {
+		current.Close()
+		if err == nil {
+			err = cacheRootSafe(info)
+		}
+		return nil, fmt.Errorf("the cache root %s: %w", root, err)
+	}
 	path := root
 	for _, name := range []string{filepath.Base(filepath.Dir(folder)), filepath.Base(folder)} {
 		path = filepath.Join(path, name)
@@ -130,6 +142,19 @@ func (k *keptTree) openAt(name string, flags int, mode uint32) (*os.File, error)
 		return nil, &os.PathError{Op: "open", Path: filepath.Join(k.folder, name), Err: err}
 	}
 	return os.NewFile(uintptr(fd), filepath.Join(k.folder, name)), nil
+}
+
+// cacheRootSafe refuses a cache root that is not the user's own folder that its group and others may not write,
+// nor a folder of root with the sticky bit.
+func cacheRootSafe(info os.FileInfo) error {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return errors.New("the owner cannot be read")
+	}
+	if stat.Uid == 0 && info.Mode()&os.ModeSticky != 0 {
+		return nil
+	}
+	return ownedAlone(info)
 }
 
 // ownedAlone refuses a file of another user, or one that its group or
