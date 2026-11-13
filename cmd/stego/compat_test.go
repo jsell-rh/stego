@@ -112,6 +112,39 @@ func TestCompat(t *testing.T) {
 			t.Fatalf("exit %d, want 0 and no fault:\n%s", code, output)
 		}
 	})
+	t.Run("ST-GEN-UC14-R01-T01 A base that cannot be read whole is refused, and the caller's Git variables do not move the check", func(t *testing.T) {
+		t.Parallel()
+		s := newSmallService(t)
+		s.env = append(s.env, "GIT_DIR="+filepath.Join(s.parent, "no-such-repository"), "GIT_OBJECT_DIRECTORY="+filepath.Join(s.parent, "no-such-objects"))
+		if output, code := s.compat(t, "--base", "HEAD"); code != 0 {
+			t.Fatalf("with GIT_DIR and GIT_OBJECT_DIRECTORY set: exit %d, want 0:\n%s", code, output)
+		}
+		big := strings.Repeat("# padding\n", 500_000)
+		s.write(t, "service.yaml", smallServiceDeclaration+big)
+		git(t, s.service, "commit", "-q", "-am", "a declaration larger than a declaration may be")
+		if output, code := s.compat(t, "--base", "HEAD"); code != 2 || !strings.Contains(output, "at most") {
+			t.Errorf("an oversized base declaration: exit %d, want 2 and the limit:\n%s", code, output)
+		}
+		git(t, s.service, "reset", "-q", "--hard", "HEAD~1")
+		blob := git(t, s.service, "rev-parse", "HEAD:.stego/state.yaml")
+		if err := os.Remove(filepath.Join(s.service, ".git", "objects", blob[:2], blob[2:])); err != nil {
+			t.Fatal(err)
+		}
+		s.write(t, "service.yaml", noteFields(renamedTitle))
+		if output, code := s.compat(t, "--base", "HEAD"); code != 2 {
+			t.Errorf("an unreadable base record: exit %d, want 2, not a base with no record:\n%s", code, output)
+		}
+	})
+	t.Run("ST-GEN-UC14-R02-T01 A base with no service.yaml at the folder's path is refused while the service has a record", func(t *testing.T) {
+		t.Parallel()
+		s := newSmallService(t)
+		empty := git(t, s.service, "hash-object", "-t", "tree", "-w", "/dev/null")
+		base := git(t, s.service, "commit-tree", empty, "-m", "the service is not at this path")
+		s.write(t, "service.yaml", noteFields(renamedTitle))
+		if output, code := s.compat(t, "--base", base); code != 2 || !strings.Contains(output, "holds no service.yaml at the path") {
+			t.Errorf("exit %d, want 2 and a refusal that names the missing service.yaml:\n%s", code, output)
+		}
+	})
 	t.Run("ST-GEN-UC14-R03-T01 Each fault names the entity, the field, the rule and the schema change and phase to declare", func(t *testing.T) {
 		t.Parallel()
 		s := newSmallService(t)
