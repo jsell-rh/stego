@@ -466,18 +466,3 @@ func callerIdentity(ctx context.Context) *slots.Identity {
 	}
 	return &slots.Identity{UserID: identity.UserID(), Role: role, Attributes: identity.Attributes()}
 }
-
-// changeEvent gives the payload of a change event for the Kafka destination (ST-SUP-RC20-OC40): the entity, the
-// action and the ID of the row, and no field value, so no pii or secret field leaves the service in an event; a
-// consumer reads the row through the API, which decides its permission.
-func changeEvent(entity, action, id string) json.RawMessage {
-	payload, err := json.Marshal(struct {
-		Entity string `json:"entity"`
-		Action string `json:"action"`
-		ID     string `json:"id"`
-	}{entity, action, id})
-	if err != nil {
-		panic(err)
-	}
-	return payload
-}

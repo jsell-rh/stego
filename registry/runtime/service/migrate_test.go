@@ -133,6 +133,34 @@ func TestMigrate(t *testing.T) {
 	})
 }
 
+func TestMigrateLedgerRole(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T02 Migrate runs the ledger of the adapter as the owner role, not as the login of the job", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		m := f.migration(nil)
+		var current, session string
+		ledger := m.Ledger
+		m.Ledger = func(ctx context.Context, conn *sql.Conn) error {
+			if err := conn.QueryRowContext(ctx, "SELECT current_user, session_user").Scan(&current, &session); err != nil {
+				return err
+			}
+			return ledger(ctx, conn)
+		}
+		if err := Migrate(context.Background(), settings, m); err != nil {
+			t.Fatal(err)
+		}
+		login := mustURL(t, f.database).User.Username()
+		if current != f.owner || session != login {
+			t.Fatalf("the ledger ran as %s in a session of %s, want the owner role %s in the session of the login %s", current, session, f.owner, login)
+		}
+		var owner string
+		if err := f.admin.QueryRow("SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'orders'").Scan(&owner); err != nil || owner != f.owner {
+			t.Fatalf("the table of the ledger is owned by %q (%v), want the owner role %s", owner, err, f.owner)
+		}
+	})
+}
+
 func TestMain(m *testing.M) {
 	code := pgtest.Main(m)
 	stopSpiceDB()
