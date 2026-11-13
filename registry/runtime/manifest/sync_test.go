@@ -74,30 +74,65 @@ func TestSyncTrigger(t *testing.T) {
 		stepCase(t, "integer pages to text pages_text", stepSchema+"ALTER TABLE public.books ADD COLUMN pages_text text;\n"+syncSQL(t, "books_pages_sync", "pages", "pages_text", "int4-text")+
 			"CREATE TRIGGER books_pages_sync BEFORE INSERT OR UPDATE ON public.books FOR EACH ROW EXECUTE FUNCTION stego_steps.books_pages_sync();\n", stepManifest(), false)
 		stepCase(t, "no step yet: the held schema of the sync functions is missing", "", stepManifest(), false)
-		// The trigger moves the rows as rule 3 says.
+		// The trigger moves the rows as rule 3 says: the release before writes only K, the release of the step
+		// writes only U, and a write that sets both to values that differ is refused (ST-SUP-RC01-OC23).
 		admin, _ := database(t)
 		if _, err := admin.Exec(note(t) + noteSync + `DROP TRIGGER books_reject_row ON public.books; SET app.tenant = 't';
-INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');
-INSERT INTO public.books (id, folder_id, title, note) VALUES ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'a', 'old');`); err != nil {
+INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');`); err != nil {
 			t.Fatal(err)
 		}
-		read := func() (string, string) {
+		insert := func(id, columns, values string) error {
+			_, err := admin.Exec(`SET app.tenant = 't'; INSERT INTO public.books (id, folder_id, title, ` + columns + `) VALUES ('00000000-0000-0000-0000-00000000000` + id + `', '00000000-0000-0000-0000-000000000001', 'a', ` + values + `)`)
+			return err
+		}
+		read := func(id string) (string, string) {
 			var n, v sql.NullString
-			if err := admin.QueryRow(`SELECT note, note_v2 FROM public.books`).Scan(&n, &v); err != nil {
+			if err := admin.QueryRow(`SELECT note, note_v2 FROM public.books WHERE id = '00000000-0000-0000-0000-00000000000` + id + `'`).Scan(&n, &v); err != nil {
 				t.Fatal(err)
 			}
 			return n.String, v.String
 		}
-		if n, v := read(); n != "old" || v != "old" {
-			t.Errorf("after INSERT note and note_v2 are %q and %q, want old and old", n, v)
+		refusedWrite := func(what string, err error) {
+			t.Helper()
+			if err == nil || !strings.Contains(err.Error(), "23514") && !strings.Contains(err.Error(), "values that differ") {
+				t.Errorf("%s gives %v, want the refusal of the sync trigger", what, err)
+			}
 		}
-		mustExec(t, admin, `UPDATE public.books SET note_v2 = 'new'`)
-		if n, v := read(); n != "new" || v != "new" {
+		if err := insert("2", "note", "'old'"); err != nil {
+			t.Fatal(err)
+		}
+		if n, v := read("2"); n != "old" || v != "old" {
+			t.Errorf("after an INSERT of K only note and note_v2 are %q and %q, want old and old", n, v)
+		}
+		if err := insert("3", "note_v2", "'new'"); err != nil {
+			t.Fatal(err)
+		}
+		if n, v := read("3"); n != "new" || v != "new" {
+			t.Errorf("after an INSERT of U only note and note_v2 are %q and %q, want new and new", n, v)
+		}
+		refusedWrite("an INSERT of both with values that differ", insert("4", "note, note_v2", "'k', 'u'"))
+		if err := insert("4", "note, note_v2", "'same', 'same'"); err != nil {
+			t.Errorf("an INSERT of both with one value: %v", err)
+		}
+		mustExec(t, admin, `UPDATE public.books SET note_v2 = 'new' WHERE id = '00000000-0000-0000-0000-000000000002'`)
+		if n, v := read("2"); n != "new" || v != "new" {
 			t.Errorf("after an UPDATE of U only they are %q and %q, want new and new", n, v)
 		}
-		mustExec(t, admin, `UPDATE public.books SET note = 'k', note_v2 = 'u'`)
-		if n, v := read(); n != "k" || v != "k" {
-			t.Errorf("after an UPDATE of both they are %q and %q, want K copied into U", n, v)
+		mustExec(t, admin, `UPDATE public.books SET note = 'k' WHERE id = '00000000-0000-0000-0000-000000000002'`)
+		if n, v := read("2"); n != "k" || v != "k" {
+			t.Errorf("after an UPDATE of K only they are %q and %q, want k and k", n, v)
+		}
+		_, err := admin.Exec(`UPDATE public.books SET note = 'x', note_v2 = 'y' WHERE id = '00000000-0000-0000-0000-000000000002'`)
+		refusedWrite("an UPDATE of both with values that differ", err)
+		if err != nil && strings.Contains(err.Error(), "'x'") || err != nil && strings.Contains(err.Error(), "'y'") {
+			t.Errorf("the refusal holds a row value: %v", err)
+		}
+		if n, v := read("2"); n != "k" || v != "k" {
+			t.Errorf("after the refused UPDATE they are %q and %q, want k and k", n, v)
+		}
+		mustExec(t, admin, `UPDATE public.books SET note = 'z', note_v2 = 'z' WHERE id = '00000000-0000-0000-0000-000000000002'`)
+		if n, v := read("2"); n != "z" || v != "z" {
+			t.Errorf("after an UPDATE of both with one value they are %q and %q, want z and z", n, v)
 		}
 	})
 
@@ -107,7 +142,7 @@ INSERT INTO public.books (id, folder_id, title, note) VALUES ('00000000-0000-000
 		plain.Tables[1].Entity = false
 		noSteps := stepManifest()
 		noSteps.Schemas = nil
-		edited := strings.Replace(base, "IS NOT DISTINCT FROM", "IS DISTINCT FROM", 1)
+		edited := strings.Replace(base, "IF NEW.note_v2 IS NULL THEN", "IF NEW.note IS NULL THEN", 1)
 		for _, c := range []struct{ name, setup string }{
 			// Rule 2: the pair.
 			{"K is the key id", stepSchema + "ALTER TABLE public.books ADD COLUMN id_v2 uuid;\n" + syncSQL(t, "books_id_sync", "id", "id_v2", "identity") +

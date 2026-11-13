@@ -26,17 +26,29 @@ const SyncConfig = "search_path=pg_catalog, pg_temp"
 var SyncVersions = []int{1}
 
 // syncTemplates are the bodies of the template versions: %[1]s is K and %[2]s is U, each as quote_ident gives it,
-// %[3]s the conversion of NEW.K to the type of U and %[4]s the conversion of NEW.U to the type of K. On INSERT the
-// function only sets U from K; on UPDATE it copies U into K only when U changed and K did not, and else copies K
-// into U.
+// %[3]s the conversion of NEW.K to the type of U and %[4]s the conversion of NEW.U to the type of K. The release
+// before the step writes only K, and the release of the step writes only U, so on INSERT the function sets the
+// column that is NULL from the other, and on UPDATE it copies from the column that changed into the other. It
+// refuses a write that sets both columns to values that differ after the conversion, with a fixed message that
+// holds no row value (ST-SUP-RC01-OC23, ST-SUP-RC01-OC13; decision on ST-GEN-Q17).
 var syncTemplates = map[int]string{1: `
 BEGIN
   IF TG_OP = 'INSERT' THEN
+    IF NEW.%[2]s IS NULL THEN
+      NEW.%[2]s := %[3]s;
+    ELSIF NEW.%[1]s IS NULL THEN
+      NEW.%[1]s := %[4]s;
+    ELSIF NEW.%[2]s IS DISTINCT FROM %[3]s THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
+    END IF;
+  ELSIF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s AND NEW.%[2]s IS DISTINCT FROM OLD.%[2]s THEN
+    IF NEW.%[2]s IS DISTINCT FROM %[3]s THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
+    END IF;
+  ELSIF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s THEN
     NEW.%[2]s := %[3]s;
-  ELSIF NEW.%[2]s IS DISTINCT FROM OLD.%[2]s AND NEW.%[1]s IS NOT DISTINCT FROM OLD.%[1]s THEN
+  ELSIF NEW.%[2]s IS DISTINCT FROM OLD.%[2]s THEN
     NEW.%[1]s := %[4]s;
-  ELSE
-    NEW.%[2]s := %[3]s;
   END IF;
   RETURN NEW;
 END;
