@@ -80,7 +80,7 @@ const RuntimeModule = "github.com/jsell-rh/stego/registry/runtime"
 // zip hash fixes it. A test holds this table equal to the archetypes'
 // pins; a moved pin changes it in the same change (ST-BLD-UC02-R05).
 var runtimePins = map[string]string{
-	"v0.87.0": "h1:T6s7B3b+EvtKVUjUSKW3NM7aOUeUFCb/5SIkoghtXUY=",
+	"v0.87.0": "h1:FKNCeESTYd+V6v0ToSWesT+s6rVhEjKlh2N9P0YfUlg=",
 }
 
 // RuntimePins gives a copy of the runtime pins that this binary trusts, by
@@ -922,8 +922,9 @@ func prepareDownload(options DownloadOptions) (DownloadOptions, error) {
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		return options, errors.New("module cache download requires Linux amd64")
 	}
-	if !revisionPattern.MatchString(options.Revision) || (options.Module != "." && !safePath(options.Module)) || !safePath(options.Target) {
-		return options, errors.New("module cache download requires a commit, relative module, and relative target")
+	var err error
+	if options.Source, options.Module, options.Target, err = checkLocation(options.Source, options.Revision, options.Module, options.Target); err != nil {
+		return options, fmt.Errorf("module cache download: %w", err)
 	}
 	for _, pointer := range []*string{&options.Source, &options.Go, &options.Output} {
 		if *pointer == "" {
@@ -935,7 +936,6 @@ func prepareDownload(options DownloadOptions) (DownloadOptions, error) {
 		}
 		*pointer = absolute
 	}
-	var err error
 	options.Source, err = filepath.EvalSymlinks(options.Source)
 	if err != nil {
 		return options, err

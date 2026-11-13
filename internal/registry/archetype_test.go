@@ -73,7 +73,7 @@ func TestRestCrudArchetypeParsesFromLiveRegistry(t *testing.T) {
 		t.Errorf("Conventions.CORS = %q, want %q", a.Conventions.CORS, "enabled")
 	}
 
-	wantMixins := []string{"event-publisher", "async-worker"}
+	wantMixins := []string{"event-publisher", "durable-events", "kafka-events", "async-worker"}
 	if len(a.CompatibleMixins) != len(wantMixins) {
 		t.Fatalf("CompatibleMixins count = %d, want %d", len(a.CompatibleMixins), len(wantMixins))
 	}

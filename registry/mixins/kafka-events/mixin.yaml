@@ -1,0 +1,14 @@
+kind: mixin
+name: kafka-events
+version: 1.0.0
+
+# The Kafka destination of the outbox sends what durable-events stores, so it needs durable-events (ST-SUP-INV16).
+requires_mixins:
+  - durable-events
+
+adds_components:
+  - kafka-producer
+
+adds_slots: []
+
+overrides: none

@@ -1,0 +1,8 @@
+kind: policy
+
+# The months that a part stays after its successor ships, by stage (ST-DIS-INV12, ST-DIS-PO01). A deprecated alias
+# of mixins has its sunset one ga window after its deprecated_on date (ST-SUP-INV17).
+windows:
+  alpha: 0
+  beta: 3
+  ga: 6
