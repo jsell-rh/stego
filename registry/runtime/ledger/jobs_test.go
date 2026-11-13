@@ -114,10 +114,11 @@ func (f *fixture) burnTo(t *testing.T, n uint64) {
 	for power <= next+n {
 		power *= 10
 	}
+	// A subtransaction that writes takes a transaction ID of its own, and one statement burns about a million in a
+	// few seconds, so the test crosses the power of ten on any server that is not near one of 10^8 or more.
 	burn := power - n - next
-	if burn > 300000 {
-		t.Logf("the next transaction ID %d is too far from a power of ten; the order test does not cross one", next)
-		return
+	if burn > 20000000 {
+		t.Fatalf("the next transaction ID %d is too far from a power of ten to cross one; run the test on another server", next)
 	}
 	if _, err := f.owner.ExecContext(f.ctx, `CREATE TEMP TABLE burn (x int);
 DO $$ BEGIN FOR i IN 1..`+fmt.Sprint(burn)+` LOOP BEGIN INSERT INTO burn VALUES (i); EXCEPTION WHEN OTHERS THEN NULL; END; END LOOP; END $$;
@@ -375,6 +376,21 @@ func TestJobs(t *testing.T) {
 		}
 		stats := f.open(ownerRole, nil)
 		entriesRead := func() int64 {
+			// Each other session of the test's database has ended and flushed its counts.
+			for i := 0; ; i++ {
+				var others int
+				if err := stats.QueryRowContext(f.ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()
+ AND backend_type = 'client backend'`).Scan(&others); err != nil {
+					t.Fatal(err)
+				}
+				if others == 0 {
+					break
+				}
+				if i == 300 {
+					t.Fatalf("%d other sessions of the test database do not end", others)
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
 			var last int64 = -1
 			for range 100 {
 				var n int64

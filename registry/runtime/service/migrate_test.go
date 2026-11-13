@@ -159,6 +159,27 @@ func TestMigrateLedgerRole(t *testing.T) {
 			t.Fatalf("the table of the ledger is owned by %q (%v), want the owner role %s", owner, err, f.owner)
 		}
 	})
+
+	t.Run("ST-SUP-RP14-LC03-T03 Migrate makes the tables of the runtime in public when a schema is named after the owner role", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		// The default search path "$user", public of the owner puts a schema of its name first (#245 Q2).
+		if _, err := f.admin.Exec("CREATE SCHEMA " + f.owner + " AUTHORIZATION " + f.owner); err != nil {
+			t.Fatal(err)
+		}
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatal(err)
+		}
+		var keys string
+		if err := f.admin.QueryRow("SELECT pg_catalog.to_regclass('public.idempotency_keys')::text").Scan(&keys); err != nil || keys == "" {
+			t.Fatalf("the key table is not in public: %q, %v", keys, err)
+		}
+		var elsewhere int
+		if err := f.admin.QueryRow("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1", f.owner).Scan(&elsewhere); err != nil || elsewhere != 0 {
+			t.Fatalf("the schema of the owner holds %d relations (%v), want none", elsewhere, err)
+		}
+	})
 }
 
 func TestMain(m *testing.M) {

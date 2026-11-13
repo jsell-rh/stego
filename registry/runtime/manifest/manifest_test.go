@@ -670,6 +670,22 @@ func TestSchemas(t *testing.T) {
 				"the confined role " + confined + " owns the type public.mood, which the manifest does not name for it"},
 			{"a schema of the confined role", "CREATE SCHEMA side AUTHORIZATION " + confined,
 				"the confined role " + confined + " owns the schema side, which the manifest does not name for it"},
+			{"a large object of the confined role", "SELECT lo_create(424242); ALTER LARGE OBJECT 424242 OWNER TO " + confined,
+				"the confined role " + confined + " owns the large object 424242, which the manifest does not name for it"},
+			{"an operator of the confined role", "CREATE OPERATOR public.=== (LEFTARG = integer, RIGHTARG = integer, FUNCTION = int4eq); " +
+				"ALTER OPERATOR public.=== (integer, integer) OWNER TO " + confined,
+				"the confined role " + confined + " owns the operator public.===(integer,integer), which the manifest does not name for it"},
+			{"a collation of the confined role", "CREATE COLLATION public.side_c (locale = 'C'); ALTER COLLATION public.side_c OWNER TO " + confined,
+				"the confined role " + confined + " owns the collation public.side_c, which the manifest does not name for it"},
+			{"a text search configuration of the confined role", "CREATE TEXT SEARCH CONFIGURATION public.side_ts (COPY = simple); " +
+				"ALTER TEXT SEARCH CONFIGURATION public.side_ts OWNER TO " + confined,
+				"the confined role " + confined + " owns the text search configuration public.side_ts, which the manifest does not name for it"},
+			{"default privileges of the confined role", "ALTER DEFAULT PRIVILEGES FOR ROLE " + confined + " GRANT EXECUTE ON FUNCTIONS TO " + other,
+				"the confined role " + confined + " owns the default privileges for f, which the manifest does not name for it"},
+			{"a membership of the confined role", "GRANT pg_read_all_data TO " + confined,
+				"the confined role " + confined + " is a member of the role pg_read_all_data, which the manifest does not name for it"},
+			{"a privilege of the confined role on another table", "CREATE TABLE public.side (x integer); GRANT SELECT (x) ON public.side TO " + confined,
+				"the confined role " + confined + " holds a privilege on the relation public.side, which the manifest does not name for it"},
 		} {
 			t.Run(change.name, func(t *testing.T) {
 				admin, reader := database(t)
@@ -678,7 +694,9 @@ func TestSchemas(t *testing.T) {
 					t.Fatal(err)
 				}
 				t.Cleanup(func() {
-					_, _ = admin.Exec("DROP OWNED BY " + confined + ", " + other)
+					// One role at a time: DROP OWNED BY of two roles fails on default privileges of one for the other.
+					_, _ = admin.Exec("DROP OWNED BY " + confined)
+					_, _ = admin.Exec("DROP OWNED BY " + other)
 					_, _ = admin.Exec("DROP ROLE IF EXISTS " + confined)
 					_, _ = admin.Exec("DROP ROLE IF EXISTS " + other)
 				})
@@ -779,6 +797,18 @@ func TestSearchPathFunctions(t *testing.T) {
 		m.Functions = []Function{{Name: "held.claim", Language: "sql", Source: "SELECT 1", Returns: "integer"}}
 		if err := Check(ctx, reader, m); err != nil {
 			t.Fatalf("Check refused a function of the same name in public, which no call of held.claim reaches: %v", err)
+		}
+		// With held on the path, a function of its name in a schema before held is a fault (#245 Q3).
+		if _, err := admin.Exec("CREATE SCHEMA early; GRANT USAGE ON SCHEMA early TO " + role + "; ALTER ROLE " + role + " SET search_path = early, held, public; " +
+			"CREATE FUNCTION early.claim() RETURNS integer LANGUAGE sql AS 'SELECT 3'"); err != nil {
+			t.Fatal(err)
+		}
+		reader.SetMaxIdleConns(0)
+		err := Check(ctx, reader, m)
+		var mismatch *Mismatch
+		want := "the function early.claim comes before held.claim on the search path of the session"
+		if !errors.As(err, &mismatch) || len(mismatch.Faults) != 1 || mismatch.Faults[0] != want {
+			t.Fatalf("Check gave %v, want the one fault %q", err, want)
 		}
 	})
 }

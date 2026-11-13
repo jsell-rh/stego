@@ -39,7 +39,7 @@ const MaxPurgeBatch = 10000
 // The text makes the function as purgeRole with SET ROLE, so the role that runs it needs membership in purgeRole
 // WITH SET TRUE only (INHERIT FALSE is enough), and the session user must be able to SET ROLE back to that role. It
 // gives purgeRole USAGE on the schema when it has none, and CREATE only while it makes the function, which it takes
-// back in the same transaction; so the role that runs it must be able to grant CREATE on the schema, as its owner
+// back in the same transaction, also when purgeRole held it before; so the role that runs it must be able to grant CREATE on the schema, as its owner
 // is. It makes purgeRole when it is missing, which needs CREATEROLE. Migration refuses a role name that is not a
 // lower-case SQL name of at most 63 characters, and one name for both roles.
 func Migration(purgeRole, runtimeRole string) (string, error) {
@@ -195,9 +195,8 @@ $fn$$f$, v_schema);
 	EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %I.idempotency_keys_purge(timestamptz, integer) FROM PUBLIC', v_schema);
 	EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION %I.idempotency_keys_purge(timestamptz, integer) TO {{runtime}}', v_schema);
 	EXECUTE pg_catalog.format('SET ROLE %I', v_role);
-	IF NOT v_create THEN
-		EXECUTE pg_catalog.format('REVOKE CREATE ON SCHEMA %I FROM {{purge}}', v_schema);
-	END IF;
+	-- The purge role keeps no CREATE on the schema, also one that it held before the text ran.
+	EXECUTE pg_catalog.format('REVOKE CREATE ON SCHEMA %I FROM {{purge}}', v_schema);
 END
 $do$;
 `
