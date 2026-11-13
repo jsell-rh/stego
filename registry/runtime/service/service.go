@@ -269,9 +269,12 @@ func (k presharedKey) RequireTransportSecurity() bool { return !k.plaintext }
 
 // StartStage gives the stage of a start that New refused, for the failure record of the process, which holds no
 // error text (ST-SUP-RP14-LC05): service.start.authn.discovery for a discovery document that the key set refused,
-// service.start.authn.keys for another key source that it refused, and empty for every other failure.
+// service.start.authn.keys for another key source that it refused, service.start.schema_manifest for a database that
+// does not hold the schema manifest (ST-SUP-RP14-LC06), and empty for every other failure.
 func StartStage(err error) string {
 	switch {
+	case errors.Is(err, manifest.ErrNotSatisfied):
+		return "service.start.schema_manifest"
 	case errors.Is(err, authn.ErrDiscovery):
 		return "service.start.authn.discovery"
 	case errors.Is(err, authn.ErrKeys):
