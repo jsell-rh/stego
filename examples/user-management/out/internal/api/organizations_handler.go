@@ -39,7 +39,7 @@ var organizationsDeleteCommand = mustCommand(command.NewCommand(command.CommandS
 	Probe:        noProbe,
 	Destinations: []command.Destination{{Name: kafkaoutbox.DestinationName, Idempotent: true, Effects: []string{"user-management.organization.deleted"}}},
 	Permission:   "edit",
-	Resource:     &command.Resource{Type: "organization", Token: "SELECT authz_token FROM organizations WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", ValidID: command.ValidUUID},
+	Resource:     &command.Resource{Type: "organization", Token: "SELECT authz_token FROM public.\"organizations\" WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", ValidID: command.ValidUUID},
 }))
 
 // organizationsListQuery is the query of a list of organizations, on the list permission of Organization (ST-SUP-RP11-LC07).
