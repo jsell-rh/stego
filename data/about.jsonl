@@ -15,3 +15,6 @@
 {"source_id":"ST-GEN-Q02","target_id":"ST-GEN-UC01-R05"}
 {"source_id":"ST-SUP-Q110","target_id":"ST-SUP-RC20"}
 {"source_id":"ST-SUP-Q110","target_id":"ST-SUP-RP10-LC25"}
+{"source_id":"ST-SUP-Q118","target_id":"ST-DECL-UC06-R04"}
+{"source_id":"ST-SUP-Q118","target_id":"ST-SUP-RC29-OC05"}
+{"source_id":"ST-SUP-Q118","target_id":"ST-SUP-RP10-LC05"}
