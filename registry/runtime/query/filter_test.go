@@ -15,8 +15,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 func TestListFilter(t *testing.T) {
@@ -671,6 +675,83 @@ func TestOverBoundWarning(t *testing.T) {
 		if len(lines) != 2 || !strings.Contains(lines[0], "entity=order") || !strings.Contains(lines[0], "bound=10000") ||
 			!strings.HasSuffix(lines[0], "lists=1") || !strings.HasSuffix(lines[1], "lists=1000") {
 			t.Errorf("1001 lists over the bound in a minute and one after it logged %d lines:\n%s\nwant one with lists=1 and one with lists=1000", len(lines), out.String())
+		}
+	})
+}
+
+func TestOverBoundMetric(t *testing.T) {
+	t.Run("ST-SUP-RP11-LC20-T10 Each ordered list over the bound counts in the metric query.list.over_bound with its entity", func(t *testing.T) {
+		e := newEnv(t)
+		keys := make([]string, MaxSearchKeys+1)
+		for i := range keys {
+			keys[i] = fmt.Sprintf("k-%05d", i)
+		}
+		port := &fakeDecision{decide: func(authz.EvaluationRequest) bool { return true }, search: func(r authz.SearchRequest) authz.SearchResult {
+			from := 0
+			if cursor, _, ok := r.Page.Token.CursorFor("fake"); ok {
+				fmt.Sscan(cursor, &from)
+			}
+			to := min(from+r.Page.Limit, len(keys))
+			var result authz.SearchResult
+			for _, id := range keys[from:to] {
+				result.Resources = append(result.Resources, resourceIn(t, "t1", "order", id))
+			}
+			if to < len(keys) {
+				result.Next = authz.NewPageToken("fake", fmt.Sprint(to), authz.Fresh())
+			}
+			return result
+		}}
+		reader := sdkmetric.NewManualReader()
+		meter := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+		az, err := authz.New(authz.Config{Provider: port, DB: e.db, Schema: "authz", Outbox: e.queue})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rt, err := New(Config{DB: e.db, AuditDB: e.auditDB, Audit: e.writer, AuditSettings: audit.Settings{Level: audit.LevelChange},
+			Authz: az, Service: "shop", Meter: meter})
+		if err != nil {
+			t.Fatal(err)
+		}
+		searched := orderEntity(t, true)
+		q := mustListQuery(t, "list-searched-orders", searched, "view")
+		list := func() error {
+			_, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", q.Name()), struct{}{},
+				func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (ListResult[Order], error) {
+					repo, err := Repo(h, searched)
+					if err != nil {
+						return ListResult[Order]{}, err
+					}
+					return repo.List(ctx, ListRequest{Order: []OrderBy{{Field: "total"}}})
+				})
+			return err
+		}
+		counted := func() (int64, []string) {
+			var data metricdata.ResourceMetrics
+			if err := reader.Collect(context.Background(), &data); err != nil {
+				t.Fatal(err)
+			}
+			var total int64
+			var entities []string
+			for _, scope := range data.ScopeMetrics {
+				for _, m := range scope.Metrics {
+					if sum, ok := m.Data.(metricdata.Sum[int64]); ok && m.Name == "query.list.over_bound" {
+						for _, point := range sum.DataPoints {
+							total += point.Value
+							value, _ := point.Attributes.Value("entity")
+							entities = append(entities, value.AsString())
+						}
+					}
+				}
+			}
+			return total, entities
+		}
+		for want := int64(1); want <= 2; want++ {
+			if err := list(); !errors.Is(err, ErrTooManyKeys) {
+				t.Fatalf("list %d over the bound gave %v, want ErrTooManyKeys", want, err)
+			}
+			if total, entities := counted(); total != want || !slices.Equal(entities, []string{"order"}) {
+				t.Errorf("after %d lists over the bound the metric counts %d for %v, want %d for order", want, total, entities, want)
+			}
 		}
 	})
 }
