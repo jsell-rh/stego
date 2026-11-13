@@ -87,7 +87,7 @@ INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');
 		}
 		read := func(id string) (string, string) {
 			var n, v sql.NullString
-			if err := admin.QueryRow(`SELECT note, note_v2 FROM public.books WHERE id = '00000000-0000-0000-0000-00000000000` + id + `'`).Scan(&n, &v); err != nil {
+			if err := admin.QueryRow(`SELECT note, note_v2 FROM public.books WHERE id = '00000000-0000-0000-0000-00000000000`+id+`'`).Scan(&n, &v); err != nil {
 				t.Fatal(err)
 			}
 			return n.String, v.String
