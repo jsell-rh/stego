@@ -57,7 +57,7 @@ func TestImmutableApplyOverTLS(t *testing.T) {
 		for _, mode := range []string{"create", "nameless", "existing", "conflict", "conflict-mismatch", "ambiguous", "wrong-row", "wrong-write", "denied"} {
 			t.Run(mode, func(t *testing.T) {
 				app := immutableApplication()
-				directory := t.TempDir()
+				directory := privateDir(t)
 				t.Setenv("TEST_CLI_CONFIG", filepath.Join(directory, "config.json"))
 				var calls, writes atomic.Int32
 				var mu sync.Mutex

@@ -32,7 +32,13 @@ func testTelemetryProcess(t *testing.T, project string) {
 				env = append(env, entry)
 			}
 		}
-		cfg := filepath.Join(t.TempDir(), "config.json")
+		// The CLI refuses a configuration directory that others may write to, so the directory is private whatever
+		// the umask of the test process.
+		cfgDir := t.TempDir()
+		if err := os.Chmod(cfgDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		cfg := filepath.Join(cfgDir, "config.json")
 		env = append(env, "TEST_CLI_CONFIG="+cfg, "GORACE=atexit_sleep_ms=0")
 		run := func(args ...string) ([]byte, string, error) {
 			t.Helper()
