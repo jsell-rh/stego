@@ -34,14 +34,14 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261113132456-cc5312a7911c
+        module_version: v0.0.0-20261113152110-5bb6a55a9a94
         vcs: git
-        revision: cc5312a7911c9b6536b964fbd29cb17574e4b6a2
+        revision: 5bb6a55a9a946e3305a277cd6bea55c5b06a0184
         source_state: clean
     service_name: user-management
     service_hash: 57f491b2bcbc66d8735ede7923556203fb6bc4c387029904e670fcfce15fadbd
     registry_sha: env-override
-    registry_content_sha256: b347c7e55d500de54df463809703b9fc4aee50b42898760b5a9816185e3faea7
+    registry_content_sha256: 0a07e1dbd41aa46ac0e5d53a4a2205dfec65582b7fb32a7eaf27e285397e9b44
     components:
         audit-log:
             version: 1.1.0
@@ -68,8 +68,8 @@ last_applied:
             version: 2.1.0
             sha: f9e7ee9c85ef6e0b7304429e7a6ba59f6e99c5bd249720221fe76d529574e465
         postgres-adapter:
-            version: 6.0.1
-            sha: 43cbd3dd74f1b0f176ed936754ffbb118dd98415c768818d2d07e9de747931c4
+            version: 6.1.0
+            sha: c0a3e3a283e4e037f1441cb65833981fdfe9eec745ca5be9e9d08ef8c589e0f5
         query:
             version: 1.1.0
             sha: 9b4a5a4b5afcbc9d23c6d02d78b3a227ff445b857bef9e73c547af184d7226e0
@@ -160,10 +160,10 @@ last_applied:
         internal/outbox/outbox.go: 5f090d5ae397ff12f1e888f4d3fa758131767e7cc1ec5102fe6962e2397b410a
         internal/stegoruntime/runtime.go: 61a106940f0a03f84cee576ebd6018c9834479a195046837abe104186c96862a
         internal/storage/database.go: 2969e645f09850b504ad2725978a15d1ccad3147efb4a450d7360be23ffef627
-        internal/storage/migrate.go: 029d2589ebd1ae4d89159fc497d5d46f18dd8b2dfe46827b06247aef15c49ff4
+        internal/storage/migrate.go: 22fb2b6a1d2cd44dee9a8e5195375a30e7d74973383af6e2c3858b4eb8df100b
         internal/storage/migrations/001_initial.sql: 8561b6d30aa26aeb145ee71633ecb53242fc7ef58dd6629aa917ac290e33085a
-        internal/storage/runtime_access.go: 325c2a540a1172dd5880dc6328db3f2efb3827ebc21d203c78d5c115569c5dd9
-        internal/storage/schema_generation.go: 12fd7eb3fc3ef831f4e6b71c4867017a055ad51b54d40d49c41a7b7676f49406
+        internal/storage/runtime_access.go: dc187dc3c0bef1126faa0330e2d805990066f61e56a19fd0b4df9fd1a0ff6886
+        internal/storage/schema_generation.go: c781518832530c6a88894792489b343e72777246486890fcf9b4c1ba001fd81c
         internal/storage/schema_manifest.go: 52191a947f34a6a614540b0d5a6703ea2d447979960c9eeb848ff3c076d08b71
         internal/storage/tables.go: f3eaaff347c443b907317549ab299251599a0976e0796e2362e18b227f154ec3
         internal/tenancy/migrations/roles.sql: 131dcb112a94f82ead145bcb5797c5915ad94a230564e2181883d19944450fc9
