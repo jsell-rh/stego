@@ -92,10 +92,15 @@ func TestGeneratedProcessCleanupTelemetry(t *testing.T) {
 }
 func testGeneratedProcess(t *testing.T, modes []string, checkRPC bool) {
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "records")
-	build := exec.Command("go", "build", "-race", "-mod=readonly", "-o", binary, "../out/grpcapi/processes/records")
-	if data, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, data)
+	// The test that runs this suite can build the executable once, outside the suite's time limit, and name it in
+	// STEGO_TEST_PROCESS_BINARY. Otherwise the scenario builds it here.
+	binary := os.Getenv("STEGO_TEST_PROCESS_BINARY")
+	if binary == "" {
+		binary = filepath.Join(dir, "records")
+		build := exec.Command("go", "build", "-race", "-mod=readonly", "-o", binary, "../out/grpcapi/processes/records")
+		if data, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("build: %v\n%s", err, data)
+		}
 	}
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
