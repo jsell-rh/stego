@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -104,6 +105,9 @@ func (f *fixture) snapshots(account string) []string {
 
 // burnTo uses transaction IDs, as subtransactions of the owner, until the next one is ahead of the next power of
 // ten by about n, so that the next n transactions cross it.
+// localBurn is the most transaction IDs that a local run of burnTo burns.
+const localBurn = 1000000
+
 func (f *fixture) burnTo(t *testing.T, n uint64) {
 	t.Helper()
 	var next uint64
@@ -115,9 +119,15 @@ func (f *fixture) burnTo(t *testing.T, n uint64) {
 		power *= 10
 	}
 	// A subtransaction that writes takes a transaction ID of its own, and one statement burns about a million in a
-	// few seconds, so the test crosses the power of ten on any server that is not near one of 10^8 or more.
+	// few seconds. In CI the test crosses the power of ten on any server below 10^8, and fails above it; an ordinary
+	// local run burns at most localBurn, as heavy work stays out of the workstation (AGENTS.md), and else logs that
+	// the order test does not cross one.
 	burn := power - n - next
-	if burn > 20000000 {
+	switch {
+	case os.Getenv("CI") == "" && burn > localBurn:
+		t.Logf("the next transaction ID %d is %d from a power of ten; a local run burns at most %d, so the order test does not cross one (CI does)", next, burn, localBurn)
+		return
+	case burn > 20000000:
 		t.Fatalf("the next transaction ID %d is too far from a power of ten to cross one; run the test on another server", next)
 	}
 	if _, err := f.owner.ExecContext(f.ctx, `CREATE TEMP TABLE burn (x int);

@@ -684,6 +684,10 @@ func TestSchemas(t *testing.T) {
 				"the confined role " + confined + " owns the default privileges for f, which the manifest does not name for it"},
 			{"a membership of the confined role", "GRANT pg_read_all_data TO " + confined,
 				"the confined role " + confined + " is a member of the role pg_read_all_data, which the manifest does not name for it"},
+			{"a member of the confined role besides the owner", "GRANT " + confined + " TO %owner% WITH SET TRUE, INHERIT FALSE; GRANT " + confined + " TO " + other,
+				"the role " + other + " is a member of the confined role " + confined + ", which the manifest grants only to its owner WITH SET TRUE, INHERIT FALSE and no ADMIN"},
+			{"the owner as a member that inherits", "GRANT " + confined + " TO %owner% WITH SET TRUE, INHERIT TRUE",
+				"the role %owner% is a member of the confined role " + confined + ", which the manifest grants only to its owner WITH SET TRUE, INHERIT FALSE and no ADMIN"},
 			{"a privilege of the confined role on another table", "CREATE TABLE public.side (x integer); GRANT SELECT (x) ON public.side TO " + confined,
 				"the confined role " + confined + " holds a privilege on the relation public.side, which the manifest does not name for it"},
 		} {
@@ -713,7 +717,7 @@ func TestSchemas(t *testing.T) {
 				if err := Check(ctx, reader, m); err != nil {
 					t.Fatalf("Check refused the database of the manifest: %v", err)
 				}
-				if _, err := admin.Exec(strings.ReplaceAll(change.statement, "%role%", role)); err != nil {
+				if _, err := admin.Exec(strings.NewReplacer("%role%", role, "%owner%", m.Owner).Replace(change.statement)); err != nil {
 					t.Fatal(err)
 				}
 				want := strings.NewReplacer("%role%", role, "%owner%", m.Owner).Replace(change.fault)
