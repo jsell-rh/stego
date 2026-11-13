@@ -39,10 +39,14 @@ type Manifest struct {
 	Confined []string
 }
 
-// Schema is one schema that the runtime holds whole, and the roles that may use it.
+// Schema is one schema that the runtime holds whole, and the roles that may use it. A Shared schema, such as
+// public, holds the objects of others too: it is not held whole, and only its CREATE is checked, which goes to no
+// role but the owner of the schema and the owner of the manifest, so no other role can make a function or a table
+// in it.
 type Schema struct {
-	Name  string
-	Usage []string
+	Name   string
+	Usage  []string
+	Shared bool
 }
 
 // Table is one table that the code reads or writes, in its schema.
@@ -176,7 +180,13 @@ func Join(manifests ...Manifest) Manifest {
 	for _, m := range manifests {
 		joined.Tables = append(joined.Tables, m.Tables...)
 		joined.Functions = append(joined.Functions, m.Functions...)
-		joined.Schemas = append(joined.Schemas, m.Schemas...)
+		for _, sc := range m.Schemas {
+			// A shared schema that two manifests name is checked once.
+			if sc.Shared && slices.ContainsFunc(joined.Schemas, func(o Schema) bool { return o.Shared && o.Name == sc.Name }) {
+				continue
+			}
+			joined.Schemas = append(joined.Schemas, sc)
+		}
 		for _, role := range m.Confined {
 			if !slices.Contains(joined.Confined, role) {
 				joined.Confined = append(joined.Confined, role)
@@ -229,6 +239,9 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("manifest: the schema %q needs a name of at most 63 bytes, named once", sc.Name)
 		}
 		schemas[sc.Name] = true
+		if sc.Shared && len(sc.Usage) > 0 {
+			return fmt.Errorf("manifest: the shared schema %s names USAGE, which only a held schema checks", sc.Name)
+		}
 		for _, r := range sc.Usage {
 			if !name.MatchString(r) || r == "PUBLIC" {
 				return fmt.Errorf("manifest: the schema %s gives USAGE to %q; only named roles may use it", sc.Name, r)
@@ -470,6 +483,11 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		}
 		faults = append(faults, found...)
 	}
+	found, err := checkNames(ctx, tx, m, named)
+	if err != nil {
+		return fmt.Errorf("manifest: read the catalog of the functions: %w", err)
+	}
+	faults = append(faults, found...)
 	for _, role := range m.Confined {
 		found, err := checkConfined(ctx, tx, role, named)
 		if err != nil {
@@ -509,6 +527,59 @@ func namedFunctions(ctx context.Context, tx *sql.Tx, m Manifest) (map[uint32]str
 	return named, nil
 }
 
+// checkNames gives a fault for each function that has the schema and the name of a function of the manifest and that
+// is not one of the manifest, such as an overload with other argument types, which a call with untyped arguments
+// could run in its place. A function in a held schema is the fault of that schema.
+func checkNames(ctx context.Context, tx *sql.Tx, m Manifest, named map[uint32]string) ([]string, error) {
+	held := map[string]bool{}
+	for _, sc := range m.Schemas {
+		if !sc.Shared {
+			held[sc.Name] = true
+		}
+	}
+	seen := map[string]bool{}
+	var names []string
+	add := func(f string) {
+		if schema, _, _ := strings.Cut(f, "."); !held[schema] && !seen[f] {
+			seen[f] = true
+			names = append(names, f)
+		}
+	}
+	for _, f := range m.Functions {
+		add(f.Name)
+	}
+	for _, t := range m.Tables {
+		for _, tr := range slices.Concat(t.Triggers, t.PartitionTriggers) {
+			add(tr.Function.Name)
+		}
+	}
+	slices.Sort(names)
+	var faults []string
+	for _, f := range names {
+		schema, fn, _ := strings.Cut(f, ".")
+		rows, err := tx.QueryContext(ctx, `SELECT p.oid, p.oid::pg_catalog.regprocedure::text FROM pg_catalog.pg_proc p
+  JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = $1 AND p.proname = $2 ORDER BY 2`, schema, fn)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var oid uint32
+			var signature string
+			if err := rows.Scan(&oid, &signature); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if _, ok := named[oid]; !ok {
+				faults = append(faults, "function "+signature+" has the name of a function of the manifest, and is not one of it")
+			}
+		}
+		if err := closed(rows); err != nil {
+			return nil, err
+		}
+	}
+	return faults, nil
+}
+
 // checkSchema gives the faults of one schema that the runtime holds whole: missing, of another owner, a privilege
 // of a role other than its owner that the manifest does not give, PUBLIC included, one with the grant option, a
 // USAGE of the manifest that it does not give, and each function in it that the manifest does not name.
@@ -525,6 +596,25 @@ func checkSchema(ctx context.Context, tx *sql.Tx, sc Schema, wantOwner string, n
 	var faults []string
 	fault := func(format string, args ...any) {
 		faults = append(faults, "schema "+sc.Name+": "+fmt.Sprintf(format, args...))
+	}
+	if sc.Shared {
+		rows, err := tx.QueryContext(ctx, `SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END
+  FROM pg_catalog.pg_namespace n, pg_catalog.aclexplode(COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) a
+  WHERE n.oid = $1 AND a.grantee <> n.nspowner AND a.privilege_type = 'CREATE' ORDER BY 1`, oid)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var role string
+			if err := rows.Scan(&role); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if role != wantOwner {
+				fault("the privilege CREATE to %s is granted, and the manifest gives it to no role but the owner", role)
+			}
+		}
+		return faults, closed(rows)
 	}
 	if owner != wantOwner {
 		fault("the schema belongs to the role %s, and the manifest needs %s", owner, wantOwner)
@@ -868,9 +958,10 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string) ([]s
 	if err := closed(rows); err != nil {
 		return nil, err
 	}
-	if t.RowSecurity {
-		// A referential action runs with the rights of the table owner and passes row-level security, so on a table
-		// with row-level security each foreign key is the manifest's.
+	if t.RowSecurity || t.CheckGrants {
+		// A referential action runs with the rights of the table owner and passes row-level security and the
+		// grants, so on a table with row-level security or that checks its grants each foreign key is the
+		// manifest's.
 		namedConstraints := map[string]bool{}
 		for _, want := range t.Constraints {
 			namedConstraints[want.Name] = true
@@ -1081,9 +1172,10 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string) ([]s
 			fault("trigger %s %s", want.Name, f)
 		}
 	}
-	if t.RowSecurity {
+	if t.RowSecurity || t.CheckGrants {
 		// A trigger runs on every row that a role writes, and can drop, change or copy it, so on a table with
-		// row-level security each trigger is the manifest's.
+		// row-level security or that checks its grants, such as the revocation floor, each trigger is the
+		// manifest's.
 		var extra []string
 		for n := range triggers {
 			if !namedTriggers[n] {

@@ -57,6 +57,18 @@ func TestManifest(t *testing.T) {
 			{"a function of the outbox relay role outside the manifest", "CREATE FUNCTION authz.peek() RETURNS bigint LANGUAGE sql SECURITY DEFINER " +
 				"SET search_path = pg_catalog, pg_temp AS 'SELECT count(*) FROM authz.authz_revocations'; ALTER FUNCTION authz.peek() OWNER TO " + e.outboxRelay,
 				"DROP FUNCTION authz.peek()", "the confined role " + e.outboxRelay + " owns the function authz.peek(), which the manifest does not name for it"},
+			{"a trigger on the floor that keeps the old row", "CREATE FUNCTION authz.keep() RETURNS trigger LANGUAGE plpgsql AS $x$ BEGIN RETURN OLD; END $x$; " +
+				"CREATE TRIGGER keep BEFORE UPDATE ON authz.authz_floor FOR EACH ROW EXECUTE FUNCTION authz.keep()",
+				"DROP TRIGGER keep ON authz.authz_floor; DROP FUNCTION authz.keep()", "table authz.authz_floor: trigger keep is a trigger that the manifest does not name"},
+			{"a foreign key of the floor that deletes it", "CREATE TABLE authz.evil (k boolean PRIMARY KEY); INSERT INTO authz.evil VALUES (true); " +
+				"ALTER TABLE authz.authz_floor ADD CONSTRAINT floor_evil FOREIGN KEY (only_row) REFERENCES authz.evil (k) ON DELETE CASCADE",
+				"ALTER TABLE authz.authz_floor DROP CONSTRAINT floor_evil; DROP TABLE authz.evil",
+				"table authz.authz_floor: constraint floor_evil is a foreign key that the manifest does not name"},
+			{"an overload of the state hook", "CREATE FUNCTION authz.authz_revocation_state(a text, b text, c text) RETURNS boolean LANGUAGE plpgsql AS $x$ BEGIN RETURN false; END $x$",
+				"DROP FUNCTION authz.authz_revocation_state(text, text, text)",
+				"function authz.authz_revocation_state(text,text,text) has the name of a function of the manifest, and is not one of it"},
+			{"CREATE on the schema for the runtime role", "GRANT CREATE ON SCHEMA authz TO " + runtimeRole, "REVOKE CREATE ON SCHEMA authz FROM " + runtimeRole,
+				"schema authz: the privilege CREATE to " + runtimeRole + " is granted, and the manifest gives it to no role but the owner"},
 			{"a dropped foreign key", "ALTER TABLE authz.authz_revocation_tuples DROP CONSTRAINT authz_revocation_tuples_revocation_id_fkey",
 				"ALTER TABLE authz.authz_revocation_tuples ADD CONSTRAINT authz_revocation_tuples_revocation_id_fkey FOREIGN KEY (revocation_id) REFERENCES authz.authz_revocations (id)",
 				"constraint authz_revocation_tuples_revocation_id_fkey is missing"},

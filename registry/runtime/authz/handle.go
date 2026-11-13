@@ -987,7 +987,8 @@ func Migration(schema, runtimeRole, relayRole, outboxRelayRole string, hookRoles
 // with the tenant policy for every role on the two revocation tables, the exact grants of each table and its columns,
 // the trigger authz_revocation_tuple_check, and the function authz_revocation_state; both functions are SECURITY
 // DEFINER with their fixed search path and owned by outboxRelayRole, and EXECUTE on authz_revocation_state goes to
-// runtimeRole and the hook roles only. schema is a lower-case SQL name that needs no quotes, such as public. Manifest
+// runtimeRole and the hook roles only; CREATE on schema goes to no role but its owner and the owner of the manifest.
+// schema is a lower-case SQL name that needs no quotes, such as public. Manifest
 // refuses the roles that Migration refuses.
 func Manifest(schema, runtimeRole, relayRole, outboxRelayRole string, hookRoles ...string) (manifest.Manifest, error) {
 	if !outboxRelayPattern.MatchString(schema) {
@@ -1075,8 +1076,10 @@ func Manifest(schema, runtimeRole, relayRole, outboxRelayRole string, hookRoles 
 		}}
 	state := manifest.Function{Name: schema + ".authz_revocation_state", Args: "uuid, uuid, text", Language: "plpgsql", Source: stateSource,
 		SecurityDefiner: true, Config: config, Owner: outboxRelayRole, Execute: append([]string{runtimeRole}, hookRoles...), Returns: "boolean"}
+	// The schema may be public, which holds the objects of others, so only its CREATE is checked: no role but its
+	// owner and the owner of the manifest can make a function, such as an overload of the state hook, in it.
 	return manifest.Manifest{Tables: []manifest.Table{floor, revocations, tuples}, Functions: []manifest.Function{state},
-		Confined: []string{outboxRelayRole}}, nil
+		Schemas: []manifest.Schema{{Name: schema, Shared: true}}, Confined: []string{outboxRelayRole}}, nil
 }
 
 // outboxRelayPattern is a lower-case SQL name of at most 63 characters, which needs no quotes.

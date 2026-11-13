@@ -627,6 +627,7 @@ func TestValidateNewFields(t *testing.T) {
 			"a schema with no owner":          {Schemas: []Schema{{Name: "held"}}},
 			"a schema for PUBLIC":             {Owner: "o", Schemas: []Schema{{Name: "held", Usage: []string{"PUBLIC"}}}},
 			"a schema named twice":            {Owner: "o", Schemas: []Schema{{Name: "held"}, {Name: "held"}}},
+			"a shared schema with USAGE":      {Owner: "o", Schemas: []Schema{{Name: "public", Shared: true, Usage: []string{"r"}}}},
 			"PUBLIC confined":                 {Confined: []string{"PUBLIC"}},
 		} {
 			if err := m.Validate(); err == nil {
@@ -657,6 +658,10 @@ func TestSchemas(t *testing.T) {
 				"schema held: the privilege USAGE to " + confined + " of the manifest is not granted"},
 			{"the schema of another owner", "ALTER SCHEMA held OWNER TO " + other,
 				"schema held: the schema belongs to the role " + other + ", and the manifest needs %owner%"},
+			{"CREATE on a shared schema for a role", "GRANT CREATE ON SCHEMA public TO %role%",
+				"schema public: the privilege CREATE to %role% is granted, and the manifest gives it to no role but the owner"},
+			{"an overload of a function of the manifest outside a held schema", "CREATE FUNCTION public.books_reject(integer) RETURNS integer LANGUAGE sql AS 'SELECT 1'",
+				"function public.books_reject(integer) has the name of a function of the manifest, and is not one of it"},
 			{"a function of the confined role outside the manifest", "CREATE FUNCTION public.peek() RETURNS bigint LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'; " +
 				"ALTER FUNCTION public.peek() OWNER TO " + confined, "the confined role " + confined + " owns the function public.peek(), which the manifest does not name for it"},
 			{"a table of the confined role", "CREATE TABLE public.side (x integer); ALTER TABLE public.side OWNER TO " + confined,
@@ -685,7 +690,7 @@ func TestSchemas(t *testing.T) {
 				}
 				m := want()
 				m.Functions = []Function{function}
-				m.Schemas = []Schema{{Name: "held", Usage: []string{role, confined}}}
+				m.Schemas = []Schema{{Name: "held", Usage: []string{role, confined}}, {Name: "public", Shared: true}}
 				m.Confined = []string{confined}
 				if err := Check(ctx, reader, m); err != nil {
 					t.Fatalf("Check refused the database of the manifest: %v", err)

@@ -39,6 +39,10 @@ func TestManifest(t *testing.T) {
 		if err := manifest.Check(ctx, admin, m); err != nil {
 			t.Fatalf("Check refused the database that the migration made: %v", err)
 		}
+		queue, err := New(db, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
 		other := "outbox_other_" + randomSuffix(t)
 		if _, err := admin.Exec("CREATE ROLE " + other + " NOLOGIN"); err != nil {
 			t.Fatal(err)
@@ -75,7 +79,8 @@ func TestManifest(t *testing.T) {
 				"function stego_outbox.claim may be run by roles that the manifest does not name"},
 			{"a relay function that is SECURITY INVOKER", "ALTER FUNCTION stego_outbox.purge_done(timestamptz, integer, bigint) SECURITY INVOKER",
 				"ALTER FUNCTION stego_outbox.purge_done(timestamptz, integer, bigint) SECURITY DEFINER", "function stego_outbox.purge_done is not the function of the manifest"},
-			{"an overload of claim in the schema", "CREATE FUNCTION stego_outbox.claim(timestamptz, double precision, uuid, bigint) RETURNS bigint LANGUAGE sql AS 'SELECT 1'",
+			{"an overload of claim in the schema", "CREATE FUNCTION stego_outbox.claim(timestamptz, double precision, uuid, bigint) RETURNS SETOF stego_outbox.messages LANGUAGE plpgsql " +
+				"AS $x$ BEGIN RAISE EXCEPTION 'the overload ran'; END $x$",
 				"DROP FUNCTION stego_outbox.claim(timestamptz, double precision, uuid, bigint)",
 				"schema stego_outbox: function stego_outbox.claim(timestamp with time zone,double precision,uuid,bigint) is a function that the manifest does not name"},
 			{"a function of the relay role outside the manifest", "CREATE FUNCTION public.peek() RETURNS bigint LANGUAGE sql SECURITY DEFINER " +
@@ -96,6 +101,12 @@ func TestManifest(t *testing.T) {
 				t.Fatalf("%s: %v", c.name, err)
 			}
 			err := manifest.Check(ctx, admin, m)
+			if c.name == "an overload of claim in the schema" {
+				// The queue names the type of each parameter, so its claim runs the function of the manifest.
+				if _, err := queue.Claim(ctx, 8, time.Minute); err != nil {
+					t.Errorf("%s: Claim gave %v, want the claim of the manifest", c.name, err)
+				}
+			}
 			var mismatch *manifest.Mismatch
 			if !errors.As(err, &mismatch) || len(mismatch.Faults) != 1 || !strings.HasSuffix(mismatch.Faults[0], c.fault) {
 				t.Errorf("%s: Check gave %v, want the one fault %q", c.name, err, c.fault)
