@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
@@ -85,6 +86,100 @@ func Migration(relayRole, runtimeRole, workerRole string) (string, error) {
 	}
 	return strings.NewReplacer("{{relay}}", `"`+relayRole+`"`, "{{relay_text}}", "'"+relayRole+"'",
 		"{{runtime}}", `"`+runtimeRole+`"`, "{{worker}}", `"`+workerRole+`"`).Replace(migration), nil
+}
+
+// Manifest gives what the code of the outbox needs of the database that Migration makes for the same roles
+// (ST-SUP-RP15-LC01, ST-SUP-RC01-OC12): the table stego_outbox.messages with its columns, its checks, its unique keys,
+// row-level security and its four policies, each on its own roles, the exact grants of the table and its columns to
+// the runtime, worker and relay roles, and the eight relay functions, each SECURITY DEFINER with its fixed search
+// path, owned by the relay role, with EXECUTE for the worker role and, for resolve, the runtime role.
+func Manifest(relayRole, runtimeRole, workerRole string) (manifest.Manifest, error) {
+	text, err := Migration(relayRole, runtimeRole, workerRole)
+	if err != nil {
+		return manifest.Manifest{}, err
+	}
+	notNull := func(names ...string) []manifest.Column {
+		var columns []manifest.Column
+		for i := 0; i < len(names); i += 2 {
+			columns = append(columns, manifest.Column{Name: names[i], Type: names[i+1], NotNull: true})
+		}
+		return columns
+	}
+	columns := notNull("id", "uuid", "sequence", "bigint", "tenant_id", "text", "destination", "text", "resource_key", "text",
+		"kind", "text", "payload", "bytea", "outgoing_key", "text", "group_id", "text", "principal", "text", "origin", "text",
+		"state", "text", "created_at", "timestamp with time zone", "available_at", "timestamp with time zone",
+		"attempts", "bigint", "conflicts", "bigint", "lookups", "bigint", "must_land", "boolean", "idempotent", "boolean",
+		"failure_code", "text")
+	for _, c := range [][2]string{{"lease_token", "uuid"}, {"lease_until", "timestamp with time zone"}, {"last_token", "uuid"},
+		{"dispatched_at", "timestamp with time zone"}, {"parked_from", "text"}, {"parked_at", "timestamp with time zone"},
+		{"done_at", "timestamp with time zone"}, {"resolved_by", "text"}, {"resolved_at", "timestamp with time zone"}, {"resolution", "text"}} {
+		columns = append(columns, manifest.Column{Name: c[0], Type: c[1]})
+	}
+	check := func(name, definition string) manifest.Constraint {
+		return manifest.Constraint{Name: name, Kind: manifest.KindCheck, Definition: definition}
+	}
+	states := "ARRAY['pending'::text, 'dispatching'::text, 'outcome_unknown'::text, 'reconciling'::text, 'done'::text, 'parked'::text, 'discarded'::text]"
+	constraints := []manifest.Constraint{
+		{Name: "messages_pkey", Kind: manifest.KindPrimaryKey, Definition: "PRIMARY KEY (id)"},
+		{Name: "messages_sequence_key", Kind: manifest.KindUnique, Definition: "UNIQUE (sequence)"},
+		check("messages_attempts_check", "CHECK ((attempts >= 0))"),
+		check("messages_check", "CHECK (((lease_token IS NULL) = (lease_until IS NULL)))"),
+		check("messages_check1", "CHECK (((state = 'parked'::text) = (parked_from IS NOT NULL)))"),
+		check("messages_conflicts_check", "CHECK ((conflicts >= 0))"),
+		check("messages_destination_check", "CHECK ((destination ~ '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$'::text))"),
+		check("messages_failure_code_check", "CHECK ((octet_length(failure_code) <= 128))"),
+		check("messages_group_id_check", "CHECK ((octet_length(group_id) <= 255))"),
+		check("messages_kind_check", "CHECK ((kind ~ '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$'::text))"),
+		check("messages_lookups_check", "CHECK ((lookups >= 0))"),
+		check("messages_origin_check", "CHECK ((octet_length(origin) <= 255))"),
+		check("messages_outgoing_key_check", "CHECK (((octet_length(outgoing_key) >= 1) AND (octet_length(outgoing_key) <= 255)))"),
+		check("messages_parked_from_check", "CHECK ((parked_from = ANY (ARRAY['dispatching'::text, 'outcome_unknown'::text, 'reconciling'::text])))"),
+		check("messages_payload_check", "CHECK (((octet_length(payload) >= 1) AND (octet_length(payload) <= 1048576)))"),
+		check("messages_principal_check", "CHECK ((octet_length(principal) <= 255))"),
+		check("messages_resolution_check", "CHECK ((resolution = ANY (ARRAY['acted'::text, 'not_acted'::text, 'discarded'::text])))"),
+		check("messages_resolved_by_check", "CHECK ((octet_length(resolved_by) <= 255))"),
+		check("messages_resource_key_check", "CHECK (((octet_length(resource_key) >= 1) AND (octet_length(resource_key) <= 256)))"),
+		check("messages_state_check", "CHECK ((state = ANY ("+states+")))"),
+		check("messages_tenant_id_check", "CHECK (((octet_length(tenant_id) >= 1) AND (octet_length(tenant_id) <= 255)))"),
+	}
+	wall := "(tenant_id = current_setting('app.tenant'::text, true))"
+	policies := []manifest.Policy{
+		{Name: "messages_tenant", Command: "*", Using: wall, WithCheck: wall, Roles: []string{runtimeRole, workerRole}},
+		{Name: "messages_relay_select", Command: "r", Using: "true", Roles: []string{relayRole}},
+		{Name: "messages_relay_update", Command: "w", Using: "true", WithCheck: "true", Roles: []string{relayRole}},
+		{Name: "messages_relay_delete", Command: "d", Using: "true", Roles: []string{relayRole}},
+	}
+	// The columns that an enqueue writes; the rest are the relay's.
+	inserted := []string{"id", "tenant_id", "destination", "resource_key", "kind", "payload", "outgoing_key", "group_id", "principal",
+		"origin", "created_at", "available_at", "must_land", "idempotent"}
+	grants := []manifest.Grant{
+		{Role: runtimeRole, Privileges: []string{"SELECT"}}, {Role: workerRole, Privileges: []string{"SELECT"}},
+		{Role: runtimeRole, Privileges: []string{"INSERT"}, Columns: inserted}, {Role: workerRole, Privileges: []string{"INSERT"}, Columns: inserted},
+		{Role: relayRole, Privileges: []string{"SELECT", "UPDATE", "DELETE"}},
+	}
+	var functions []manifest.Function
+	for _, signature := range relayFunctions {
+		name, args, _ := strings.Cut(strings.TrimSuffix(signature, ")"), "(")
+		_, rest, found := strings.Cut(text, "CREATE OR REPLACE FUNCTION "+name+"(")
+		head, body, opened := strings.Cut(rest, "AS $fn$")
+		source, _, closed := strings.Cut(body, "$fn$")
+		if !found || !opened || !closed {
+			return manifest.Manifest{}, fmt.Errorf("outbox: the migration has no function %s", name)
+		}
+		language := "plpgsql"
+		if strings.Contains(head, "LANGUAGE sql") {
+			language = "sql"
+		}
+		execute := []string{workerRole}
+		if name == "stego_outbox.resolve" {
+			execute = append(execute, runtimeRole)
+		}
+		functions = append(functions, manifest.Function{Name: name, Args: args, Language: language, Source: source, SecurityDefiner: true,
+			Config: []string{"search_path=pg_catalog, pg_temp"}, Owner: relayRole, Execute: execute})
+	}
+	return manifest.Manifest{Functions: functions, Tables: []manifest.Table{{Schema: "stego_outbox", Name: "messages", Columns: columns,
+		Constraints: constraints, Indexes: []manifest.Index{{Name: "messages_pkey", Columns: []string{"id"}}, {Name: "messages_sequence_key", Columns: []string{"sequence"}}},
+		RowSecurity: true, Policies: policies, CheckGrants: true, Grants: grants}}}, nil
 }
 
 // The relay functions, by their signature, for the grants and the checks.

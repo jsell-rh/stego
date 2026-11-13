@@ -144,6 +144,8 @@ func TestCheck(t *testing.T) {
 			{"a dropped policy", "DROP POLICY stego_tenant ON public.books", "table public.books: policy stego_tenant is missing"},
 			{"a policy with another expression", "ALTER POLICY stego_tenant ON public.books USING (true)",
 				"table public.books: policy stego_tenant is not the policy of the manifest"},
+			{"a policy of every role that applies to one role", "DO $$ BEGIN CREATE ROLE manifest_one_role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$; ALTER POLICY stego_tenant ON public.books TO manifest_one_role",
+				"table public.books: policy stego_tenant is not the policy of the manifest"},
 			{"an added permissive policy", "CREATE POLICY open_door ON public.books USING (true)",
 				"table public.books: policy open_door is a permissive policy that the manifest does not name"},
 			{"a dropped trigger", "DROP TRIGGER books_reject_row ON public.books", "table public.books: trigger books_reject_row is missing"},
@@ -574,6 +576,29 @@ func TestFunctions(t *testing.T) {
 					t.Fatalf("Check gave %v, want the one fault %q", err, change.fault)
 				}
 			})
+		}
+	})
+}
+
+func TestValidateNewFields(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC01-T06 A manifest that names PUBLIC, grants it does not check, or a bad role, privilege or argument list is refused", func(t *testing.T) {
+		table := func(change func(*Table)) Manifest {
+			tb := Table{Schema: "public", Name: "t", CheckGrants: true}
+			change(&tb)
+			return Manifest{Tables: []Table{tb}}
+		}
+		for name, m := range map[string]Manifest{
+			"a policy for PUBLIC by name":     table(func(t *Table) { t.Policies = []Policy{{Name: "p", Command: "*", Roles: []string{"PUBLIC"}}} }),
+			"grants that are not checked":     table(func(t *Table) { t.CheckGrants = false; t.Grants = []Grant{{Role: "r", Privileges: []string{"SELECT"}}} }),
+			"a grant to PUBLIC":               table(func(t *Table) { t.Grants = []Grant{{Role: "PUBLIC", Privileges: []string{"SELECT"}}} }),
+			"a grant of no privilege":         table(func(t *Table) { t.Grants = []Grant{{Role: "r"}} }),
+			"a grant of an unknown privilege": table(func(t *Table) { t.Grants = []Grant{{Role: "r", Privileges: []string{"ALL"}}} }),
+			"EXECUTE for PUBLIC":              {Functions: []Function{{Name: "public.f", Language: "sql", Source: "SELECT 1", Execute: []string{"PUBLIC"}}}},
+			"an argument list with SQL text":  {Functions: []Function{{Name: "public.f", Language: "sql", Source: "SELECT 1", Args: "int); DROP TABLE x; --"}}},
+		} {
+			if err := m.Validate(); err == nil {
+				t.Errorf("%s: Validate took it", name)
+			}
 		}
 	})
 }

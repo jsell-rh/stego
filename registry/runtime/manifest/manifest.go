@@ -50,6 +50,11 @@ type Table struct {
 	Policies []Policy
 	// Triggers are the triggers of the table.
 	Triggers []Trigger
+	// CheckGrants tells that the privileges of the table and its columns, for each role but its owner, must be
+	// exactly Grants: each privilege that Grants does not name, PUBLIC included, is a fault, and so is each one that
+	// it names and the table does not grant. Without CheckGrants the grants are not read.
+	CheckGrants bool
+	Grants      []Grant
 	// PartitionTriggers are the triggers that each partition of a partitioned table has of its own, each named by
 	// the partition's name and the trigger's Name as a suffix, such as audit_event_p202611 and _reject_statement.
 	PartitionTriggers []Trigger
@@ -91,11 +96,21 @@ type Index struct {
 	Predicate string
 }
 
-// Policy is one permissive row-level security policy for every role: its command (* for all, or r, a, w and d
-// as pg_policy.polcmd gives them) and its USING and WITH CHECK expressions as pg_get_expr gives them with the
-// search path pg_catalog.
+// Policy is one permissive row-level security policy: its command (* for all, or r, a, w and d as pg_policy.polcmd
+// gives them), its USING and WITH CHECK expressions as pg_get_expr gives them with the search path pg_catalog, and
+// the roles it applies to. No Roles is a policy for every role (PUBLIC); with Roles, the policy must apply to these
+// roles and to no other.
 type Policy struct {
 	Name, Command, Using, WithCheck string
+	Roles                           []string
+}
+
+// Grant is one grant of a table to a role other than its owner: the privileges, such as SELECT and INSERT, on the
+// whole table, or with Columns on these columns only. A grant with the grant option is never the manifest's.
+type Grant struct {
+	Role       string
+	Privileges []string
+	Columns    []string
 }
 
 // Trigger is one trigger of a table: when it fires (BEFORE or AFTER), for each row or for each statement, on
@@ -120,7 +135,15 @@ type Function struct {
 	// Execute, for a function of Manifest.Functions, are the roles that may run it besides its owner: EXECUTE must
 	// go to these roles, with no grant option, and to no other grantee, PUBLIC included.
 	Execute []string
+	// Args, for a function of Manifest.Functions, are the types of its arguments as regprocedure takes them, such as
+	// timestamptz, integer; empty is a function of no argument.
+	Args string
+	// Owner, for a function of Manifest.Functions, is the role that must own it; empty is the Owner of the manifest.
+	Owner string
 }
+
+// argsText is the grammar of the argument types of a function of the manifest, such as timestamptz, integer.
+var argsText = regexp.MustCompile(`^[a-z0-9_ ,]{0,512}$`)
 
 // Join gives one manifest with the tables of each manifest, in order.
 func Join(manifests ...Manifest) Manifest {
@@ -152,10 +175,19 @@ func (m Manifest) Validate() error {
 		if !ok || !name.MatchString(schema) || !name.MatchString(fn) || f.Language == "" || f.Source == "" {
 			return fmt.Errorf("manifest: the function %q needs a schema and a name of at most 63 bytes, a language and a source", f.Name)
 		}
-		if functions[f.Name] {
-			return fmt.Errorf("manifest: the function %s is named twice", f.Name)
+		if !argsText.MatchString(f.Args) || (f.Owner != "" && !name.MatchString(f.Owner)) {
+			return fmt.Errorf("manifest: the function %s needs argument types of letters, digits, spaces and commas, and an owner of at most 63 bytes", f.Name)
 		}
-		functions[f.Name] = true
+		for _, r := range f.Execute {
+			if !name.MatchString(r) || r == "PUBLIC" {
+				return fmt.Errorf("manifest: the function %s gives EXECUTE to %q; only named roles may run it", f.Name, r)
+			}
+		}
+		id := f.Name + "(" + f.Args + ")"
+		if functions[id] {
+			return fmt.Errorf("manifest: the function %s is named twice", id)
+		}
+		functions[id] = true
 	}
 	tables := map[string]bool{}
 	for _, t := range m.Tables {
@@ -211,6 +243,29 @@ func (m Manifest) Validate() error {
 			}
 			if !slices.Contains([]string{"*", "r", "a", "w", "d"}, p.Command) {
 				return fmt.Errorf("manifest: table %s: the policy %s has the unknown command %q", id, p.Name, p.Command)
+			}
+			for _, r := range p.Roles {
+				if !name.MatchString(r) || r == "PUBLIC" {
+					return fmt.Errorf("manifest: table %s: the policy %s names the role %q; a policy for every role names none", id, p.Name, r)
+				}
+			}
+		}
+		if !t.CheckGrants && len(t.Grants) > 0 {
+			return fmt.Errorf("manifest: table %s names grants but does not check them", id)
+		}
+		for _, g := range t.Grants {
+			if !name.MatchString(g.Role) || g.Role == "PUBLIC" || len(g.Privileges) == 0 {
+				return fmt.Errorf("manifest: table %s: a grant needs a role that is not PUBLIC and a privilege", id)
+			}
+			for _, privilege := range g.Privileges {
+				if !slices.Contains([]string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"}, privilege) {
+					return fmt.Errorf("manifest: table %s: the grant to %s has the unknown privilege %q", id, g.Role, privilege)
+				}
+			}
+			for _, c := range g.Columns {
+				if !name.MatchString(c) {
+					return fmt.Errorf("manifest: table %s: the grant to %s names the column %q", id, g.Role, c)
+				}
 			}
 		}
 		for _, tr := range t.PartitionTriggers {
@@ -353,12 +408,99 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 	return nil
 }
 
+// sortedJoin gives the names sorted and joined by the separator of the catalog reads, chr(31).
+func sortedJoin(names []string) string {
+	sorted := slices.Clone(names)
+	slices.Sort(sorted)
+	return strings.Join(sorted, "\x1f")
+}
+
+// checkGrants gives the faults of the privileges of the table oid and its columns against grants: each privilege
+// that a role other than the owner holds, PUBLIC as grantee 0, and that grants does not name, each one with the grant
+// option, and each privilege of grants that the table does not give. Each fault names the role, the privilege and the
+// column, which are objects of the catalog.
+func checkGrants(ctx context.Context, tx *sql.Tx, oid uint32, grants []Grant) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END, a.privilege_type, '', a.is_grantable
+  FROM pg_catalog.pg_class c, pg_catalog.aclexplode(c.relacl) a WHERE c.oid = $1 AND c.relacl IS NOT NULL AND a.grantee <> c.relowner
+  UNION ALL
+  SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END, a.privilege_type, t.attname, a.is_grantable
+  FROM pg_catalog.pg_attribute t JOIN pg_catalog.pg_class c ON c.oid = t.attrelid, pg_catalog.aclexplode(t.attacl) a
+  WHERE t.attrelid = $1 AND t.attacl IS NOT NULL AND NOT t.attisdropped AND a.grantee <> c.relowner`, oid)
+	if err != nil {
+		return nil, err
+	}
+	got := map[string]bool{}
+	var faults []string
+	for rows.Next() {
+		var role, privilege, column string
+		var grantable bool
+		if err := rows.Scan(&role, &privilege, &column, &grantable); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		key := grantKey(role, privilege, column)
+		if grantable {
+			faults = append(faults, "the privilege "+key+" is granted with the grant option")
+		}
+		got[key] = true
+	}
+	if err := closed(rows); err != nil {
+		return nil, err
+	}
+	want := map[string]bool{}
+	for _, g := range grants {
+		for _, privilege := range g.Privileges {
+			if len(g.Columns) == 0 {
+				want[grantKey(g.Role, privilege, "")] = true
+			}
+			for _, column := range g.Columns {
+				want[grantKey(g.Role, privilege, column)] = true
+			}
+		}
+	}
+	var extra, missing []string
+	for key := range got {
+		if !want[key] {
+			extra = append(extra, key)
+		}
+	}
+	for key := range want {
+		if !got[key] {
+			missing = append(missing, key)
+		}
+	}
+	slices.Sort(extra)
+	slices.Sort(missing)
+	for _, key := range extra {
+		faults = append(faults, "the privilege "+key+" is granted, and the manifest does not grant it")
+	}
+	for _, key := range missing {
+		faults = append(faults, "the privilege "+key+" of the manifest is not granted")
+	}
+	return faults, nil
+}
+
+// grantKey names one privilege of a role, such as SELECT to runtime or INSERT (payload) to worker.
+func grantKey(role, privilege, column string) string {
+	if column != "" {
+		return privilege + " (" + column + ") to " + role
+	}
+	return privilege + " to " + role
+}
+
 // checkFunction gives the faults of one function of the manifest that takes no argument: missing, or with another
 // language, source, SECURITY DEFINER, settings or owner. Its fault names the function only.
 func checkFunction(ctx context.Context, tx *sql.Tx, f Function, wantOwner string) ([]string, error) {
 	schema, fn, _ := strings.Cut(f.Name, ".")
 	var language, source, config, owner, grantees string
 	var definer bool
+	// A function with arguments is found by its signature, and one with none by its name and no argument.
+	where := `n.nspname = $1 AND p.proname = $2 AND p.pronargs = 0`
+	args := []any{schema, fn}
+	if f.Args != "" {
+		where = `p.oid = pg_catalog.to_regprocedure($1)`
+		args = []any{f.Name + "(" + f.Args + ")"}
+	}
 	// The grantees of EXECUTE other than the owner, by name, PUBLIC for grantee 0, each marked when it holds the grant
 	// option, which would let it give EXECUTE on; a function with no ACL has the default one, which gives EXECUTE to
 	// PUBLIC.
@@ -370,7 +512,7 @@ func checkFunction(ctx context.Context, tx *sql.Tx, f Function, wantOwner string
     FROM pg_catalog.aclexplode(COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
     WHERE a.privilege_type = 'EXECUTE' AND a.grantee <> p.proowner), '')
   FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace JOIN pg_catalog.pg_language l ON l.oid = p.prolang
-  WHERE n.nspname = $1 AND p.proname = $2 AND p.pronargs = 0`, schema, fn).Scan(&language, &source, &config, &definer, &owner, &grantees)
+  WHERE `+where, args...).Scan(&language, &source, &config, &definer, &owner, &grantees)
 	if errors.Is(err, sql.ErrNoRows) {
 		return []string{"function " + f.Name + " is missing"}, nil
 	}
@@ -380,12 +522,10 @@ func checkFunction(ctx context.Context, tx *sql.Tx, f Function, wantOwner string
 	switch {
 	case language != f.Language || source != f.Source || definer != f.SecurityDefiner || config != strings.Join(f.Config, "\x1f"):
 		return []string{"function " + f.Name + " is not the function of the manifest"}, nil
-	case wantOwner != "" && owner != wantOwner:
+	case f.Owner != "" && owner != f.Owner, f.Owner == "" && wantOwner != "" && owner != wantOwner:
 		return []string{"function " + f.Name + " has another owner"}, nil
 	}
-	want := slices.Clone(f.Execute)
-	slices.Sort(want)
-	if grantees != strings.Join(want, "\x1f") {
+	if grantees != sortedJoin(f.Execute) {
 		return []string{"function " + f.Name + " may be run by roles that the manifest does not name"}, nil
 	}
 	return nil, nil
@@ -626,12 +766,14 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string) ([]s
 		fault("row-level security is not enabled and forced")
 	}
 	type policy struct {
-		command, using, withCheck string
-		permissive, public        bool
+		command, using, withCheck, roles string
+		permissive, public               bool
 	}
 	policies := map[string]policy{}
 	rows, err = tx.QueryContext(ctx, `SELECT polname, polcmd::text, polpermissive, polroles = '{0}'::pg_catalog.oid[],
-  COALESCE(pg_catalog.pg_get_expr(polqual, polrelid), ''), COALESCE(pg_catalog.pg_get_expr(polwithcheck, polrelid), '')
+  COALESCE(pg_catalog.pg_get_expr(polqual, polrelid), ''), COALESCE(pg_catalog.pg_get_expr(polwithcheck, polrelid), ''),
+  COALESCE((SELECT pg_catalog.string_agg(CASE WHEN r = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(r) END, chr(31) ORDER BY 1)
+    FROM pg_catalog.unnest(polroles) AS r), '')
   FROM pg_catalog.pg_policy WHERE polrelid = $1`, oid)
 	if err != nil {
 		return nil, err
@@ -639,7 +781,7 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string) ([]s
 	for rows.Next() {
 		var n string
 		var p policy
-		if err := rows.Scan(&n, &p.command, &p.permissive, &p.public, &p.using, &p.withCheck); err != nil {
+		if err := rows.Scan(&n, &p.command, &p.permissive, &p.public, &p.using, &p.withCheck, &p.roles); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -655,8 +797,12 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string) ([]s
 		switch {
 		case !ok:
 			fault("policy %s is missing", want.Name)
-		case !got.permissive || !got.public || got.command != want.Command || got.using != want.Using || got.withCheck != want.WithCheck:
+		case !got.permissive || got.command != want.Command || got.using != want.Using || got.withCheck != want.WithCheck:
 			fault("policy %s is not the policy of the manifest", want.Name)
+		case len(want.Roles) == 0 && !got.public:
+			fault("policy %s is not the policy of the manifest", want.Name)
+		case len(want.Roles) > 0 && got.roles != sortedJoin(want.Roles):
+			fault("policy %s applies to other roles than the manifest names", want.Name)
 		}
 	}
 	if t.RowSecurity {
@@ -671,6 +817,16 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string) ([]s
 		slices.Sort(extra)
 		for _, n := range extra {
 			fault("policy %s is a permissive policy that the manifest does not name", n)
+		}
+	}
+
+	if t.CheckGrants {
+		found, err := checkGrants(ctx, tx, oid, t.Grants)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range found {
+			fault("%s", f)
 		}
 	}
 

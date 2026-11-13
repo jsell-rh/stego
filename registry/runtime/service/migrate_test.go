@@ -182,7 +182,7 @@ type fixture struct {
 
 // fixtureOwner is the owner role of the last fixture, which the parts of the test service name; the tests of the
 // package do not run in parallel.
-var fixtureOwner string
+var fixtureOwner, fixtureWorker, fixtureOutboxRelay string
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
@@ -235,7 +235,7 @@ func newFixture(t *testing.T) *fixture {
 			_, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role)
 		}
 	})
-	fixtureOwner = f.owner
+	fixtureOwner, fixtureWorker, fixtureOutboxRelay = f.owner, f.worker, f.outboxRelay
 	return f
 }
 

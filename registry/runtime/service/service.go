@@ -61,6 +61,9 @@ type Parts struct {
 	// OwnerRole is the owner role of the service, which the migration job runs as and which must own each table of
 	// the schema manifest and each trigger function (ST-SUP-RP14-LC06).
 	OwnerRole string
+	// WorkerRole and OutboxRelayRole are the roles of the outbox worker and of the outbox relay functions, which the
+	// manifest of the outbox names with the runtime role, the role that New connects as (ST-SUP-RP14-LC06).
+	WorkerRole, OutboxRelayRole string
 	// Schema is the schema manifest of the tables of the declaration, which the PostgreSQL adapter emits
 	// (ST-SUP-RC01-OC12). New adds the manifest of the audit record to it, for the anchor period of Workers
 	// (ST-SUP-RP14-LC06).
@@ -75,6 +78,8 @@ func (p Parts) check() error {
 		return errors.New("service: the parts need the subject type, the tenant claim and the problem code")
 	case p.OwnerRole == "":
 		return errors.New("service: the parts need the owner role, which owns the tables of the schema manifest")
+	case p.WorkerRole == "" || p.OutboxRelayRole == "":
+		return errors.New("service: the parts need the worker role and the outbox relay role, which the manifest of the outbox names")
 	case p.TenantConfig == nil || p.NewQueue == nil || p.AuditQueue == nil || p.NewAuthz == nil:
 		return errors.New("service: the parts need the adapter's connection configuration, the outbox queue, the audit queue and the authorization runtime")
 	}
@@ -123,7 +128,7 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	if svc.pool, err = tenant.Open(ctx, pools); err != nil {
 		return nil, err
 	}
-	if err := checkSchema(ctx, svc.pool, p.Schema, p.OwnerRole, p.Workers.AnchorPeriod, p.Workers.RetentionMonths); err != nil {
+	if err := checkSchema(ctx, svc.pool, p.Schema, p.OwnerRole, p.WorkerRole, p.OutboxRelayRole, p.Workers.AnchorPeriod, p.Workers.RetentionMonths); err != nil {
 		return nil, err
 	}
 	if svc.auditDB, err = tenant.Open(ctx, pools); err != nil {
@@ -202,7 +207,7 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 // faults, which name only objects of the catalog. The audit triggers' functions are those that the audit DDL makes
 // for the declared anchor period (Parts.Workers.AnchorPeriod), and audit_maintain is the one of the declared retention
 // (Parts.Workers.RetentionMonths).
-func checkSchema(ctx context.Context, db *sql.DB, declared manifest.Manifest, owner string, anchorPeriod time.Duration, retentionMonths int) error {
+func checkSchema(ctx context.Context, db *sql.DB, declared manifest.Manifest, owner, workerRole, outboxRelayRole string, anchorPeriod time.Duration, retentionMonths int) error {
 	// The check runs as the runtime role, which alone may run audit_maintain.
 	var runtimeRole string
 	if err := db.QueryRowContext(ctx, "SELECT current_user").Scan(&runtimeRole); err != nil {
@@ -212,7 +217,11 @@ func checkSchema(ctx context.Context, db *sql.DB, declared manifest.Manifest, ow
 	if err != nil {
 		return fmt.Errorf("service: the manifest of the audit record: %w", err)
 	}
-	want := manifest.Join(declared, record)
+	queue, err := outbox.Manifest(outboxRelayRole, runtimeRole, workerRole)
+	if err != nil {
+		return fmt.Errorf("service: the manifest of the outbox: %w", err)
+	}
+	want := manifest.Join(declared, record, queue)
 	want.Owner = owner
 	err = manifest.Check(ctx, db, want)
 	var mismatch *manifest.Mismatch

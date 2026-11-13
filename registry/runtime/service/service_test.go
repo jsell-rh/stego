@@ -84,7 +84,7 @@ func orderEntity(t *testing.T) *command.Entity[order] {
 func parts(entities []command.Declared, calls *int) Parts {
 	return Parts{
 		Service: "todo-svc", DeclarationVersion: "d1", SubjectType: "user", TenantClaim: "tenant", ProblemCode: "TODO",
-		TenantConfig: tenantConfig(calls), OwnerRole: fixtureOwner,
+		TenantConfig: tenantConfig(calls), OwnerRole: fixtureOwner, WorkerRole: fixtureWorker, OutboxRelayRole: fixtureOutboxRelay,
 		NewQueue: func(db *sql.DB) (*outbox.Queue, error) {
 			return outbox.New(db, outbox.Options{PayloadLimits: auditoutbox.PayloadLimits()})
 		},
@@ -340,6 +340,9 @@ func TestNew(t *testing.T) {
 			// source of the declared retention (#218 L5).
 			refused("ALTER FUNCTION public.audit_maintain() SECURITY INVOKER", "ALTER FUNCTION public.audit_maintain() SECURITY DEFINER",
 				"function public.audit_maintain is not the function of the manifest")
+			// The outbox is in the manifest too, with the exact grants of its table.
+			refused("GRANT SELECT ON stego_outbox.messages TO PUBLIC", "REVOKE SELECT ON stego_outbox.messages FROM PUBLIC",
+				"table stego_outbox.messages: the privilege SELECT to PUBLIC is granted, and the manifest does not grant it")
 			// Only the runtime role may run it: EXECUTE for PUBLIC is refused (#239 L2).
 			refused("GRANT EXECUTE ON FUNCTION public.audit_maintain() TO PUBLIC", "REVOKE EXECUTE ON FUNCTION public.audit_maintain() FROM PUBLIC",
 				"function public.audit_maintain may be run by roles that the manifest does not name")
