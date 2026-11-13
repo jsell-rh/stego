@@ -23,6 +23,7 @@ tenancy:
   kind: pooled
   key: tenant_id
   claim: tenant
+  provisioning: {resource_type: service, provision: provision, retire: retire}
 entities:
   - name: Note
     fields:
