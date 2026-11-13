@@ -168,6 +168,7 @@ tenancy:
   kind: pooled
   key: tenant_id
   claim: tenant
+  provisioning: {resource_type: service, provision: provision, retire: retire}
 authorization:
   provider: spicedb
   schema_path: authz/schema.zed
@@ -196,11 +197,19 @@ collections:
 
 The service needs pooled tenancy, SpiceDB authorization and the audit log. Each entity names
 its resource type and the permission of each operation. A create of a
-top-level entity is public, with a reason. Put the SpiceDB schema at
+top-level entity is public, with a reason. A pooled service also names its tenant
+provisioning: the resource type, with a definition of its own, on which an operator
+is allowed to provision and retire tenants. Put the SpiceDB schema at
 `authz/schema.zed`:
 
 ```zed
 definition user {}
+
+definition service {
+	relation operator: user
+	permission provision = operator
+	permission retire = operator
+}
 
 definition todo {
 	relation owner: user

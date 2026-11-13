@@ -28,7 +28,7 @@ const generatingDeclaration = `kind: service
 name: generating
 archetype: rest-crud
 language: go
-tenancy: {kind: pooled, key: tenant_id, claim: tenant}
+tenancy: {kind: pooled, key: tenant_id, claim: tenant, provisioning: {resource_type: service, provision: provision, retire: retire}}
 authorization: {provider: spicedb, schema_path: authz/schema.zed, subject_from_identity: user}
 audit: {level: change}
 overrides:
@@ -468,7 +468,7 @@ func TestPlanNamesEveryChange(t *testing.T) {
 
 // runtimeHeader is what onRuntimePath adds after the language of the declaration, each line only when the
 // declaration has no such key.
-const runtimeHeader = `tenancy: {kind: pooled, key: tenant_id, claim: tenant}
+const runtimeHeader = `tenancy: {kind: pooled, key: tenant_id, claim: tenant, provisioning: {resource_type: service, provision: provision, retire: retire}}
 authorization: {provider: spicedb, schema_path: authz/schema.zed, subject_from_identity: user}
 audit: {level: change}
 `
@@ -559,8 +559,9 @@ func onRuntimePath(declaration string) string {
 // runtimeSchema gives the SpiceDB schema of the resource types that the declaration names, each with the
 // permissions view and edit.
 func runtimeSchema(declaration string) string {
-	schema := "definition user {}\n"
-	seen := map[string]bool{"user": true}
+	// The service-level resource of the tenant provisioning of runtimeHeader (ST-DECL-INV78).
+	schema := "definition user {}\n\ndefinition service {\n\trelation operator: user\n\tpermission provision = operator\n\tpermission retire = operator\n}\n"
+	seen := map[string]bool{"user": true, "service": true}
 	for _, match := range regexp.MustCompile(`resource_type: *([a-z][a-z0-9_]*)`).FindAllStringSubmatch(declaration, -1) {
 		if seen[match[1]] {
 			continue
