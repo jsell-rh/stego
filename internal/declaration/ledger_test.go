@@ -109,6 +109,22 @@ func TestMoneyAndLedgerCurrency(t *testing.T) {
 			})
 		}
 	}
+	t.Run(inv26+": the hot account settlement with a minimum balance", func(t *testing.T) {
+		faults := faultAt(td04Changed(t, "settlement, normal: debit, hot: true", "settlement, normal: debit, hot: true, min_balance: {amount: 0, currency: EUR}"), "entities[1].ledger.accounts[1].min_balance")
+		if len(faults) != 1 || !strings.Contains(faults[0].Message, `"settlement"`) || !strings.Contains(faults[0].Message, "hot") {
+			t.Errorf("want one fault that names settlement and hot, got %+v", faults)
+		}
+	})
+	t.Run(inv26+": an amount beyond 2^53 minor units is refused, and one at the bound is accepted", func(t *testing.T) {
+		const bound, beyond = "9007199254740992", "9007199254740993"
+		for amount, refused := range map[string]bool{bound: false, "-" + bound: false, beyond: true, "-" + beyond: true} {
+			minimum := faultAt(td04Changed(t, "{amount: 0, currency: EUR}", "{amount: "+amount+", currency: EUR}"), "entities[1].ledger.accounts[0].min_balance.amount")
+			fallback := faultAt(td04Changed(t, withPrice("{name: price, type: money, currency: EUR, default: "+amount+"}")...), "entities[0].fields[2].default")
+			if (len(minimum) == 1) != refused || (len(fallback) == 1) != refused {
+				t.Errorf("amount %s: want refused %v, got the minimum balance faults %+v and the default faults %+v", amount, refused, minimum, fallback)
+			}
+		}
+	})
 	t.Run(inv26+": a money field price as integer minor units in EUR is accepted", func(t *testing.T) {
 		if faults := Validate(td04Changed(t, withPrice("{name: price, type: money, currency: EUR}")...)).All(); len(faults) != 0 {
 			t.Errorf("want no fault, got %+v", faults)
