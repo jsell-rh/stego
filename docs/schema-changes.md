@@ -84,9 +84,12 @@ step's migration. Its schema check accepts what a later step adds, each only
 in the exact form that the step gives it, on the table of a declared entity:
 
 - the foreign key of an add of a reference field: on the new nullable column,
-  with the tenant column first when the referenced key holds it, to the
-  primary key of a table that it knows, with no action, validated, not
-  deferrable, and named `<table>_<column>_fkey` (ST-SUP-RP15-LC03);
+  to the primary key of the table of an entity that it knows, with the tenant
+  column first when the table is owned, with no action, validated, not
+  deferrable, and named `<table>_<column>_fkey` (ST-SUP-RP15-LC03). An owned
+  table never has a foreign key on one column, so an add of a reference field
+  from an owned entity to a shared entity still fails the check: do not
+  restart the pods of the release before during that deploy;
 - the default of the new column of an add: a constant of a built-in type,
   and no function call (ST-GEN-Q15);
 - the sync trigger of the expand step of a rename, a retype or a require:
@@ -94,7 +97,10 @@ in the exact form that the step gives it, on the table of a declared entity:
   template of this release, in the schema `stego_steps`, for one column
   that the release before knows and one new column (ST-SUP-RP15-LC02).
 
-Every other change to such a table still fails the check. A release before
+A new column that the release before does not know must be of a built-in
+base type of `pg_catalog`, such as `text`, `uuid` or `integer`: a domain, an
+enum, a range or a composite type can run a function on each insert, so it
+fails the check. Every other change to such a table still fails the check. A release before
 this rule refuses these forms: during the first rolling deploy of a step
 after it, do not restart the pods of a release that does not have it.
 

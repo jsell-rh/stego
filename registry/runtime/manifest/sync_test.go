@@ -12,6 +12,7 @@ import (
 // the held schema of the sync functions.
 func stepManifest() Manifest {
 	m := want()
+	m.Tables[0].Entity = true
 	m.Tables[1].Entity = true
 	m.Schemas = []Schema{{Name: "stego_steps", Steps: true}}
 	return m
@@ -140,6 +141,11 @@ INSERT INTO public.books (id, folder_id, title, note) VALUES ('00000000-0000-000
 			{"another column list", base + strings.Replace(noteSync, "INSERT OR UPDATE", "INSERT OR UPDATE OF note", 1)},
 			{"disabled", base + noteSync + "ALTER TABLE public.books DISABLE TRIGGER books_note_sync;\n"},
 			{"enabled for a replica only", base + noteSync + "ALTER TABLE public.books ENABLE REPLICA TRIGGER books_note_sync;\n"},
+			// U is of a type that is not built in: a domain named public.text, which the template's text cannot tell
+			// from pg_catalog.text, and whose CHECK would run on each INSERT.
+			{"U is a domain named public.text", stepSchema + "CREATE DOMAIN public.text AS pg_catalog.text CHECK (VALUE <> 'x');\nALTER TABLE public.books ADD COLUMN pages_text public.text;\n" +
+				syncSQL(t, "books_pages_sync", "pages", "pages_text", "int4-text") +
+				"CREATE TRIGGER books_pages_sync BEFORE INSERT OR UPDATE ON public.books FOR EACH ROW EXECUTE FUNCTION stego_steps.books_pages_sync();\n"},
 			// The held schema of the sync functions holds no other function.
 			{"another function in the held schema", base + noteSync + "CREATE FUNCTION stego_steps.helper() RETURNS integer LANGUAGE sql AS $$ SELECT 1 $$;\n"},
 		} {
@@ -228,12 +234,78 @@ func TestStepForeignKey(t *testing.T) {
 			{"a unique key that is not the primary key", shelf + "ALTER TABLE public.folders ADD COLUMN alt uuid;\nCREATE UNIQUE INDEX folders_alt_key ON public.folders (tenant_id, alt);\nALTER TABLE public.books ADD CONSTRAINT books_shelf_id_fkey FOREIGN KEY (tenant_id, shelf_id) REFERENCES public.folders (tenant_id, alt);\n"},
 			{"a table that is not in the manifest", shelf + "CREATE TABLE public.shelves (tenant_id text, id uuid, PRIMARY KEY (tenant_id, id));\nALTER TABLE public.books ADD CONSTRAINT books_shelf_id_fkey FOREIGN KEY (tenant_id, shelf_id) REFERENCES public.shelves (tenant_id, id);\n"},
 			{"two new columns", shelf + "ALTER TABLE public.books ADD COLUMN shelf_tenant text;\nALTER TABLE public.books ADD CONSTRAINT books_shelf_id_fkey FOREIGN KEY (shelf_tenant, shelf_id) REFERENCES public.folders (tenant_id, id);\n"},
+			{"a column of a domain", "CREATE DOMAIN public.ref AS uuid CHECK (VALUE IS NOT NULL OR VALUE IS NULL);\nALTER TABLE public.books ADD COLUMN shelf_id public.ref;\n" + fk},
 		} {
 			stepCase(t, c.name, c.setup, stepManifest(), true)
 		}
+		// A table of the manifest that is not the table of a declared entity is no target.
+		folders := stepManifest()
+		folders.Tables[0].Entity = false
+		stepCase(t, "a referenced table that is not the table of a declared entity", shelf+fk, folders, true)
+		// A key that is the key id alone: a table that is not owned may refer to it with one column; an owned table
+		// may not, as its foreign key must lead with its tenant column (review of PR #270, M1: else the check of the
+		// key, which runs past row-level security, tells a tenant whether a row of another tenant exists).
+		msgs := Table{Schema: "public", Name: "msgs", Entity: true,
+			Columns:     []Column{{Name: "tenant_id", Type: "text", NotNull: true}, {Name: "id", Type: "uuid", NotNull: true}},
+			Constraints: []Constraint{{Name: "msgs_pkey", Kind: KindPrimaryKey, Definition: "PRIMARY KEY (id)"}},
+			Indexes:     []Index{{Name: "msgs_pkey", Columns: []string{"id"}}},
+			RowSecurity: true, Policies: []Policy{{Name: "t", Command: "*", Using: tenantWall, WithCheck: tenantWall}}}
+		const msgsSQL = `CREATE TABLE public.msgs (tenant_id text NOT NULL, id uuid NOT NULL, CONSTRAINT msgs_pkey PRIMARY KEY (id));
+ALTER TABLE public.msgs ENABLE ROW LEVEL SECURITY; ALTER TABLE public.msgs FORCE ROW LEVEL SECURITY;
+CREATE POLICY t ON public.msgs USING (tenant_id = pg_catalog.current_setting('app.tenant', true)) WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
+`
+		owned := stepManifest()
+		owned.Tables = append(owned.Tables, msgs)
+		stepCase(t, "an owned table with one column to a key id alone", msgsSQL+"ALTER TABLE public.books ADD COLUMN msg_id uuid;\n"+
+			"ALTER TABLE public.books ADD CONSTRAINT books_msg_id_fkey FOREIGN KEY (msg_id) REFERENCES public.msgs (id);\n", owned, true)
+		shared := stepManifest()
+		tags := Table{Schema: "public", Name: "tags", Entity: true, CheckGrants: true,
+			Columns:     []Column{{Name: "id", Type: "uuid", NotNull: true}},
+			Constraints: []Constraint{{Name: "tags_pkey", Kind: KindPrimaryKey, Definition: "PRIMARY KEY (id)"}},
+			Indexes:     []Index{{Name: "tags_pkey", Columns: []string{"id"}}}}
+		labels := tags
+		labels.Name, labels.Constraints, labels.Indexes = "labels", []Constraint{{Name: "labels_pkey", Kind: KindPrimaryKey, Definition: "PRIMARY KEY (id)"}},
+			[]Index{{Name: "labels_pkey", Columns: []string{"id"}}}
+		shared.Tables = append(shared.Tables, tags, labels)
+		const sharedSQL = "CREATE TABLE public.tags (id uuid NOT NULL, CONSTRAINT tags_pkey PRIMARY KEY (id));\n" +
+			"CREATE TABLE public.labels (id uuid NOT NULL, CONSTRAINT labels_pkey PRIMARY KEY (id));\nALTER TABLE public.labels ADD COLUMN tag_id uuid;\n"
+		stepCase(t, "a table that is not owned with one column to a key id alone", sharedSQL+
+			"ALTER TABLE public.labels ADD CONSTRAINT labels_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES public.tags (id);\n", shared, false)
+		stepCase(t, "a table that is not owned with one column to an owned key", sharedSQL+
+			"CREATE UNIQUE INDEX folders_id_key ON public.folders (id);\nALTER TABLE public.labels ADD CONSTRAINT labels_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES public.folders (id);\n", shared, true)
 		if got := ForeignKeyName(strings.Repeat("t", 40), strings.Repeat("c", 30)); len(got) != 63 || !strings.HasPrefix(got, strings.Repeat("t", 40)+"_ccccc_") {
 			t.Errorf("ForeignKeyName gives %q for a long name", got)
 		}
+	})
+}
+
+func TestStepColumnType(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC01-T10 Check refuses a column of an entity table that the manifest does not list and whose type is not built in", func(t *testing.T) {
+		for _, c := range []struct{ name, setup string }{
+			{"a text column", "ALTER TABLE public.books ADD COLUMN label text;\n"},
+			{"a uuid column", "ALTER TABLE public.books ADD COLUMN shelf_id uuid;\n"},
+			{"an array of a built-in type", "ALTER TABLE public.books ADD COLUMN tags text[];\n"},
+		} {
+			stepCase(t, c.name, c.setup, stepManifest(), false)
+		}
+		const hostile = "CREATE FUNCTION public.ran(anyelement) RETURNS boolean LANGUAGE plpgsql AS $f$ BEGIN RAISE EXCEPTION 'ran'; END $f$;\n"
+		for _, c := range []struct{ name, setup string }{
+			{"a domain whose CHECK calls a function", hostile + "CREATE DOMAIN public.dom AS text CHECK (public.ran(VALUE));\nALTER TABLE public.books ADD COLUMN extra public.dom;\n"},
+			{"a domain named public.text", "CREATE DOMAIN public.text AS pg_catalog.text;\nALTER TABLE public.books ADD COLUMN extra public.text;\n"},
+			{"an enum", "CREATE TYPE public.mood AS ENUM ('a');\nALTER TABLE public.books ADD COLUMN extra public.mood;\n"},
+			{"a composite type", "CREATE TYPE public.pair AS (a integer, b integer);\nALTER TABLE public.books ADD COLUMN extra public.pair;\n"},
+			{"a built-in range", "ALTER TABLE public.books ADD COLUMN extra int4range;\n"},
+			{"an array of a domain", "CREATE DOMAIN public.dom AS text;\nALTER TABLE public.books ADD COLUMN extra public.dom[];\n"},
+		} {
+			stepCase(t, c.name, c.setup, stepManifest(), true)
+		}
+		// The rule holds on the tables of declared entities, and a listed column keeps the type of the manifest.
+		plain := stepManifest()
+		plain.Tables[1].Entity = false
+		stepCase(t, "a table that is not the table of a declared entity", "CREATE DOMAIN public.dom AS text;\nALTER TABLE public.books ADD COLUMN extra public.dom;\n", plain, false)
+		listed := stepManifest()
+		listed.Tables[1].Columns = append(listed.Tables[1].Columns, Column{Name: "extra", Type: "public.dom"})
+		stepCase(t, "a listed column of the type of the manifest", "CREATE DOMAIN public.dom AS text;\nALTER TABLE public.books ADD COLUMN extra public.dom;\n", listed, false)
 	})
 }
 

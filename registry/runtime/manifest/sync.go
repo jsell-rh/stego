@@ -167,18 +167,23 @@ func digestPrefix(n string) string {
 }
 
 // stepState is what Check accepts of the schema steps across the tables: the held schema of the sync functions,
-// the owner of the manifest, the oids of the tables of the manifest, and the oids of the sync functions that an
-// accepted sync trigger runs, which the Steps schema may hold.
+// the owner of the manifest, the oids of the tables of the manifest that are tables of declared entities, and the
+// oids of the sync functions that an accepted sync trigger runs, which the Steps schema may hold.
 type stepState struct {
 	schema, owner string
-	tables        map[uint32]bool
+	entities      map[uint32]bool
 	accepted      map[uint32]bool
 }
 
-// tableColumn is one column of a table as the catalog holds it, for the step rules.
+// builtinTypeSQL tells, for the row of pg_catalog.pg_type ty, that the type is a base type that initdb made in
+// pg_catalog: its input, output and comparison functions are built in, and no domain CHECK, enum or range runs.
+const builtinTypeSQL = `(ty.oid < 16384 AND ty.typtype = 'b' AND ty.typnamespace = 'pg_catalog'::pg_catalog.regnamespace)`
+
+// tableColumn is one column of a table as the catalog holds it, for the step rules. builtin tells that its type is a
+// built-in base type of pg_catalog (builtinTypeSQL).
 type tableColumn struct {
-	typ                          string
-	notNull, hasDefault, derived bool
+	typ                                   string
+	notNull, hasDefault, derived, builtin bool
 }
 
 // stepColumns reads the columns of the table rel, and the names of the columns of its primary key and of each of its
@@ -186,15 +191,16 @@ type tableColumn struct {
 func stepColumns(ctx context.Context, tx *sql.Tx, rel uint32) (map[string]tableColumn, map[string]bool, error) {
 	columns := map[string]tableColumn{}
 	rows, err := tx.QueryContext(ctx, `SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod), a.attnotnull, a.atthasdef,
-  a.attgenerated <> '' OR a.attidentity <> ''
-  FROM pg_catalog.pg_attribute a WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped`, rel)
+  a.attgenerated <> '' OR a.attidentity <> '', `+builtinTypeSQL+`
+  FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
+  WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped`, rel)
 	if err != nil {
 		return nil, nil, err
 	}
 	for rows.Next() {
 		var n string
 		var c tableColumn
-		if err := rows.Scan(&n, &c.typ, &c.notNull, &c.hasDefault, &c.derived); err != nil {
+		if err := rows.Scan(&n, &c.typ, &c.notNull, &c.hasDefault, &c.derived, &c.builtin); err != nil {
 			rows.Close()
 			return nil, nil, err
 		}
@@ -337,10 +343,11 @@ func acceptSync(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, 
 }
 
 // acceptForeignKey tells whether the foreign key n of the entity table t (rel) is the foreign key of a later add step
-// in its exact form (ST-SUP-RP15-LC03): on one column of the table that is not in the manifest and is nullable,
-// with the tenant column of the table first when the key that it refers to holds the tenant column; referring to the
-// whole primary key of a table of the manifest, which ends with the key id; NO ACTION on delete and on update, match
-// simple, validated and not deferrable; and named as ForeignKeyName names it.
+// in its exact form (ST-SUP-RP15-LC03): on one column of the table that is not in the manifest, is nullable and is of
+// a built-in base type of pg_catalog; referring to the whole primary key of the table of a declared entity of the
+// manifest, which ends with the key id; with the tenant column of the table first when the table is owned, and then
+// referring to the tenant column and the key id, so an owned table never refers to a key that is its key id alone;
+// NO ACTION on delete and on update, match simple, validated and not deferrable; and named as ForeignKeyName names it.
 func acceptForeignKey(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, steps *stepState, columns map[string]tableColumn) (bool, error) {
 	var from, to, ownKey, refKey, actions string
 	var target uint32
@@ -365,14 +372,16 @@ func acceptForeignKey(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n st
 	listed := slices.ContainsFunc(t.Columns, func(c Column) bool { return c.Name == column })
 	c, ok := columns[column]
 	switch {
-	case !ok || listed || c.notNull || !steps.tables[target] || actions != "aas" || !validated || deferrable:
+	case !ok || listed || c.notNull || !c.builtin || !steps.entities[target] || actions != "aas" || !validated || deferrable:
 		return false, nil
 	case to != refKey || refCols[len(refCols)-1] != "id" || n != ForeignKeyName(t.Name, column):
 		return false, nil
 	}
 	switch len(refCols) {
 	case 1:
-		return len(fromCols) == 1, nil
+		// The referenced key is the key id alone: only a table that is not owned, whose primary key is its key id
+		// alone, may refer to it, as an owned table must lead its foreign key with its tenant column.
+		return len(fromCols) == 1 && len(ownCols) == 1 && ownCols[0] == "id", nil
 	case 2:
 		// The referenced key holds the tenant column: the table is owned, and its tenant column, the first column of
 		// its primary key, comes first.

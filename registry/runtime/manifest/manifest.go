@@ -546,7 +546,7 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 	if replication != "origin" {
 		faults = append(faults, "the session runs with session_replication_role "+replication+", which skips the triggers")
 	}
-	tables := map[uint32]bool{}
+	tables, entities := map[uint32]bool{}, map[uint32]bool{}
 	for _, t := range m.Tables {
 		var oid sql.NullInt64
 		if err := tx.QueryRowContext(ctx, `SELECT pg_catalog.to_regclass(pg_catalog.quote_ident($1) || '.' || pg_catalog.quote_ident($2))::pg_catalog.oid`,
@@ -555,9 +555,10 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		}
 		if oid.Valid {
 			tables[uint32(oid.Int64)] = true
+			entities[uint32(oid.Int64)] = t.Entity
 		}
 	}
-	steps := &stepState{owner: m.Owner, tables: tables, accepted: map[uint32]bool{}}
+	steps := &stepState{owner: m.Owner, entities: entities, accepted: map[uint32]bool{}}
 	for _, sc := range m.Schemas {
 		if sc.Steps {
 			steps.schema = sc.Name
@@ -1005,10 +1006,12 @@ func checkConfined(ctx context.Context, tx *sql.Tx, role, owner string, named ma
 // database runs.
 //
 // On the table of a declared entity (entity), a default of a column that the manifest does not list is accepted when
-// it is a constant literal of a built-in type on a column of a built-in type, which a later add step gives its new
-// column, and no other default: the constant is read through the same parameterized literal path, so no function
-// of the database runs, and no function runs on an INSERT that leaves the column out (decision on ST-GEN-Q15 (a)).
-// A listed column keeps the default of the manifest.
+// it is a constant literal (literalDefault) whose cast is to a type of builtinType, on a column whose type is one of
+// builtinType, which a later add step gives its new column, and no other default; Check reads no value of it. The
+// default holds no function call, and checkTable refuses an unlisted column of the table whose type is no built-in
+// base type of pg_catalog, such as a domain with a CHECK that calls a function, so an INSERT that leaves the column
+// out runs no function of the database for it (decision on ST-GEN-Q15 (a); the type rule is the decision of the
+// orchestrator under the owner's delegation, 2026-11-13). A listed column keeps the default of the manifest.
 func checkDefaults(ctx context.Context, tx *sql.Tx, oid uint32, columns []Column, entity bool) ([]string, error) {
 	want := map[string]string{}
 	listed := map[string]bool{}
@@ -1045,14 +1048,8 @@ func checkDefaults(ctx context.Context, tx *sql.Tx, oid uint32, columns []Column
 		case d.generated != "":
 			faults = append(faults, "column "+d.name+" is a generated column, which the manifest does not state")
 		case expected == "" && entity && !listed[d.name]:
-			text, typ, ok := literal(d.expr)
-			if !ok || !builtinType.MatchString(d.typ) {
+			if _, _, ok := literal(d.expr); !ok || !builtinType.MatchString(d.typ) {
 				faults = append(faults, "column "+d.name+" has a default that the manifest does not state, and that is not a constant of a built-in type")
-				continue
-			}
-			var valid bool
-			if err := tx.QueryRowContext(ctx, "SELECT ($1::"+typ+")::"+d.typ+" IS NOT DISTINCT FROM ($1::"+typ+")::"+d.typ, text).Scan(&valid); err != nil {
-				return nil, err
 			}
 		case expected == "":
 			faults = append(faults, "column "+d.name+" has a default that the manifest does not state")
@@ -1353,11 +1350,13 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 		typ, collation string
 		notNull        bool
 		plainCollation bool
+		builtin        bool
 	}
 	columns := map[string]column{}
 	rows, err := tx.QueryContext(ctx, `SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod), a.attnotnull,
-  a.attcollation IN (0, 100, 950), COALESCE(cn.nspname || '.' || co.collname, '')
-  FROM pg_catalog.pg_attribute a LEFT JOIN pg_catalog.pg_collation co ON co.oid = a.attcollation
+  a.attcollation IN (0, 100, 950), COALESCE(cn.nspname || '.' || co.collname, ''), `+builtinTypeSQL+`
+  FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
+  LEFT JOIN pg_catalog.pg_collation co ON co.oid = a.attcollation
   LEFT JOIN pg_catalog.pg_namespace cn ON cn.oid = co.collnamespace
   WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped`, oid)
 	if err != nil {
@@ -1366,7 +1365,7 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 	for rows.Next() {
 		var n string
 		var c column
-		if err := rows.Scan(&n, &c.typ, &c.notNull, &c.plainCollation, &c.collation); err != nil {
+		if err := rows.Scan(&n, &c.typ, &c.notNull, &c.plainCollation, &c.collation, &c.builtin); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -1386,6 +1385,26 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 			fault("column %s is nullable, and the manifest needs NOT NULL", want.Name)
 		case !got.plainCollation:
 			fault("column %s has the collation %s, and the manifest needs the default or the C collation", want.Name, got.collation)
+		}
+	}
+	// On the table of a declared entity, a column that the manifest does not list is of a built-in base type of
+	// pg_catalog: a domain, an enum, a range or a type of another schema can run a function of the database on each
+	// INSERT that leaves the column out, such as the CHECK of a domain (decision of the orchestrator under the owner's
+	// delegation, 2026-11-13: an entity table refuses an unlisted column of a non-built-in type).
+	if t.Entity {
+		listed := map[string]bool{}
+		for _, c := range t.Columns {
+			listed[c.Name] = true
+		}
+		var unlisted []string
+		for n, c := range columns {
+			if !listed[n] && !c.builtin {
+				unlisted = append(unlisted, n)
+			}
+		}
+		slices.Sort(unlisted)
+		for _, n := range unlisted {
+			fault("column %s is not in the manifest and has the type %s, which is no built-in base type of pg_catalog", n, columns[n].typ)
 		}
 	}
 	found, err := checkDefaults(ctx, tx, oid, t.Columns, t.Entity)
