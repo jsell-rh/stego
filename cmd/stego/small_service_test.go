@@ -360,3 +360,15 @@ func TestServiceRecordIsCommittedWithItsCode(t *testing.T) {
 		}
 	})
 }
+
+// unreleased makes the default branch main of the service's repository a commit with no file, so with no record,
+// and keeps the service's commit on the branch work. Plan and apply then check the declaration against a base where
+// no release has run, which accepts any stored shape (ST-GEN-UC14-R02). A test that is not about schema changes
+// uses it to change the declaration freely after the fixture's commit.
+func (s *smallService) unreleased(t *testing.T) {
+	t.Helper()
+	git(t, s.service, "branch", "-m", "work")
+	empty := git(t, s.service, "hash-object", "-t", "tree", "-w", "/dev/null")
+	base := git(t, s.service, "commit-tree", empty, "-m", "a base with no record")
+	git(t, s.service, "branch", "main", base)
+}
