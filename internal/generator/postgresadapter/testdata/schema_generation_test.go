@@ -660,20 +660,31 @@ func TestApplyMigrationAgainstMigrate(t *testing.T) {
 		jobs := stdlib.OpenDB(*cfg)
 		jobs.SetMaxOpenConns(8)
 		t.Cleanup(func() { jobs.Close() })
-		// The pending migration takes a moment, so the external applies meet it; it makes the table of the runs.
+		// The pending migration makes the table of the runs. Its first run holds the ledger lock until release, so the
+		// external applies meet it while it runs; a later run, on the fresh database below, does not wait.
+		started, release := make(chan struct{}), make(chan struct{})
+		var hold atomic.Bool
+		hold.Store(true)
 		storage.Register("996_apply_pending", storage.Digest("996_apply_pending probe"), func(ctx context.Context, tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, "SELECT pg_sleep(0.2); CREATE TABLE IF NOT EXISTS apply_runs(seq bigserial PRIMARY KEY, name text NOT NULL); INSERT INTO apply_runs(name) VALUES('996_apply_pending')")
+			if hold.CompareAndSwap(true, false) {
+				close(started)
+				<-release
+			}
+			_, err := tx.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS apply_runs(seq bigserial PRIMARY KEY, name text NOT NULL); INSERT INTO apply_runs(name) VALUES('996_apply_pending')")
 			return err
 		})
 		const external = "997_apply_external"
 		body := "INSERT INTO apply_runs(name) VALUES('" + external + "')"
+		// An external apply while the registered migration is pending is refused, before any job runs.
+		if err := storage.ApplyMigration(bg, db, external, body); !errors.Is(err, storage.ErrMigrationLedger) {
+			t.Fatalf("an external apply with a registered migration pending gave %v, want ErrMigrationLedger", err)
+		}
 		var group sync.WaitGroup
-		start := make(chan struct{})
 		failures := make(chan error, 8)
 		var applied atomic.Int32
-		for i := 0; i < 8; i++ {
+		run := func(apply bool) {
 			group.Add(1)
-			go func(apply bool) {
+			go func() {
 				defer group.Done()
 				conn, err := jobs.Conn(bg)
 				if err != nil {
@@ -681,7 +692,6 @@ func TestApplyMigrationAgainstMigrate(t *testing.T) {
 					return
 				}
 				defer conn.Close()
-				<-start
 				if !apply {
 					// A migration job after the external apply refuses the ledger, which is not the registered history.
 					if err := storage.Migrate(bg, conn); err != nil && !errors.Is(err, storage.ErrMigrationLedger) {
@@ -689,17 +699,39 @@ func TestApplyMigrationAgainstMigrate(t *testing.T) {
 					}
 					return
 				}
-				// Each external apply waits a little, so some meet the pending migration and some come after it.
-				time.Sleep(time.Duration(i%4) * 100 * time.Millisecond)
 				switch err := storage.ApplyMigration(bg, conn, external, body); {
 				case err == nil:
 					applied.Add(1)
 				case !errors.Is(err, storage.ErrMigrationLedger):
 					failures <- err
 				}
-			}(i%2 == 1)
+			}()
 		}
-		close(start)
+		// Four migration jobs start; one runs the pending migration and holds the ledger lock. Then four external
+		// applies start, and each meets the pending migration: it waits on the ledger lock with the other jobs.
+		for range 4 {
+			run(false)
+		}
+		<-started
+		for range 4 {
+			run(true)
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			var waiting int
+			if err := db.QueryRow("SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND wait_event_type = 'Lock' AND wait_event = 'advisory'", name).Scan(&waiting); err != nil {
+				t.Fatal(err)
+			}
+			if waiting == 7 {
+				break
+			}
+			if time.Now().After(deadline) {
+				close(release)
+				t.Fatalf("%d jobs wait on the ledger lock, want the three other migration jobs and the four external applies", waiting)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		close(release)
 		group.Wait()
 		close(failures)
 		for err := range failures {
@@ -716,16 +748,13 @@ func TestApplyMigrationAgainstMigrate(t *testing.T) {
 				recorded++
 			}
 		}
-		switch {
-		case applied.Load() > 1 || recorded != int(applied.Load()):
-			t.Fatalf("%d external applies passed and the ledger holds %d rows of it, want at most one and the same", applied.Load(), recorded)
-		case applied.Load() == 1 && runs != "996_apply_pending,"+external:
-			t.Fatalf("the bodies ran %q, want the pending migration once and then the external body once", runs)
-		case applied.Load() == 0 && runs != "996_apply_pending":
-			t.Fatalf("the bodies ran %q with no external apply passed, want the pending migration once", runs)
+		// The applies that waited see the pending migration once it commits: one passes after it, and the others meet
+		// its own row.
+		if applied.Load() != 1 || recorded != 1 || runs != "996_apply_pending,"+external {
+			t.Fatalf("%d external applies passed, the ledger holds %d rows of it and the bodies ran %q; want one, one, and the pending migration and then the external body once each", applied.Load(), recorded, runs)
 		}
-		if len(ledger) < 2 || ledger[len(ledger)-1-int(applied.Load())] != "996_apply_pending" {
-			t.Fatalf("the ledger reads %v, want the pending migration before the external one", ledger)
+		if len(ledger) < 2 || ledger[len(ledger)-2] != "996_apply_pending" || ledger[len(ledger)-1] != external {
+			t.Fatalf("the ledger reads %v, want the pending migration and then the external one", ledger)
 		}
 		// Then, on a fresh database with the same default, eight external applies of one name at the same moment,
 		// after the registered history: one passes, and its body runs once. The body takes a moment, so the others
@@ -746,7 +775,7 @@ func TestApplyMigrationAgainstMigrate(t *testing.T) {
 		t.Cleanup(func() { jobs.Close() })
 		const again = "998_apply_again"
 		var passed atomic.Int32
-		start = make(chan struct{})
+		start := make(chan struct{})
 		failures = make(chan error, 8)
 		for i := 0; i < 8; i++ {
 			group.Add(1)

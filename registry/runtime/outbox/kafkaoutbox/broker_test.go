@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
@@ -68,6 +69,32 @@ func (l recordLogger) Emit(_ context.Context, record otellog.Record) {
 		}
 		return true
 	})
+}
+
+// eventNames is a log provider that keeps the event name and the severity of each record.
+type eventNames struct {
+	noop.LoggerProvider
+	mu    sync.Mutex
+	names []string
+}
+
+func (r *eventNames) Logger(string, ...otellog.LoggerOption) otellog.Logger { return eventLogger{r: r} }
+
+func (r *eventNames) got() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.names...)
+}
+
+type eventLogger struct {
+	noop.Logger
+	r *eventNames
+}
+
+func (l eventLogger) Emit(_ context.Context, record otellog.Record) {
+	l.r.mu.Lock()
+	l.r.names = append(l.r.names, record.EventName()+" "+record.SeverityText())
+	l.r.mu.Unlock()
 }
 
 // deliver delivers one event of tenant t1 through d within limit, and gives the error and the time it took.
@@ -292,6 +319,95 @@ func TestBrokerSafety(t *testing.T) {
 			if got := logs.got(); len(got) == 0 || got[0] != FailureSCRAMBounds {
 				t.Errorf("%s: logged %v, want %s", c.name, got, FailureSCRAMBounds)
 			}
+		}
+	})
+
+	t.Run("ST-SUP-RP01-LC32-T09 A SASL refusal on the connection of the produce is classified, not only on the ping", func(t *testing.T) {
+		server, ca := certificates(t, "", net.ParseIP("127.0.0.1"))
+		cluster := fake(t, on("127.0.0.1"), kfake.TLS(server), kfake.EnableSASL(), kfake.Superuser(MechanismSCRAMSHA512, "svc", "secret-pass"))
+		// The broker takes the first authentication, the connection of the metadata ping, and refuses each later one,
+		// so the produce opens its own connection and the broker refuses it.
+		var mu sync.Mutex
+		authentications := 0
+		cluster.ControlKey(int16(kmsg.SASLAuthenticate), func(req kmsg.Request) (kmsg.Response, error, bool) {
+			cluster.KeepControl()
+			mu.Lock()
+			defer mu.Unlock()
+			if request := req.(*kmsg.SASLAuthenticateRequest); strings.Contains(string(request.SASLAuthBytes), "n,,") {
+				authentications++
+			}
+			if authentications <= 1 {
+				return nil, nil, false
+			}
+			response := req.ResponseKind().(*kmsg.SASLAuthenticateResponse)
+			response.ErrorCode = kerr.SaslAuthenticationFailed.Code
+			return response, nil, true
+		})
+		logs := &recorder{}
+		d, err := New(Settings{Brokers: cluster.ListenAddrs(), Topic: fakeTopic, CAFile: ca, Mechanism: MechanismSCRAMSHA512,
+			Username: "svc", PasswordFile: writeFile(t, "password", "secret-pass")}, logs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer d.Close()
+		err, _ = deliver(t, d, 5*time.Second)
+		if err == nil || outbox.IsPermanent(err) || strings.Contains(err.Error(), "secret-pass") {
+			t.Fatalf("a refused authentication of the produce gave %v, want an error that is not permanent and holds no password", err)
+		}
+		if got := logs.got(); len(got) == 0 || got[0] != FailureSASL {
+			t.Fatalf("logged %v, want one event of the class %s", got, FailureSASL)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if authentications < 2 {
+			t.Fatalf("the broker saw %d authentications, want the ping's and the produce's", authentications)
+		}
+	})
+
+	t.Run("ST-SUP-RP01-LC32-T13 A failure class that a connection of an earlier attempt left does not name a later failure", func(t *testing.T) {
+		cluster := fake(t, on("127.0.0.1"))
+		// The broker holds back the answer of each produce longer than the attempt, so the attempt ends at its
+		// deadline with an outcome that is not known and a class of no connection.
+		cluster.ControlKey(int16(kmsg.Produce), func(kmsg.Request) (kmsg.Response, error, bool) {
+			cluster.KeepControl()
+			time.Sleep(3 * time.Second)
+			return nil, nil, false
+		})
+		logs := &recorder{}
+		d, err := New(Settings{Brokers: cluster.ListenAddrs(), Topic: fakeTopic, InsecureLoopback: true}, logs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer d.Close()
+		s, err := d.acquire()
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A connection of an earlier attempt failed its SASL authentication, and that attempt ended well.
+		s.connects.OnBrokerConnect(kgo.BrokerMetadata{}, 0, nil, errSASL)
+		err, _ = deliver(t, d, 2*time.Second)
+		if err == nil || err.Error() == errSASL.Error() {
+			t.Fatalf("the held produce gave %v, want an outcome that is not known and not the SASL refusal of an earlier attempt", err)
+		}
+		if got := logs.got(); len(got) != 0 {
+			t.Fatalf("logged %v, want no event of an earlier attempt's class", got)
+		}
+	})
+
+	t.Run("ST-SUP-RP01-LC32-T14 The insecure loopback mode logs a warning when the destination is made", func(t *testing.T) {
+		events := &eventNames{}
+		d, err := New(Settings{Brokers: []string{"127.0.0.1:9092"}, InsecureLoopback: true}, events)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.Close()
+		tls, err := New(Settings{Brokers: []string{"k:9093"}, Mechanism: MechanismOAuthBearer, TokenFile: "/run/token"}, events)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tls.Close()
+		if got := events.got(); len(got) != 1 || got[0] != "kafka.insecure_loopback WARN" {
+			t.Fatalf("logged %v, want one warning kafka.insecure_loopback for the destination in the insecure loopback mode only", got)
 		}
 	})
 

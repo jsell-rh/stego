@@ -118,6 +118,10 @@ slots:
     gate:
       - check-dependencies
 
+# The change events of the collections go to Kafka through the outbox (ST-SUP-Q103 (a)).
+mixins:
+  - event-publisher
+
 overrides:
   jwt-auth:
     header: X-Internal-Token

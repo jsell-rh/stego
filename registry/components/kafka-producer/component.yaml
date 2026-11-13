@@ -1,6 +1,10 @@
+# kafka-producer emits no code since 3.0.0: the Kafka destination of the runtime outbox publishes each change event
+# (ST-SUP-RP01-LC30 to ST-SUP-RP01-LC32). The outbox registers that destination on its worker (ST-SUP-RC18-OC31),
+# and each generated write of a collection stages its change event in the transaction of its command
+# (ST-SUP-RC20-OC40). The settings are the STEGO_KAFKA_ settings of the worker mode.
 kind: component
 name: kafka-producer
-version: 2.0.0
+version: 3.0.0
 stage: ga
 output_namespace: internal/events
 
