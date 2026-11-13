@@ -15,6 +15,7 @@ import (
 
 	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/parser"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 // exitStatus is an error that ends stego with its own exit status, after the command printed what it found.
@@ -150,4 +151,107 @@ func compatGit(args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("git %s: %v: %s", args[0], err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.Bytes(), nil
+}
+
+// defaultBaseRef gives the full name of the repository's default branch, which plan and apply check against when
+// the author names no base (ST-GEN-UC12-R05): the branch that refs/remotes/origin/HEAD names, else a local main,
+// else a local master. With no Git repository, or none of these, there is no base, and found is false. A symbolic
+// ref that names anything but a branch of origin is refused, so that a crafted origin/HEAD cannot point the check at
+// a tag, a note or a ref outside the remote.
+func defaultBaseRef() (ref string, found bool, err error) {
+	if _, err := compatGit("rev-parse", "--is-inside-work-tree"); err != nil {
+		return "", false, nil
+	}
+	if target, err := compatGit("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"); err == nil {
+		name := strings.TrimSpace(string(target))
+		if !strings.HasPrefix(name, "refs/remotes/origin/") || name == "refs/remotes/origin/HEAD" {
+			return "", false, fmt.Errorf("refs/remotes/origin/HEAD names %q, which is no branch of origin; set it with git remote set-head origin --auto, or name the base with --base", name)
+		}
+		if _, err := compatGit("check-ref-format", name); err != nil {
+			return "", false, fmt.Errorf("refs/remotes/origin/HEAD names %q, which is not a valid ref name; name the base with --base", name)
+		}
+		if _, err := compatGit("rev-parse", "--verify", "--quiet", "--end-of-options", name+"^{commit}"); err != nil {
+			return "", false, fmt.Errorf("refs/remotes/origin/HEAD names %s, which names no commit; fetch origin, or name the base with --base", name)
+		}
+		return name, true, nil
+	}
+	for _, name := range []string{"refs/heads/main", "refs/heads/master"} {
+		if _, err := compatGit("rev-parse", "--verify", "--quiet", "--end-of-options", name+"^{commit}"); err == nil {
+			return name, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// baseGate is what plan and apply learn from the check against the base before they plan: the base they took, and
+// the add steps that apply writes into the declaration (ST-GEN-UC12-R06).
+type baseGate struct {
+	ref     string
+	checked bool
+	steps   []types.SchemaChange
+	data    []byte
+}
+
+// checkBaseBeforePlan runs the check against the base for plan and apply (ST-GEN-UC12-R05): against the ref the
+// author names, or the default branch. It reads service.yaml in the working folder, adds the missing add steps to
+// it in memory, and refuses, with the faults, a declaration that the check refuses then. It writes nothing.
+func checkBaseBeforePlan(named string, stdout io.Writer) (baseGate, error) {
+	gate := baseGate{ref: named}
+	if named == "" {
+		ref, found, err := defaultBaseRef()
+		if err != nil {
+			return gate, err
+		}
+		if !found {
+			fmt.Fprintln(stdout, "No base check: the service folder is in no Git repository with a default branch, and --base names none.")
+			return gate, nil
+		}
+		gate.ref = ref
+	} else if strings.HasPrefix(named, "-") {
+		return gate, fmt.Errorf("the base ref %q starts with -, which git reads as an option", named)
+	}
+	base, err := readBase(gate.ref)
+	if err != nil {
+		return gate, err
+	}
+	data, err := parser.ReadDocument("service.yaml")
+	if err != nil {
+		return gate, err
+	}
+	head, err := parser.ParseServiceDeclarationFromBytes(data, "service.yaml")
+	if err != nil {
+		return gate, err
+	}
+	steps, err := compiler.MissingAddSteps(base, head)
+	if err != nil {
+		return gate, err
+	}
+	check, err := compiler.CheckBase(base, compiler.WithSchemaSteps(head, steps))
+	if err != nil {
+		return gate, err
+	}
+	gate.checked = true
+	if check.HasFaults() {
+		fmt.Fprint(stdout, formatBaseCheck(check))
+		return gate, fmt.Errorf("the check against the base ref %s refuses the declaration, so nothing is written: declare the schema changes that it names", gate.ref)
+	}
+	fmt.Fprintf(stdout, "Base: %s at commit %s; the declaration can run beside it.\n", gate.ref, base.Commit)
+	if len(steps) > 0 {
+		gate.steps = steps
+		if gate.data, err = compiler.AppendSchemaSteps(data, steps); err != nil {
+			return gate, err
+		}
+	}
+	return gate, nil
+}
+
+// printSchemaSteps names each add step that apply writes, or wrote, into the declaration.
+func printSchemaSteps(stdout io.Writer, verb string, steps []types.SchemaChange) {
+	for _, step := range steps {
+		target := step.Entity
+		if step.Field != "" {
+			target += "." + step.Field
+		}
+		fmt.Fprintf(stdout, "%s schema step %s: add %s at expand\n", verb, step.ID, target)
+	}
 }

@@ -377,11 +377,23 @@ func runFillCreate(args []string) error {
 func runPlan(args []string) error {
 	fs := flag.NewFlagSet("plan", flag.ContinueOnError)
 	show := fs.Bool("show", false, "print the saved plan and whether it still applies, and save no plan")
+	baseRef := fs.String("base", "", "the commit or branch of the version that runs now; the default branch when left out")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
 		return fmt.Errorf("plan takes no arguments")
+	}
+	if !*show {
+		gate, err := checkBaseBeforePlan(*baseRef, os.Stdout)
+		if err != nil {
+			return err
+		}
+		if len(gate.steps) > 0 {
+			printSchemaSteps(os.Stdout, "Apply writes the", gate.steps)
+			fmt.Println("\nThe declaration needs these add steps, so plan saved no plan; run stego apply, which writes them in service.yaml.")
+			return nil
+		}
 	}
 
 	input, err := buildReconcilerInput()
@@ -428,52 +440,98 @@ func runApply(args []string) error {
 	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
 	replaceHandEdits := fs.Bool("replace-hand-edits", false, "let this apply replace generated files that were edited by hand")
 	savedPlan := fs.Bool("saved-plan", false, "carry out the plan that stego plan saved, or refuse it when it is stale")
+	baseRef := fs.String("base", "", "the commit or branch of the version that runs now; the default branch when left out")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
 		return fmt.Errorf("apply takes no arguments")
 	}
-
-	input, err := buildReconcilerInput()
+	gate, err := checkBaseBeforePlan(*baseRef, os.Stdout)
 	if err != nil {
 		return err
+	}
+	if len(gate.steps) > 0 {
+		if *savedPlan {
+			return fmt.Errorf("the declaration needs add steps that the saved plan does not hold; run stego apply without --saved-plan")
+		}
+		restore, err := writeSchemaSteps(gate.data)
+		if err != nil {
+			return err
+		}
+		printSchemaSteps(os.Stdout, "Wrote the", gate.steps)
+		if started, err := applyPlanned(*replaceHandEdits, *savedPlan); err != nil {
+			// Once Apply starts, its journal names the new declaration, and stego recover completes it.
+			if !started {
+				restore()
+			}
+			return err
+		}
+		return nil
+	}
+	_, err = applyPlanned(*replaceHandEdits, *savedPlan)
+	return err
+}
+
+// writeSchemaSteps writes the declaration with its new add steps over service.yaml, with the file's mode, and
+// gives the function that writes the old bytes back when apply then fails.
+func writeSchemaSteps(data []byte) (func(), error) {
+	info, err := os.Stat("service.yaml")
+	if err != nil {
+		return nil, err
+	}
+	old, err := os.ReadFile("service.yaml")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile("service.yaml", data, info.Mode().Perm()); err != nil {
+		return nil, err
+	}
+	return func() { _ = os.WriteFile("service.yaml", old, info.Mode().Perm()) }, nil
+}
+
+// applyPlanned plans from the files on disk and carries the plan out. started tells whether Apply ran, after which
+// its journal, not the old declaration, is what stego recover completes.
+func applyPlanned(replaceHandEdits, savedPlan bool) (started bool, err error) {
+	input, err := buildReconcilerInput()
+	if err != nil {
+		return false, err
 	}
 
 	plan, err := compiler.Reconcile(input)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if err := checkPinStanding(input, plan); err != nil {
-		return err
+		return false, err
 	}
-	if *savedPlan {
+	if savedPlan {
 		saved, err := compiler.LoadPlan(input.ProjectDir)
 		if err != nil {
-			return err
+			return false, err
 		}
 		plan.UseSavedPlan(saved)
 	} else if !plan.HasChanges() {
 		fmt.Println("No changes. Infrastructure is up-to-date.")
-		return nil
+		return false, nil
 	}
 
-	plan.ReplaceHandEdits = *replaceHandEdits
+	plan.ReplaceHandEdits = replaceHandEdits
 	_, statErr := os.Stat(filepath.Join(input.ProjectDir, "go.mod"))
 	firstGeneration := errors.Is(statErr, os.ErrNotExist)
 	if err := compiler.Apply(plan, input.ProjectDir, input.OutDir); err != nil {
-		return err
+		return true, err
 	}
 
 	fmt.Print(compiler.FormatPlan(plan))
 	if firstGeneration {
 		if err := recheckFills(); err != nil {
-			return err
+			return true, err
 		}
 	}
 	fmt.Println("\nApply complete!")
-	return nil
+	return true, nil
 }
 
 // runValidate implements `stego validate`.
