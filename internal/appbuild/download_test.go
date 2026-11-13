@@ -595,6 +595,25 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 		if entries, err := os.ReadDir(open); err != nil || len(entries) != 0 {
 			t.Errorf("the parent that others may write holds %v (%v), want nothing", entries, err)
 		}
+		// A cache root that its group may write is refused before anything is made in it (#240): another user of the
+		// group could replace the parent folder.
+		shared := filepath.Join(parent, "shared")
+		if err := os.Mkdir(shared, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(shared, 0o770); err != nil {
+			t.Fatal(err)
+		}
+		if opened, err := openKeptTree(context.Background(), filepath.Join(shared, "stego", "sumdb"), verifier); err == nil ||
+			!strings.Contains(err.Error(), "the cache root") || !strings.Contains(err.Error(), "others may write") {
+			if err == nil {
+				opened.close()
+			}
+			t.Errorf("a kept tree under a cache root that its group may write gave %v, want the refusal of the root", err)
+		}
+		if entries, err := os.ReadDir(shared); err != nil || len(entries) != 0 {
+			t.Errorf("the cache root that its group may write holds %v (%v), want nothing", entries, err)
+		}
 		// A wait for a lock that another run holds ends with its context, and leaves no goroutine behind.
 		held, err := openKeptTree(context.Background(), moved, verifier)
 		if err != nil {
