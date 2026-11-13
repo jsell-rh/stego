@@ -45,10 +45,6 @@ func TestLibraryGeneratorsCheckGoPackageNames(t *testing.T) {
 					ctx.Entities[0].Permissions = map[types.Operation]string{types.OpRead: "view", types.OpList: "view"}
 				}
 			}
-			if name == "kafka" {
-				// kafka-producer with the outbox waits for ST-SUP-Q103; the publisher alone is checked here.
-				delete(ctx.PeerNamespaces, "outbox")
-			}
 			if name == "grpc" {
 				// The protobuf and process generators of grpc-processes: grpc-application serves only declared
 				// commands and queries (ST-SUP-RC07-OC19).

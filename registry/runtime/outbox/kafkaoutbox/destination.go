@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,6 +40,8 @@ const (
 	HeaderIdempotencyKey = "stego-idempotency-key"
 	// HeaderEventType is the event type: the kind of the outbox message.
 	HeaderEventType = "stego-event-type"
+	// HeaderEventAction is the action of the event: the part of its kind after the last period, such as created.
+	HeaderEventAction = "stego-event-action"
 	// HeaderTenant is the tenant of the outbox row, never read from the payload.
 	HeaderTenant = "stego-tenant"
 	// HeaderContentType is application/json: the payload of the message, as it is.
@@ -124,8 +127,40 @@ type Destination struct {
 }
 
 type session struct {
-	client *kgo.Client
-	once   sync.Once
+	client   *kgo.Client
+	once     sync.Once
+	connects *connectFailures
+}
+
+// connectFailures keeps the failure class of the last connection of a client that failed to start: its TLS handshake
+// or its SASL authentication. The client opens a connection of its own for the produce, after the metadata ping, and
+// it retries a connection that fails until the attempt ends, so the error of the produce does not tell the class; the
+// hook of the connection does.
+type connectFailures struct {
+	mu    sync.Mutex
+	class string
+}
+
+// OnBrokerConnect is the kgo hook of each connection that the client opens: err is the error of its dial or of its
+// start, which holds the TLS handshake and the SASL authentication.
+func (c *connectFailures) OnBrokerConnect(_ kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
+	if err == nil {
+		return
+	}
+	if _, class := failure(err); class != "" {
+		c.mu.Lock()
+		c.class = class
+		c.mu.Unlock()
+	}
+}
+
+// take gives the class of the last connection that failed, and forgets it.
+func (c *connectFailures) take() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	class := c.class
+	c.class = ""
+	return class
 }
 
 func (s *session) close() { s.once.Do(s.client.Close) }
@@ -144,7 +179,8 @@ func New(s Settings, logs otellog.LoggerProvider) (*Destination, error) {
 	if len(s.BrokerHosts) > 0 {
 		dialer.hosts = map[string]bool{}
 		for _, h := range s.BrokerHosts {
-			dialer.hosts[strings.ToLower(h)] = true
+			lower, _ := asciiLower(h)
+			dialer.hosts[lower] = true
 		}
 	}
 	options := []kgo.Opt{
@@ -194,6 +230,15 @@ func New(s Settings, logs otellog.LoggerProvider) (*Destination, error) {
 	d := &Destination{options: options, topic: s.Topic}
 	if logs != nil {
 		d.logger = logs.Logger("github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox")
+		if s.InsecureLoopback {
+			// The insecure loopback mode is for a local test only: a deployment that sets it says so in its log.
+			var record otellog.Record
+			record.SetEventName("kafka.insecure_loopback")
+			record.SetSeverity(otellog.SeverityWarn)
+			record.SetSeverityText("WARN")
+			record.SetBody(attribute.StringValue("the Kafka destination talks to loopback brokers without TLS: STEGO_KAFKA_INSECURE_LOOPBACK=1 is for a local test only"))
+			d.logger.Emit(context.Background(), record)
+		}
 	}
 	return d, nil
 }
@@ -213,7 +258,9 @@ func (b *brokerDialer) dial(ctx context.Context, network, address string) (net.C
 	if err != nil {
 		return nil, errBrokerRefused
 	}
-	if b.hosts != nil && !b.hosts[strings.ToLower(host)] {
+	// A host that a broker names is compared in ASCII only, and a host that is not ASCII is refused.
+	lower, ascii := asciiLower(host)
+	if !ascii || b.hosts != nil && !b.hosts[lower] {
 		return nil, errBrokerRefused
 	}
 	target := address
@@ -256,20 +303,20 @@ func tlsConfig(s Settings) (*tls.Config, error) {
 		roots = x509.NewCertPool()
 	}
 	if s.CAFile != "" {
-		data, err := readFile(s.CAFile, maxPEM)
+		data, err := readShared(s.CAFile, maxPEM)
 		if err != nil || !roots.AppendCertsFromPEM(data) {
-			return nil, settingError(CAFileSetting, "must name a readable PEM file of certificate authorities")
+			return nil, settingError(CAFileSetting, "must name a readable PEM file of certificate authorities that its group and others may not write")
 		}
 	}
 	config := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
 	if s.ClientCertFile != "" {
-		certificate, err := readFile(s.ClientCertFile, maxPEM)
+		certificate, err := readShared(s.ClientCertFile, maxPEM)
 		if err != nil {
-			return nil, settingError(ClientCertFileSetting, "must name a readable PEM file")
+			return nil, settingError(ClientCertFileSetting, "must name a readable PEM file that its group and others may not write")
 		}
-		key, err := readFile(s.ClientKeyFile, maxPEM)
+		key, err := readPrivate(s.ClientKeyFile, maxPEM)
 		if err != nil {
-			return nil, settingError(ClientKeyFileSetting, "must name a readable PEM file")
+			return nil, settingError(ClientKeyFileSetting, "must name a readable PEM file, with no execute bit, that its group may not write and others may not use")
 		}
 		pair, err := tls.X509KeyPair(certificate, key)
 		if err != nil {
@@ -303,6 +350,8 @@ func (d *Destination) Deliver(ctx context.Context, _ *sql.Tx, delivery outbox.De
 	if err != nil {
 		return outbox.NotSent(err)
 	}
+	// A class that a connection of an earlier attempt left is not this attempt's.
+	s.connects.take()
 	if err := ping(ctx, s.client); err != nil {
 		// No record was sent. A broker that does not answer may hold a connection the client must not use again.
 		d.invalidate(s)
@@ -321,9 +370,34 @@ func (d *Destination) Deliver(ctx context.Context, _ *sql.Tx, delivery outbox.De
 		if err = <-result; err == nil {
 			return nil
 		}
+		// A connection of the produce that failed its TLS handshake or its SASL authentication is retried until the
+		// attempt ends; its class is that of the hook. The outcome stays not known.
+		class := s.connects.take()
+		if _, own := failure(err); own != "" {
+			class = own
+		}
+		if fixed := classError(class); fixed != nil {
+			d.failed(context.WithoutCancel(ctx), class)
+			return fixed
+		}
 		return ctx.Err()
 	}
 	return d.outcome(s, err)
+}
+
+// classError gives the fixed error of a failure class, or nil for no class.
+func classError(class string) error {
+	switch class {
+	case FailureTLSVerification:
+		return errTLSVerify
+	case FailureSASL:
+		return errSASL
+	case FailureSCRAMBounds:
+		return errSCRAMBounds
+	case FailureBrokerRefused:
+		return errBrokerRefused
+	}
+	return nil
 }
 
 // outcome marks the error of a produce. A broker's refusal of the batch means the record is not in the log: it is
@@ -332,6 +406,12 @@ func (d *Destination) Deliver(ctx context.Context, _ *sql.Tx, delivery outbox.De
 func (d *Destination) outcome(s *session, err error) error {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, kerr.SaslAuthenticationFailed) {
+		// The broker refused the authentication of a connection before it took the record.
+		s.connects.take()
+		d.failed(context.Background(), FailureSASL)
+		return outbox.TransientRefusal(errSASL)
 	}
 	if refusal, ok := errors.AsType[*kerr.Error](err); ok {
 		switch refusal {
@@ -345,8 +425,13 @@ func (d *Destination) outcome(s *session, err error) error {
 		}
 	}
 	d.invalidate(s)
-	if _, class := failure(err); class != "" {
+	class := s.connects.take()
+	if _, own := failure(err); own != "" {
+		class = own
+	}
+	if fixed := classError(class); fixed != nil {
 		d.failed(context.Background(), class)
+		return fixed
 	}
 	return errUnknownOutcome
 }
@@ -377,12 +462,15 @@ func (d *Destination) record(delivery outbox.Delivery) (*kgo.Record, error) {
 	if len(delivery.Payload) == 0 || !json.Valid(delivery.Payload) {
 		return nil, errors.New("kafkaoutbox: the payload is not one JSON value")
 	}
+	// The kind is <entity topic>.<action>: with no declared topic, every event of one entity goes to the topic of
+	// the entity, so its actions keep their order on one partition (ST-SUP-Q115 (a)).
+	entityTopic, action, split := cutLast(delivery.Kind, ".")
 	topic := d.topic
 	if topic == "" {
-		if !validTopic(delivery.Kind) {
-			return nil, errors.New("kafkaoutbox: the event type is not a Kafka topic name")
+		if !split || action == "" || !validTopic(entityTopic) {
+			return nil, errors.New("kafkaoutbox: the event type is not a Kafka topic name, a period and an action")
 		}
-		topic = delivery.Kind
+		topic = entityTopic
 	}
 	return &kgo.Record{
 		Topic: topic,
@@ -392,10 +480,19 @@ func (d *Destination) record(delivery outbox.Delivery) (*kgo.Record, error) {
 			{Key: HeaderEventID, Value: []byte(delivery.ID.String())},
 			{Key: HeaderIdempotencyKey, Value: []byte(delivery.OutgoingKey)},
 			{Key: HeaderEventType, Value: []byte(delivery.Kind)},
+			{Key: HeaderEventAction, Value: []byte(action)},
 			{Key: HeaderTenant, Value: []byte(delivery.Tenant.ID())},
 			{Key: HeaderContentType, Value: []byte("application/json")},
 		},
 	}, nil
+}
+
+// cutLast cuts s around the last sep, and tells whether s holds sep.
+func cutLast(s, sep string) (before, after string, found bool) {
+	if i := strings.LastIndex(s, sep); i >= 0 {
+		return s[:i], s[i+len(sep):], true
+	}
+	return s, "", false
 }
 
 // KeySeparator separates the tenant from the resource key in a record key. A tenant ID holds no control character
@@ -425,11 +522,12 @@ func (d *Destination) acquire() (*session, error) {
 		return nil, ErrClosed
 	}
 	if d.session == nil {
-		client, err := kgo.NewClient(d.options...)
+		connects := &connectFailures{}
+		client, err := kgo.NewClient(slices.Concat(d.options, []kgo.Opt{kgo.WithHooks(connects)})...)
 		if err != nil {
 			return nil, errors.New("kafkaoutbox: the client configuration is not valid")
 		}
-		d.session = &session{client: client}
+		d.session = &session{client: client, connects: connects}
 	}
 	return d.session, nil
 }

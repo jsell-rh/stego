@@ -14,6 +14,7 @@ import (
 
 	"github.com/jsell-rh/stego/registry/runtime/command"
 	"github.com/jsell-rh/stego/registry/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox"
 	"github.com/jsell-rh/stego/registry/runtime/query"
 
 	data "github.com/example/service/out/internal/api/data"
@@ -22,9 +23,10 @@ import (
 
 // organizationsCreateCommand is the generated command of a create of organizations (ST-SUP-RC20-OC37).
 var organizationsCreateCommand = mustCommand(command.NewCommand(command.CommandSpec[struct{}]{
-	Name:   "create",
-	Writes: []command.Declared{data.OrganizationEntity},
-	Probe:  noProbe,
+	Name:         "create",
+	Writes:       []command.Declared{data.OrganizationEntity},
+	Probe:        noProbe,
+	Destinations: []command.Destination{{Name: kafkaoutbox.DestinationName, Idempotent: true, Effects: []string{"user-management.organization.created"}}},
 }))
 
 // organizationsReadQuery is the query of a read of organizations (ST-SUP-RP11).
@@ -32,11 +34,12 @@ var organizationsReadQuery = mustQuery(query.NewQuery("read", data.EntityOrganiz
 
 // organizationsDeleteCommand is the generated command of a delete of organizations (ST-SUP-RC20-OC37).
 var organizationsDeleteCommand = mustCommand(command.NewCommand(command.CommandSpec[struct{}]{
-	Name:       "delete",
-	Writes:     []command.Declared{data.OrganizationEntity},
-	Probe:      noProbe,
-	Permission: "edit",
-	Resource:   &command.Resource{Type: "organization", Token: "SELECT authz_token FROM organizations WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", ValidID: command.ValidUUID},
+	Name:         "delete",
+	Writes:       []command.Declared{data.OrganizationEntity},
+	Probe:        noProbe,
+	Destinations: []command.Destination{{Name: kafkaoutbox.DestinationName, Idempotent: true, Effects: []string{"user-management.organization.deleted"}}},
+	Permission:   "edit",
+	Resource:     &command.Resource{Type: "organization", Token: "SELECT authz_token FROM organizations WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", ValidID: command.ValidUUID},
 }))
 
 // organizationsListQuery is the query of a list of organizations, on the list permission of Organization (ST-SUP-RP11-LC07).
@@ -170,6 +173,9 @@ func (h *OrganizationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return idempotency.Response{}, err
 		}
 		persisted = Organization(created.Value())
+		if err := ch.Effects().Stage(ctx, kafkaoutbox.DestinationName, "user-management.organization.created", created, changeEvent("Organization", "created", persisted.ID)); err != nil {
+			return idempotency.Response{}, err
+		}
 		response, err := json.Marshal(organizationsPresented(persisted))
 		if err != nil {
 			return idempotency.Response{}, err
@@ -263,6 +269,9 @@ func (h *OrganizationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err := repo.Delete(ctx, from); err != nil {
+			return idempotency.Response{}, err
+		}
+		if err := ch.Effects().Stage(ctx, kafkaoutbox.DestinationName, "user-management.organization.deleted", from, changeEvent("Organization", "deleted", id)); err != nil {
 			return idempotency.Response{}, err
 		}
 		return idempotency.Response{Status: http.StatusNoContent}, nil

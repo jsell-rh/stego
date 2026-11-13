@@ -34,6 +34,8 @@ const (
 	auditNamespace       = "internal/auditlog"
 	idempotencyNamespace = "internal/idempotency"
 	moduleName           = "example.com/orders"
+	// kafkaNamespace is the package of the outbox wiring of the service with kafka-producer.
+	kafkaNamespace = "internal/eventsoutbox"
 )
 
 // ordersContext is the declaration of the RC18-OC30 test records, as the generators read it: a rest-crud service
@@ -133,11 +135,31 @@ func TestRuntimeOutput(t *testing.T) {
 			t.Fatalf("a service without audit-log got an audit-sink destination:\n%s", source)
 		}
 	})
-	t.Run("ST-SUP-RC18-OC30-T05 The runtime path refuses a peer that calls the former queue", func(t *testing.T) {
+	t.Run("ST-SUP-RC18-OC31-T01 With kafka-producer, NewWorker registers the Kafka destination of the runtime with its settings and the log provider of the worker", func(t *testing.T) {
 		ctx := ordersContext(outboxNamespace)
-		ctx.PeerNamespaces["kafka-producer"] = "internal/events"
-		if _, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "ST-SUP-RC20-OC39") || !strings.Contains(err.Error(), "ST-SUP-Q103") {
-			t.Fatalf("the runtime path with kafka-producer gave %v, want a refusal that names ST-SUP-RC20-OC39 and ST-SUP-Q103", err)
+		ctx.PeerNamespaces[kafkaComponent] = "internal/events"
+		files, wiring, err := new(Generator).Generate(ctx)
+		if err != nil {
+			t.Fatalf("the outbox with kafka-producer was refused: %v", err)
+		}
+		source := string(files[0].Bytes())
+		for _, want := range []string{`"github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox"`,
+			`var Destinations = []string{"audit-sink", "kafka"}`, "settings, err := kafkaoutbox.ReadSettings()",
+			"kafka, err := kafkaoutbox.New(settings, config.Logger)", "worker.Register(kafka.Registration())"} {
+			if !strings.Contains(source, want) {
+				t.Errorf("the outbox wiring with kafka-producer holds no %s:\n%s", want, source)
+			}
+		}
+		// The Kafka destination needs no grant and no module of its own: the runtime module requires its client.
+		if len(wiring.DatabaseAccess) != 0 || len(wiring.GoModRequires) != 0 {
+			t.Errorf("the outbox wiring with kafka-producer asks for grants %v and modules %v, want none", wiring.DatabaseAccess, wiring.GoModRequires)
+		}
+		plain, _, err := new(Generator).Generate(ordersContext(outboxNamespace))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(plain[0].Bytes()), "kafka") {
+			t.Errorf("the outbox wiring without kafka-producer names Kafka:\n%s", plain[0].Bytes())
 		}
 	})
 }
@@ -167,6 +189,17 @@ func generateService(t *testing.T) *service {
 		for _, f := range list {
 			s.write(f.Path, string(f.Bytes()))
 		}
+	}
+	// The outbox wiring with kafka-producer, in a package of its own, so go vet builds it against the runtime too
+	// (ST-SUP-RC18-OC31).
+	withKafka := ordersContext(kafkaNamespace)
+	withKafka.PeerNamespaces[kafkaComponent] = "internal/events"
+	kafkaFiles, _, err := new(Generator).Generate(withKafka)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range kafkaFiles {
+		s.write(f.Path, string(f.Bytes()))
 	}
 	s.write(filepath.Join(outboxNamespace, "runtime_test.go"), runtimeTests)
 	// The migration of the former outbox component, for the test of an upgraded database.

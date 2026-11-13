@@ -13,12 +13,10 @@ type Generator struct{}
 // change; the command and query generators ask for the Go version of the runtime library that the wiring imports.
 func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
-// ValidateContext checks the output namespace and refuses a peer that the outbox on the runtime cannot serve.
+// ValidateContext checks the output namespace. Each peer that owns a destination is one that the outbox runtime
+// serves: audit-log through auditoutbox and kafka-producer through kafkaoutbox (ST-SUP-RC18-OC31).
 func (*Generator) ValidateContext(ctx gen.Context) error {
-	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
-		return err
-	}
-	return validateRuntime(ctx)
+	return gen.ValidateGoPackageNamespace(ctx.OutputNamespace)
 }
 
 // Generate emits the outbox wiring on the runtime. A service with no entity, no command and no query has no
