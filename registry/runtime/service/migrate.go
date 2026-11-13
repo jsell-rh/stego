@@ -134,7 +134,10 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 		return failed(StepOpen, err)
 	}
 	defer conn.Close()
-	asOwner := "SET ROLE " + quote(m.OwnerRole)
+	// The owner role runs each step with the search path public, pg_temp, so a name with no schema in a migration
+	// text, such as the key table of the idempotency migration, resolves in public, never in a schema named after
+	// the owner role ("$user") or the login of the job (ST-STD-TXN-R19).
+	asOwner := "SET ROLE " + quote(m.OwnerRole) + "; SET search_path = public, pg_temp"
 	step := func(name string, run func() error) error {
 		if stepped != nil {
 			stepped(name, conn)

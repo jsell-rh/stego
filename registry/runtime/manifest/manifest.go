@@ -33,9 +33,13 @@ type Manifest struct {
 	// to a role but its owner, and holds no function that the manifest does not name, so no overload of a function
 	// of the manifest can stand in for it.
 	Schemas []Schema
-	// Confined are the roles that own no object of the database but the functions of the manifest that name them
-	// as their Owner: no other function, table, view, sequence, type or schema. A SECURITY DEFINER function runs
-	// with the rights of its owner, so a confined role is the owner of the functions of the manifest only.
+	// Confined are the roles that own no object but the functions of the manifest that name them as their Owner: no
+	// other function, relation, type, schema, large object, operator, operator class or family, collation,
+	// conversion, text search configuration or dictionary, statistics object, foreign-data wrapper, foreign
+	// server, event trigger, extension, language, publication, subscription, database or tablespace, and no default
+	// privileges; that are a member of no role; and that hold no privilege on a relation or a column of a relation
+	// that is not a table of the manifest. A SECURITY DEFINER function runs with the rights of its owner, so a
+	// confined role has the rights that the manifest names only.
 	Confined []string
 }
 
@@ -498,8 +502,19 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		return fmt.Errorf("manifest: read the catalog of the functions: %w", err)
 	}
 	faults = append(faults, found...)
+	tables := map[uint32]bool{}
+	for _, t := range m.Tables {
+		var oid sql.NullInt64
+		if err := tx.QueryRowContext(ctx, `SELECT pg_catalog.to_regclass(pg_catalog.quote_ident($1) || '.' || pg_catalog.quote_ident($2))::pg_catalog.oid`,
+			t.Schema, t.Name).Scan(&oid); err != nil {
+			return fmt.Errorf("manifest: read the catalog of the table %s.%s: %w", t.Schema, t.Name, err)
+		}
+		if oid.Valid {
+			tables[uint32(oid.Int64)] = true
+		}
+	}
 	for _, role := range m.Confined {
-		found, err := checkConfined(ctx, tx, role, named)
+		found, err := checkConfined(ctx, tx, role, named, tables)
 		if err != nil {
 			return fmt.Errorf("manifest: read the catalog of the objects of the role %s: %w", role, err)
 		}
@@ -762,7 +777,7 @@ func checkSchema(ctx context.Context, tx *sql.Tx, sc Schema, wantOwner string, n
 // checkConfined gives the faults of one confined role: missing, or the owner of a function that the manifest does
 // not name with the role as its owner, of a relation, of a type that is no row or array type of another object, or
 // of a schema.
-func checkConfined(ctx context.Context, tx *sql.Tx, role string, named map[uint32]string) ([]string, error) {
+func checkConfined(ctx context.Context, tx *sql.Tx, role string, named map[uint32]string, tables map[uint32]bool) ([]string, error) {
 	var oid uint32
 	err := tx.QueryRowContext(ctx, `SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $1`, role).Scan(&oid)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -776,6 +791,26 @@ func checkConfined(ctx context.Context, tx *sql.Tx, role string, named map[uint3
   UNION ALL SELECT 'type', t.oid, t.oid::pg_catalog.regtype::text FROM pg_catalog.pg_type t WHERE t.typowner = $1 AND t.typrelid = 0
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_type e WHERE e.typarray = t.oid)
   UNION ALL SELECT 'schema', n.oid, n.nspname::text FROM pg_catalog.pg_namespace n WHERE n.nspowner = $1
+  UNION ALL SELECT 'large object', l.oid, l.oid::text FROM pg_catalog.pg_largeobject_metadata l WHERE l.lomowner = $1
+  UNION ALL SELECT 'operator', o.oid, o.oid::pg_catalog.regoperator::text FROM pg_catalog.pg_operator o WHERE o.oprowner = $1
+  UNION ALL SELECT 'operator class', c.oid, c.opcname::text FROM pg_catalog.pg_opclass c WHERE c.opcowner = $1
+  UNION ALL SELECT 'operator family', f.oid, f.opfname::text FROM pg_catalog.pg_opfamily f WHERE f.opfowner = $1
+  UNION ALL SELECT 'collation', c.oid, c.oid::pg_catalog.regcollation::text FROM pg_catalog.pg_collation c WHERE c.collowner = $1
+  UNION ALL SELECT 'conversion', c.oid, c.conname::text FROM pg_catalog.pg_conversion c WHERE c.conowner = $1
+  UNION ALL SELECT 'text search configuration', c.oid, c.oid::pg_catalog.regconfig::text FROM pg_catalog.pg_ts_config c WHERE c.cfgowner = $1
+  UNION ALL SELECT 'text search dictionary', d.oid, d.oid::pg_catalog.regdictionary::text FROM pg_catalog.pg_ts_dict d WHERE d.dictowner = $1
+  UNION ALL SELECT 'statistics object', x.oid, x.stxname::text FROM pg_catalog.pg_statistic_ext x WHERE x.stxowner = $1
+  UNION ALL SELECT 'foreign-data wrapper', w.oid, w.fdwname::text FROM pg_catalog.pg_foreign_data_wrapper w WHERE w.fdwowner = $1
+  UNION ALL SELECT 'foreign server', v.oid, v.srvname::text FROM pg_catalog.pg_foreign_server v WHERE v.srvowner = $1
+  UNION ALL SELECT 'event trigger', e.oid, e.evtname::text FROM pg_catalog.pg_event_trigger e WHERE e.evtowner = $1
+  UNION ALL SELECT 'extension', x.oid, x.extname::text FROM pg_catalog.pg_extension x WHERE x.extowner = $1
+  UNION ALL SELECT 'language', g.oid, g.lanname::text FROM pg_catalog.pg_language g WHERE g.lanowner = $1
+  UNION ALL SELECT 'publication', b.oid, b.pubname::text FROM pg_catalog.pg_publication b WHERE b.pubowner = $1
+  UNION ALL SELECT 'subscription', b.oid, b.subname::text FROM pg_catalog.pg_subscription b WHERE b.subowner = $1
+  UNION ALL SELECT 'database', d.oid, d.datname::text FROM pg_catalog.pg_database d WHERE d.datdba = $1
+  UNION ALL SELECT 'tablespace', t.oid, t.spcname::text FROM pg_catalog.pg_tablespace t WHERE t.spcowner = $1
+  UNION ALL SELECT 'default privileges', d.oid, COALESCE(n.nspname || ' ', '') || 'for ' || d.defaclobjtype::text
+    FROM pg_catalog.pg_default_acl d LEFT JOIN pg_catalog.pg_namespace n ON n.oid = d.defaclnamespace WHERE d.defaclrole = $1
   ORDER BY 1, 3`, oid)
 	if err != nil {
 		return nil, err
@@ -792,6 +827,47 @@ func checkConfined(ctx context.Context, tx *sql.Tx, role string, named map[uint3
 			continue
 		}
 		faults = append(faults, "the confined role "+role+" owns the "+kind+" "+object+", which the manifest does not name for it")
+	}
+	if err := closed(rows); err != nil {
+		return nil, err
+	}
+	// A membership gives the role the rights of another role; a SECURITY DEFINER function of it would use them.
+	rows, err = tx.QueryContext(ctx, `SELECT g.rolname FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles g ON g.oid = m.roleid
+  WHERE m.member = $1 ORDER BY 1`, oid)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var group string
+		if err := rows.Scan(&group); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		faults = append(faults, "the confined role "+role+" is a member of the role "+group+", which the manifest does not name for it")
+	}
+	if err := closed(rows); err != nil {
+		return nil, err
+	}
+	// A privilege on a relation that is not a table of the manifest, which the grants of a table of the manifest do
+	// not hold, would reach rows of another tenant or another service.
+	rows, err = tx.QueryContext(ctx, `SELECT DISTINCT c.oid, c.oid::pg_catalog.regclass::text FROM pg_catalog.pg_class c, pg_catalog.aclexplode(c.relacl) a
+  WHERE c.relacl IS NOT NULL AND a.grantee = $1 AND c.relowner <> $1
+  UNION SELECT DISTINCT c.oid, c.oid::pg_catalog.regclass::text FROM pg_catalog.pg_attribute t JOIN pg_catalog.pg_class c ON c.oid = t.attrelid,
+    pg_catalog.aclexplode(t.attacl) a
+  WHERE t.attacl IS NOT NULL AND NOT t.attisdropped AND a.grantee = $1 AND c.relowner <> $1 ORDER BY 2`, oid)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var rel uint32
+		var name string
+		if err := rows.Scan(&rel, &name); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if !tables[rel] {
+			faults = append(faults, "the confined role "+role+" holds a privilege on the relation "+name+", which the manifest does not name for it")
+		}
 	}
 	return faults, closed(rows)
 }

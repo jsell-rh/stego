@@ -90,6 +90,16 @@ func TestManifest(t *testing.T) {
 		if err := manifest.Check(ctx, admin, m); err != nil {
 			t.Fatalf("Check refused the restored database: %v", err)
 		}
+		// A CREATE on the schema that the purge role held before the migration is gone after it (#244 I3).
+		if _, err := admin.ExecContext(ctx, "GRANT CREATE ON SCHEMA "+schema+" TO "+testPurgeRole); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, testMigration(t)); err != nil {
+			t.Fatalf("apply Migration again: %v", err)
+		}
+		if err := manifest.Check(ctx, admin, m); err != nil {
+			t.Fatalf("Check refused the database after the migration ran with a CREATE of the purge role: %v", err)
+		}
 		if _, err := Manifest("Public; DROP", testPurgeRole, runtimeRole); err == nil {
 			t.Error("Manifest took a schema that is not a plain SQL name")
 		}

@@ -245,7 +245,35 @@ func (f *fixture) post(db *sql.DB, key string, entries ...Entry) Transfer {
 		out, err = f.usd.Post(f.ctx, tx, f.tn(acme), Posting{Key: key, Code: "topup", Entries: entries})
 		return err
 	})
+	f.awaitOthers()
 	return out
+}
+
+// awaitOthers waits until no transaction of another database of the server, such as one of a test of another
+// package, that began before now is still running. A snapshot takes entries only below the oldest running
+// transaction of the whole server (pg_snapshot_xmin), so such a transaction would hold back the snapshots of this
+// test; the transactions of the test's own database are left as the test makes them.
+func (f *fixture) awaitOthers() {
+	f.t.Helper()
+	var next int64
+	if err := f.admin.QueryRowContext(f.ctx, `SELECT pg_catalog.pg_current_xact_id()::text::bigint & 4294967295`).Scan(&next); err != nil {
+		f.t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Minute)
+	for {
+		var older int
+		if err := f.admin.QueryRowContext(f.ctx, `SELECT count(*) FROM pg_catalog.pg_stat_activity
+ WHERE datname IS DISTINCT FROM $1 AND backend_xid IS NOT NULL AND backend_xid::text::bigint < $2`, f.db, next).Scan(&older); err != nil {
+			f.t.Fatal(err)
+		}
+		if older == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			f.t.Fatalf("%d transactions of other databases began before the transfer and still run after a minute", older)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func (f *fixture) pend(key string, entries ...Entry) Transfer {
@@ -256,6 +284,7 @@ func (f *fixture) pend(key string, entries ...Entry) Transfer {
 		out, err = f.usd.Pend(f.ctx, tx, f.tn(acme), Posting{Key: key, Code: "purchase", Entries: entries})
 		return err
 	})
+	f.awaitOthers()
 	return out
 }
 
