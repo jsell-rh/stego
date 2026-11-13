@@ -185,6 +185,9 @@ func renderSpec(w *writer, e *entity, load string) {
 	if e.resourceType != "" {
 		w.p("ResourceType: %q, ReadPermission: %q, ListPermission: %q,", e.resourceType, e.readPermission, e.listPermission)
 	}
+	if e.search {
+		w.p("Search: true,")
+	}
 	if len(sensitive) > 0 {
 		w.p("Fields: audit.Fields{%s},", strings.Join(sensitive, ", "))
 	}

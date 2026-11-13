@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"example.com/tables-check/bounds"
 	"example.com/tables-check/previous"
 	"example.com/tables-check/storage"
 	"example.com/tables-check/tenancy"
@@ -19,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 )
 
 // server opens the PostgreSQL server of STEGO_TEST_POSTGRES_DSN as its administrator and drops the roles of the
@@ -379,6 +381,42 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		}
 		if code := write(t, db, "tenant-b", order, uuid.NewString(), first, catalogID); code != "23503" {
 			t.Errorf("an order of tenant-b that names a widget of tenant-a: SQLSTATE %q, want the foreign key violation 23503", code)
+		}
+	})
+	t.Run("ST-SUP-RC01-OC12-T09 The schema manifest is the model of the migrations, which PostgreSQL holds", func(t *testing.T) {
+		cfg, db := database(t, cfg, admin)
+		migrate(t, cfg, db, func(ctx context.Context, conn *sql.Conn) error { return widgets.Migrate(ctx, conn) }, "widgets_access.json")
+		// The runtime role reads the catalog, as the service runtime does at startup.
+		runtime := cfg.Copy()
+		runtime.User, runtime.Password = tenancy.RuntimeRole, "tables-check"
+		if _, err := db.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
+			t.Fatal(err)
+		}
+		reader := stdlib.OpenDB(*runtime)
+		defer reader.Close()
+		ctx := context.Background()
+		if err := manifest.Check(ctx, reader, widgets.SchemaManifest); err != nil {
+			t.Fatalf("the database that the migrations made does not hold the schema manifest: %v", err)
+		}
+		// The bounds of each shape: each CHECK definition of the manifest is the text that PostgreSQL writes.
+		boundsCfg, boundsDB := database(t, cfg, admin)
+		migrate(t, boundsCfg, boundsDB, func(ctx context.Context, conn *sql.Conn) error { return bounds.Migrate(ctx, conn) }, "bounds_access.json")
+		if _, err := boundsDB.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
+			t.Fatal(err)
+		}
+		boundsRuntime := boundsCfg.Copy()
+		boundsRuntime.User, boundsRuntime.Password = tenancy.RuntimeRole, "tables-check"
+		boundsReader := stdlib.OpenDB(*boundsRuntime)
+		defer boundsReader.Close()
+		if err := manifest.Check(ctx, boundsReader, bounds.SchemaManifest); err != nil {
+			t.Fatalf("the database of the bounds does not hold the schema manifest: %v", err)
+		}
+		if _, err := db.Exec(`ALTER TABLE public."orders" DROP CONSTRAINT "orders_widget_id_fkey"`); err != nil {
+			t.Fatal(err)
+		}
+		if err := manifest.Check(ctx, reader, widgets.SchemaManifest); !errors.Is(err, manifest.ErrNotSatisfied) ||
+			!strings.Contains(err.Error(), "table public.orders: constraint orders_widget_id_fkey is missing") {
+			t.Fatalf("a dropped foreign key gave %v, want the fault that names it", err)
 		}
 	})
 }

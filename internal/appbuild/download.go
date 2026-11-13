@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -79,7 +80,7 @@ const RuntimeModule = "github.com/jsell-rh/stego/registry/runtime"
 // zip hash fixes it. A test holds this table equal to the archetypes'
 // pins; a moved pin changes it in the same change (ST-BLD-UC02-R05).
 var runtimePins = map[string]string{
-	"v0.38.0": "h1:Mbcyi8eubiHt+7dbDNbE2R6scjcBL+kbHNXJpXr52HY=",
+	"v0.52.0": "h1:UOdvKkUvt/2VCzvxLVwAydHSmg8XiL/QYR6BWZSW7tc=",
 }
 
 // RuntimePins gives a copy of the runtime pins that this binary trusts, by
@@ -117,24 +118,62 @@ const sumDBKey = "sum.golang.org+033de0ae+Ac4zctda0e5eza+HJyk9SxEdh+s3Ux18htTTAD
 // found false when the database does not know the module, as for a version
 // that is not released.
 func lookupSumDB(ctx context.Context, path, version string) (string, bool, error) {
-	return lookupSumDBAt(ctx, sumDBServer{url: "https://sum.golang.org", key: sumDBKey, client: http.DefaultClient}, path, version)
+	return lookupSumDBAt(ctx, sumDBServer{url: "https://sum.golang.org", key: sumDBKey, client: http.DefaultClient, state: sumDBStateDir()}, path, version)
 }
 
 // sumDBServer is the sum database that a lookup asks: its URL, its public
 // key and the HTTP client that reaches it. Tests give a local stand-in.
+// state, when it is not empty, is the folder that keeps the latest signed
+// tree of the database between runs, so a later answer whose tree is not
+// consistent with it shows a fork (errSumDBInconsistent), as the go command
+// keeps it in GOPATH/pkg/sumdb.
 type sumDBServer struct {
 	url, key string
 	client   *http.Client
+	state    string
 }
+
+// sumDBStateDir is the folder of the latest signed tree of sum.golang.org,
+// stego/sumdb in the operating system's user cache, or empty when there is
+// no user cache, and then each lookup starts from no tree.
+func sumDBStateDir() string {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(cache, "stego", "sumdb")
+}
+
+// maxSignedTree limits the signed tree note that a lookup keeps.
+const maxSignedTree = 64 << 10
 
 // lookupSumDBAt is lookupSumDB against the sum database server.
 func lookupSumDBAt(ctx context.Context, server sumDBServer, path, version string) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	ops := &sumDBOps{ctx: ctx, server: server, config: map[string][]byte{"key": []byte(server.key)}, cache: map[string][]byte{}}
+	if server.state != "" {
+		// The kept tree is read, compared and written under the lock of its
+		// folder, so two runs cannot put an older tree back. A folder that is
+		// not safe to keep it in is left out with a warning, and the lookup
+		// runs as with no kept tree.
+		kept, err := openKeptTree(ctx, server.state, server.key)
+		if err != nil {
+			slog.WarnContext(ctx, "the kept tree of the sum database is not used; the lookup starts from no tree", "folder", server.state, "error", err)
+		} else {
+			defer kept.close()
+			ops.kept = kept
+		}
+	}
 	lines, err := sumdb.NewClient(ops).Lookup(path, version)
 	if ops.security != "" {
 		return "", false, fmt.Errorf("%w: %s", errSumDBInconsistent, ops.security)
+	}
+	// Tiles that do not hash to a signed tree are a database that does not
+	// prove its own tree, such as one that forked from the kept tree. The
+	// client gives no sentinel error for it, only this text.
+	if err != nil && strings.Contains(err.Error(), "downloaded inconsistent tile") {
+		return "", false, fmt.Errorf("%w: its tiles do not prove a signed tree", errSumDBInconsistent)
 	}
 	if ops.notFound {
 		return "", false, nil
@@ -160,6 +199,8 @@ type sumDBOps struct {
 	cache    map[string][]byte
 	notFound bool
 	security string
+	// kept is the kept signed tree of the database under its lock, or nil.
+	kept *keptTree
 }
 
 func (o *sumDBOps) ReadRemote(path string) ([]byte, error) {
@@ -186,12 +227,22 @@ func (o *sumDBOps) ReadRemote(path string) ([]byte, error) {
 }
 
 func (o *sumDBOps) ReadConfig(file string) ([]byte, error) {
+	if o.kept != nil && strings.HasSuffix(file, "/latest") {
+		data := o.kept.read(o.ctx)
+		o.config[file] = data
+		return data, nil
+	}
 	return o.config[file], nil
 }
 
 func (o *sumDBOps) WriteConfig(file string, old, new []byte) error {
 	if !bytes.Equal(o.config[file], old) {
 		return sumdb.ErrWriteConflict
+	}
+	if o.kept != nil && strings.HasSuffix(file, "/latest") {
+		if err := o.kept.write(new); err != nil {
+			return err
+		}
 	}
 	o.config[file] = new
 	return nil
@@ -539,6 +590,11 @@ func stageRuntimeFolder(ctx context.Context, folder string, pin *moduleVersion, 
 	known, foundKnown, lookupErr := trust.lookup(ctx, pin.path, pin.version)
 	if errors.Is(lookupErr, errSumDBInconsistent) {
 		return nil, fmt.Errorf("module %s %s: %w", pin.path, pin.version, lookupErr)
+	}
+	if lookupErr != nil {
+		// A database that cannot be reached leaves the registry pin as the
+		// check; the warning shows that the database did not check this run.
+		slog.WarnContext(ctx, "the sum database did not answer; the registry pin is the only check of the runtime folder", "module", pin.path, "version", pin.version, "error", lookupErr)
 	}
 	if lookupErr == nil && foundKnown && known != found {
 		return nil, fmt.Errorf("module %s %s differs from the sum database: sum.golang.org states %s, the runtime folder %s is %s", pin.path, pin.version, known, RuntimeFolder, found)

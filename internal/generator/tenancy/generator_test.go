@@ -259,11 +259,13 @@ func TestMigrations(t *testing.T) {
 			passed[event.Test] = true
 		}
 	}
-	for _, id := range []string{"ST-SUP-RC27-OC03-T01", "ST-SUP-RC27-OC03-T02", "ST-SUP-RC27-OC04-T01", "ST-SUP-RC27-OC04-T03", "ST-SUP-RC27-OC04-T05", "ST-SUP-RC01-OC40-T01", "ST-SUP-RC01-OC40-T02", "ST-SUP-RC27-OC07-T01", "ST-SUP-RC27-OC07-T02", "ST-SUP-RC27-OC04-T06", "ST-SUP-RC27-OC04-T07", "ST-SUP-RC27-OC04-T08", "ST-SUP-RC27-OC04-T10"} {
+	for _, id := range []string{"ST-SUP-RC27-OC03-T01", "ST-SUP-RC27-OC03-T02", "ST-SUP-RC27-OC04-T01", "ST-SUP-RC27-OC04-T03", "ST-SUP-RC27-OC04-T05", "ST-SUP-RC01-OC40-T01", "ST-SUP-RC01-OC40-T02", "ST-SUP-RC27-OC07-T01", "ST-SUP-RC27-OC07-T02", "ST-SUP-RC27-OC04-T06", "ST-SUP-RC27-OC04-T07", "ST-SUP-RC27-OC04-T08", "ST-SUP-RC27-OC04-T10", "ST-SUP-RC27-OC04-T11"} {
 		t.Run(id+" passes in the generated service", func(t *testing.T) {
 			for name := range passed {
 				if strings.HasPrefix(name, "TestTenancy/"+id+"_") || strings.HasPrefix(name, "TestTwoServices/"+id+"_") || strings.HasPrefix(name, "TestOpenSessions/"+id+"_") ||
-					strings.HasPrefix(name, "TestRelayRoles/"+id+"_") || strings.HasPrefix(name, "TestForeignRoles/"+id+"_") {
+					strings.HasPrefix(name, "TestRelayRoles/"+id+"_") || strings.HasPrefix(name, "TestForeignRoles/"+id+"_") ||
+					// T11 runs inside T10, on the roles that T10 leaves.
+					(strings.HasPrefix(name, "TestForeignRoles/") && strings.Contains(name, "/"+id+"_")) {
 					return
 				}
 			}

@@ -102,7 +102,7 @@ func TestEmptyEntities(t *testing.T) {
 // --- Basic generation ---
 
 // TestBasicGeneration checks the files and the wiring of a service with entities: the tables, the ledger, the
-// marker, the opener and the runtime access, and no store.
+// marker, the opener, the runtime access and the schema manifest, and no store.
 func TestBasicGeneration(t *testing.T) {
 	ctx := basicContext()
 	files, wiring, err := new(Generator).Generate(ctx)
@@ -110,7 +110,8 @@ func TestBasicGeneration(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	want := []string{"internal/storage/tables.go", "internal/storage/migrations/001_initial.sql", "internal/storage/migrate.go",
-		"internal/storage/schema_generation.go", "internal/storage/database.go", "internal/storage/runtime_access.go"}
+		"internal/storage/schema_generation.go", "internal/storage/database.go", "internal/storage/runtime_access.go",
+		"internal/storage/schema_manifest.go"}
 	if strings.Join(fileNames(files), " ") != strings.Join(want, " ") {
 		t.Fatalf("files %v, want %v", fileNames(files), want)
 	}
