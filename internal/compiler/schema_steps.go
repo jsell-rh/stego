@@ -77,6 +77,27 @@ func MissingAddSteps(base BaseSource, head *types.ServiceDeclaration) ([]types.S
 	return steps, nil
 }
 
+// generatedSchemaKinds are the kinds of schema change whose steps generation carries out. The kinds rename,
+// retype, require, drop and unique have no generated step migration yet, so generation refuses them rather than
+// write code that does not move the rows; each kind joins the list in the change that generates its steps. An add
+// generates the table or the column as before (ST-GEN-UC12-R06).
+var generatedSchemaKinds = map[string]bool{"add": true}
+
+// unbuiltSchemaChanges refuses a declaration with a schema change of a kind that generation does not carry out
+// yet, naming the change and its kind. Checking still accepts it (stego validate), so the author can declare it.
+func unbuiltSchemaChanges(service *types.ServiceDeclaration) error {
+	var refused []string
+	for _, change := range service.SchemaChanges {
+		if !generatedSchemaKinds[change.Kind] {
+			refused = append(refused, fmt.Sprintf("%s (%s)", change.ID, change.Kind))
+		}
+	}
+	if len(refused) == 0 {
+		return nil
+	}
+	return fmt.Errorf("generation does not carry out the schema change %s yet: STEGO generates no migration, trigger or backfill for that kind, so it writes no code for the declaration; plan and apply wait until the kind is built", strings.Join(refused, ", "))
+}
+
 // WithSchemaSteps gives a copy of the declaration with each change and its expand step at the end of the schema
 // history.
 func WithSchemaSteps(service *types.ServiceDeclaration, changes []types.SchemaChange) *types.ServiceDeclaration {

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"maps"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -98,6 +99,26 @@ func TestSchemaStepPlan(t *testing.T) {
 		if planned := other.must(t, "plan"); !strings.Contains(planned, "No base check") {
 			t.Errorf("plan in a folder with no repository does not say that it has no base:\n%s", planned)
 		}
+		// The service folder seen through a symbolic link from a folder with no .git, while its real parent holds a
+		// .git that git cannot read: git walks the real path, so the check must stop too.
+		linked := filepath.Join(t.TempDir(), "linked")
+		holder := filepath.Join(s.parent, "holder")
+		if err := os.MkdirAll(holder, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, holder, ".git", "gitdir: "+filepath.Join(s.parent, "removed-worktree")+"\n", 0o644)
+		if output, err := exec.Command("cp", "-a", other.service, filepath.Join(holder, "notes")).CombinedOutput(); err != nil {
+			t.Fatalf("copy the service folder: %v\n%s", err, output)
+		}
+		if err := os.Symlink(filepath.Join(holder, "notes"), linked); err != nil {
+			t.Fatal(err)
+		}
+		through := *other
+		through.service = linked
+		through.env = append(slices.Clone(other.env), "PWD="+linked)
+		if stdout, stderr, err := through.stego(t, "plan"); err == nil || !strings.Contains(stdout+stderr, "git cannot read the repository") {
+			t.Errorf("a linked folder whose real parent holds a .git that git cannot read: %v, want a refusal:\n%s%s", err, stdout, stderr)
+		}
 		writeFile(t, other.service, ".git", "gitdir: "+filepath.Join(s.parent, "removed-worktree")+"\n", 0o644)
 		if stdout, stderr, err := other.stego(t, "plan"); err == nil || !strings.Contains(stdout+stderr, "git cannot read the repository") {
 			t.Errorf("a .git link to a removed worktree: %v, want a refusal, not a plan with no check:\n%s%s", err, stdout, stderr)
@@ -147,6 +168,24 @@ func TestSchemaStepPlan(t *testing.T) {
 		}
 		if s.read(t, "service.yaml") != required {
 			t.Error("the refused apply wrote a step in service.yaml")
+		}
+	})
+	t.Run("ST-GEN-UC12-R02-T01 Plan and apply refuse a declared schema change whose kind generation does not carry out yet", func(t *testing.T) {
+		t.Parallel()
+		s := newSmallService(t)
+		s.write(t, "service.yaml", noteFields(renamedTitle)+titleRename)
+		before := tree(t, s.service)
+		for _, command := range []string{"plan", "apply"} {
+			stdout, stderr, err := s.stego(t, command, "--base", "HEAD")
+			if err == nil || !strings.Contains(stdout+stderr, "does not carry out the schema change note-title-rename (rename) yet") {
+				t.Errorf("stego %s of a declared rename: %v, want a refusal that names the change and its kind:\n%s%s", command, err, stdout, stderr)
+			}
+		}
+		if !maps.Equal(before, tree(t, s.service)) {
+			t.Error("a refused plan or apply changed a file")
+		}
+		if stdout, stderr, err := s.stego(t, "validate"); err != nil {
+			t.Errorf("stego validate refuses the declared rename, which checking accepts: %v\n%s%s", err, stdout, stderr)
 		}
 	})
 	t.Run("ST-GEN-UC12-R06-T02 Without apply, the check refuses a new field that has no add step", func(t *testing.T) {

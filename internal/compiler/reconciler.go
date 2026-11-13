@@ -280,6 +280,9 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		if err := selectedComponentMissing(source.Service, source.Registry); err != nil {
 			return nil, err
 		}
+		if err := unbuiltSchemaChanges(source.Service); err != nil {
+			return nil, err
+		}
 	}
 	serviceData, svcDecl, reg := source.ServiceData, source.Service, source.Registry
 	existingState, inputSnapshots, moduleData, err := captureProjectInputs(input.ProjectDir, serviceData)
