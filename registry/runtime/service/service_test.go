@@ -313,6 +313,10 @@ func TestNew(t *testing.T) {
 				if !errors.Is(err, manifest.ErrNotSatisfied) || !strings.Contains(err.Error(), fault) || strings.Contains(err.Error(), "SpiceDB") {
 					t.Fatalf("New after %q gave %v, want a refusal that names %q", change, err, fault)
 				}
+				// The failure record names the stage of the manifest check.
+				if stage := StartStage(err); stage != "service.start.schema_manifest" {
+					t.Fatalf("StartStage of the refusal after %q is %q, want service.start.schema_manifest", change, stage)
+				}
 				var outboxAfter, auditAfter int64
 				if err := f.admin.QueryRow(`SELECT (SELECT count(*) FROM stego_outbox.messages), (SELECT count(*) FROM public.audit_event)`).Scan(&outboxAfter, &auditAfter); err != nil {
 					t.Fatal(err)

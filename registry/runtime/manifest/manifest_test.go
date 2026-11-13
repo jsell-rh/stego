@@ -529,6 +529,8 @@ func TestFunctions(t *testing.T) {
 			{"EXECUTE for another role", "CREATE ROLE " + other + " NOLOGIN; GRANT EXECUTE ON FUNCTION public.books_maintain() TO " + other,
 				"function public.books_maintain may be run by roles that the manifest does not name"},
 			{"no EXECUTE for the role of the manifest", "", "function public.books_maintain may be run by roles that the manifest does not name"},
+			{"EXECUTE with the grant option", "GRANT EXECUTE ON FUNCTION public.books_maintain() TO " + "%role%" + " WITH GRANT OPTION",
+				"function public.books_maintain may be run by roles that the manifest does not name"},
 		} {
 			t.Run(change.name, func(t *testing.T) {
 				admin, reader := database(t)
@@ -558,7 +560,7 @@ func TestFunctions(t *testing.T) {
 					if err := Check(ctx, reader, m); err != nil {
 						t.Fatalf("Check refused the database of the manifest: %v", err)
 					}
-					if _, err := admin.Exec(change.statement); err != nil {
+					if _, err := admin.Exec(strings.ReplaceAll(change.statement, "%role%", role)); err != nil {
 						t.Fatal(err)
 					}
 				}

@@ -118,7 +118,7 @@ type Function struct {
 	SecurityDefiner        bool
 	Config                 []string
 	// Execute, for a function of Manifest.Functions, are the roles that may run it besides its owner: EXECUTE must
-	// go to these roles and to no other grantee, PUBLIC included.
+	// go to these roles, with no grant option, and to no other grantee, PUBLIC included.
 	Execute []string
 }
 
@@ -359,11 +359,13 @@ func checkFunction(ctx context.Context, tx *sql.Tx, f Function, wantOwner string
 	schema, fn, _ := strings.Cut(f.Name, ".")
 	var language, source, config, owner, grantees string
 	var definer bool
-	// The grantees of EXECUTE other than the owner, by name, PUBLIC for grantee 0; a function with no ACL has the
-	// default one, which gives EXECUTE to PUBLIC.
+	// The grantees of EXECUTE other than the owner, by name, PUBLIC for grantee 0, each marked when it holds the grant
+	// option, which would let it give EXECUTE on; a function with no ACL has the default one, which gives EXECUTE to
+	// PUBLIC.
 	err := tx.QueryRowContext(ctx, `SELECT l.lanname, p.prosrc, COALESCE(pg_catalog.array_to_string(p.proconfig, chr(31)), ''), p.prosecdef,
   pg_catalog.pg_get_userbyid(p.proowner),
-  COALESCE((SELECT pg_catalog.string_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END, chr(31)
+  COALESCE((SELECT pg_catalog.string_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END ||
+      CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END, chr(31)
     ORDER BY CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END)
     FROM pg_catalog.aclexplode(COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
     WHERE a.privilege_type = 'EXECUTE' AND a.grantee <> p.proowner), '')
