@@ -40,6 +40,8 @@ const (
 	HeaderIdempotencyKey = "stego-idempotency-key"
 	// HeaderEventType is the event type: the kind of the outbox message.
 	HeaderEventType = "stego-event-type"
+	// HeaderEventAction is the action of the event: the part of its kind after the last period, such as created.
+	HeaderEventAction = "stego-event-action"
 	// HeaderTenant is the tenant of the outbox row, never read from the payload.
 	HeaderTenant = "stego-tenant"
 	// HeaderContentType is application/json: the payload of the message, as it is.
@@ -228,6 +230,15 @@ func New(s Settings, logs otellog.LoggerProvider) (*Destination, error) {
 	d := &Destination{options: options, topic: s.Topic}
 	if logs != nil {
 		d.logger = logs.Logger("github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox")
+		if s.InsecureLoopback {
+			// The insecure loopback mode is for a local test only: a deployment that sets it says so in its log.
+			var record otellog.Record
+			record.SetEventName("kafka.insecure_loopback")
+			record.SetSeverity(otellog.SeverityWarn)
+			record.SetSeverityText("WARN")
+			record.SetBody(attribute.StringValue("the Kafka destination talks to loopback brokers without TLS: STEGO_KAFKA_INSECURE_LOOPBACK=1 is for a local test only"))
+			d.logger.Emit(context.Background(), record)
+		}
 	}
 	return d, nil
 }
@@ -292,16 +303,16 @@ func tlsConfig(s Settings) (*tls.Config, error) {
 		roots = x509.NewCertPool()
 	}
 	if s.CAFile != "" {
-		data, err := readFile(s.CAFile, maxPEM)
+		data, err := readShared(s.CAFile, maxPEM)
 		if err != nil || !roots.AppendCertsFromPEM(data) {
-			return nil, settingError(CAFileSetting, "must name a readable PEM file of certificate authorities")
+			return nil, settingError(CAFileSetting, "must name a readable PEM file of certificate authorities that its group and others may not write")
 		}
 	}
 	config := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
 	if s.ClientCertFile != "" {
-		certificate, err := readFile(s.ClientCertFile, maxPEM)
+		certificate, err := readShared(s.ClientCertFile, maxPEM)
 		if err != nil {
-			return nil, settingError(ClientCertFileSetting, "must name a readable PEM file")
+			return nil, settingError(ClientCertFileSetting, "must name a readable PEM file that its group and others may not write")
 		}
 		key, err := readPrivate(s.ClientKeyFile, maxPEM)
 		if err != nil {
@@ -339,6 +350,8 @@ func (d *Destination) Deliver(ctx context.Context, _ *sql.Tx, delivery outbox.De
 	if err != nil {
 		return outbox.NotSent(err)
 	}
+	// A class that a connection of an earlier attempt left is not this attempt's.
+	s.connects.take()
 	if err := ping(ctx, s.client); err != nil {
 		// No record was sent. A broker that does not answer may hold a connection the client must not use again.
 		d.invalidate(s)
@@ -449,12 +462,15 @@ func (d *Destination) record(delivery outbox.Delivery) (*kgo.Record, error) {
 	if len(delivery.Payload) == 0 || !json.Valid(delivery.Payload) {
 		return nil, errors.New("kafkaoutbox: the payload is not one JSON value")
 	}
+	// The kind is <entity topic>.<action>: with no declared topic, every event of one entity goes to the topic of
+	// the entity, so its actions keep their order on one partition (ST-SUP-Q115 (a)).
+	entityTopic, action, split := cutLast(delivery.Kind, ".")
 	topic := d.topic
 	if topic == "" {
-		if !validTopic(delivery.Kind) {
-			return nil, errors.New("kafkaoutbox: the event type is not a Kafka topic name")
+		if !split || action == "" || !validTopic(entityTopic) {
+			return nil, errors.New("kafkaoutbox: the event type is not a Kafka topic name, a period and an action")
 		}
-		topic = delivery.Kind
+		topic = entityTopic
 	}
 	return &kgo.Record{
 		Topic: topic,
@@ -464,10 +480,19 @@ func (d *Destination) record(delivery outbox.Delivery) (*kgo.Record, error) {
 			{Key: HeaderEventID, Value: []byte(delivery.ID.String())},
 			{Key: HeaderIdempotencyKey, Value: []byte(delivery.OutgoingKey)},
 			{Key: HeaderEventType, Value: []byte(delivery.Kind)},
+			{Key: HeaderEventAction, Value: []byte(action)},
 			{Key: HeaderTenant, Value: []byte(delivery.Tenant.ID())},
 			{Key: HeaderContentType, Value: []byte("application/json")},
 		},
 	}, nil
+}
+
+// cutLast cuts s around the last sep, and tells whether s holds sep.
+func cutLast(s, sep string) (before, after string, found bool) {
+	if i := strings.LastIndex(s, sep); i >= 0 {
+		return s[:i], s[i+len(sep):], true
+	}
+	return s, "", false
 }
 
 // KeySeparator separates the tenant from the resource key in a record key. A tenant ID holds no control character

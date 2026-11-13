@@ -741,6 +741,7 @@ func TestWiring(t *testing.T) {
 			t.Errorf("the record value is %s (%v), want the entity Order, the action created and the ID %s only", r.Value, err, id)
 		}
 		for name, value := range map[string]string{kafkaoutbox.HeaderEventID: first.id, kafkaoutbox.HeaderEventType: "wiring-shop.order.created",
+			kafkaoutbox.HeaderEventAction:    "created",
 			kafkaoutbox.HeaderIdempotencyKey: first.outgoing, kafkaoutbox.HeaderTenant: owner.tenant.ID(), kafkaoutbox.HeaderContentType: "application/json"} {
 			if got, once := kafkatest.Header(r, name); !once || got != value {
 				t.Errorf("the header %s is %q (once: %v), want %q", name, got, once, value)
@@ -786,6 +787,56 @@ func TestWiring(t *testing.T) {
 			t.Errorf("the events of the order arrived as %s, want created,updated,deleted, each once", got)
 		}
 	})
+
+	t.Run("ST-SUP-RC20-OC40-T03 A replay of a write with its idempotency key stages no second event", func(t *testing.T) {
+		s.t = t
+		key := "k-" + uuid.NewString()
+		first := s.send(&owner, http.MethodPost, "/orders", key, `{"sku":"replayed","qty":1}`)
+		again := s.send(&owner, http.MethodPost, "/orders", key, `{"sku":"replayed","qty":1}`)
+		if first.status != http.StatusCreated || again.status != http.StatusCreated || first.member(t, "id") != again.member(t, "id") {
+			t.Fatalf("the create and its replay answered %d %s and %d %s, want 201 twice with one ID", first.status, first.body, again.status, again.body)
+		}
+		id := first.member(t, "id")
+		s.eventDone(t, id, "wiring-shop.order.created")
+		if n := count(t, s.admin, `SELECT count(*) FROM stego_outbox.messages WHERE destination = 'kafka' AND resource_key LIKE '%:' || $1`, id); n != 1 {
+			t.Errorf("the outbox holds %d events of the order, want the one of the create", n)
+		}
+		if records := s.records(t, id, 1); len(records) != 1 {
+			t.Errorf("the topic holds %d records of the order, want one", len(records))
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC40-T04 A write that rolls back after it staged its event leaves no outbox message and no record", func(t *testing.T) {
+		s.t = t
+		// A deferred trigger refuses the commit of an order with the sku rolled-back: the fill wrote the row and
+		// staged the event, and the transaction rolls back at its end. The schema manifest check runs only at start,
+		// so the trigger, which the test drops again, does not stop the running service.
+		execAll(t, s.admin, `CREATE FUNCTION wiring_refuse_at_commit() RETURNS trigger LANGUAGE plpgsql AS $f$
+BEGIN RAISE EXCEPTION 'the check refuses this commit'; END $f$`,
+			`CREATE CONSTRAINT TRIGGER wiring_refuse_at_commit AFTER INSERT ON orders DEFERRABLE INITIALLY DEFERRED
+ FOR EACH ROW WHEN (NEW.sku = 'rolled-back') EXECUTE FUNCTION wiring_refuse_at_commit()`)
+		defer execAll(t, s.admin, "DROP TRIGGER wiring_refuse_at_commit ON orders", "DROP FUNCTION wiring_refuse_at_commit()")
+		messages := s.kafkaMessages(t)
+		before := len(s.broker.Records(t, changeTopic, 0, 10*time.Second, time.Second))
+		got := s.send(&owner, http.MethodPost, "/orders", "k-"+uuid.NewString(), `{"sku":"rolled-back","qty":1}`)
+		if got.status < http.StatusInternalServerError {
+			t.Fatalf("the create whose commit is refused answered %d %s, want a server error", got.status, got.body)
+		}
+		if n := count(t, s.admin, `SELECT count(*) FROM orders WHERE sku = 'rolled-back'`); n != 0 {
+			t.Errorf("the refused create left %d rows", n)
+		}
+		if n := s.kafkaMessages(t); n != messages {
+			t.Errorf("the outbox holds %d events of the destination kafka after the refused create, want the %d of before", n, messages)
+		}
+		if after := len(s.broker.Records(t, changeTopic, 0, 10*time.Second, 3*time.Second)); after != before {
+			t.Errorf("the topic holds %d records after the refused create, want the %d of before", after, before)
+		}
+	})
+}
+
+// kafkaMessages counts the outbox messages of the destination kafka.
+func (s *service) kafkaMessages(t *testing.T) int {
+	return count(t, s.admin, `SELECT count(*) FROM stego_outbox.messages WHERE destination = 'kafka'`)
 }
 
 // canEdit waits until SpiceDB answers, at its quantized revision, that the caller may edit the order id, as the

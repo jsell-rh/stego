@@ -187,4 +187,47 @@ func TestSettings(t *testing.T) {
 			t.Errorf("a client key that others may write gave %v, want a refusal that names %s", err, ClientKeyFileSetting)
 		}
 	})
+	t.Run("ST-SUP-RP01-LC32-T12 A CA file or a file of a setting that its group or others may write is refused by its name", func(t *testing.T) {
+		dir := t.TempDir()
+		file := func(name, content string, mode os.FileMode) string {
+			path := filepath.Join(dir, name)
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		}
+		for _, c := range []struct {
+			name, refused string
+			env           map[string]string
+		}{
+			{"a brokers file of mode 0620", BrokersFileSetting, map[string]string{BrokersFileSetting: file("brokers-620", "127.0.0.1:9092", 0o620), InsecureLoopbackSetting: "1"}},
+			{"a brokers file of mode 0602", BrokersFileSetting, map[string]string{BrokersFileSetting: file("brokers-602", "127.0.0.1:9092", 0o602), InsecureLoopbackSetting: "1"}},
+			{"a broker host list file of mode 0666", BrokerHostsFileSetting, map[string]string{BrokersSetting: "127.0.0.1:9092", InsecureLoopbackSetting: "1",
+				BrokerHostsFileSetting: file("hosts-666", "127.0.0.1", 0o666)}},
+			{"a brokers file of mode 0644", "", map[string]string{BrokersFileSetting: file("brokers-644", "127.0.0.1:9092", 0o644), InsecureLoopbackSetting: "1"}},
+		} {
+			for _, name := range allSettings {
+				t.Setenv(name, "")
+			}
+			for name, v := range c.env {
+				t.Setenv(name, v)
+			}
+			_, err := ReadSettings()
+			switch {
+			case c.refused == "" && err != nil:
+				t.Errorf("%s: refused: %v", c.name, err)
+			case c.refused != "" && (err == nil || !strings.Contains(err.Error(), "the setting "+c.refused+" ") || strings.Contains(err.Error(), dir)):
+				t.Errorf("%s: %v, want a refusal that names %s and not the path", c.name, err, c.refused)
+			}
+		}
+		// The CA file and the client certificate are read when the destination is made.
+		ca := file("ca-666", "not read", 0o666)
+		if _, err := New(Settings{Brokers: []string{"k:9093"}, CAFile: ca, Mechanism: MechanismOAuthBearer, TokenFile: "/run/token"}, nil); err == nil ||
+			!strings.Contains(err.Error(), "the setting "+CAFileSetting+" ") {
+			t.Errorf("a CA file of mode 0666 gave %v, want a refusal that names %s", err, CAFileSetting)
+		}
+	})
 }

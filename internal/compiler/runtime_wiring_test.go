@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -408,6 +409,8 @@ var wiringCheckIDs = []string{
 	"ST-SUP-RP14-LC04-T03 The generated worker delivers each audit entry and anchor to the default table",
 	"ST-SUP-RC18-OC31-T02 The generated worker sends to Kafka with the settings of the process, and does not start without them",
 	"ST-SUP-RC20-OC40-T02 A change event of a generated write arrives once with its key and headers, waits out a broker outage in the outbox, and keeps the order of its entity",
+	"ST-SUP-RC20-OC40-T03 A replay of a write with its idempotency key stages no second event",
+	"ST-SUP-RC20-OC40-T04 A write that rolls back after it staged its event leaves no outbox message and no record",
 }
 
 // TestRuntimeWiring generates the test service with stego apply, builds it with the pinned Go, and runs the check of
@@ -436,6 +439,24 @@ func TestRuntimeWiring(t *testing.T) {
 	p.goCommand("vet", "./out/...")
 	binary := filepath.Join(p.dir, "bin", "service")
 	p.goCommand("build", "-o", binary, "./out")
+	t.Run("ST-SUP-RC18-OC31-T03 The generated service links no test support of the runtime library", func(t *testing.T) {
+		cmd := exec.Command(wiringPinnedGo(), "list", "-deps", "./out")
+		cmd.Dir = p.dir
+		cmd.Env = wiringGoEnv("GOFLAGS=-mod=mod")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("go list -deps ./out: %v\n%s", err, output)
+		}
+		deps := strings.Fields(string(output))
+		if !slices.Contains(deps, "github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox") {
+			t.Fatalf("the generated service does not link the Kafka destination, so the check proves nothing:\n%s", output)
+		}
+		for _, dep := range deps {
+			if strings.HasSuffix(dep, "/kafkatest") || strings.HasSuffix(dep, "/pgtest") || strings.HasSuffix(dep, "/authntest") {
+				t.Errorf("the generated service links the test support %s", dep)
+			}
+		}
+	})
 	// The next release adds the entity Tag with no schema step.
 	next := newWiringProject(t, stego, runtimeArchetype)
 	declaration := next.read("service.yaml")

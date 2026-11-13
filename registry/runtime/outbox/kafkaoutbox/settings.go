@@ -146,9 +146,9 @@ func value(name, fileName string) (string, error) {
 	if !cleanPath(file) {
 		return "", settingError(fileName, "must be an absolute clean path")
 	}
-	data, err := readFile(file, maxValue)
+	data, err := readShared(file, maxValue)
 	if err != nil {
-		return "", settingError(fileName, "must name a readable regular file of at most 16 KiB")
+		return "", settingError(fileName, "must name a readable regular file of at most 16 KiB that its group and others may not write")
 	}
 	v = strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r")
 	if v == "" || strings.ContainsFunc(v, control) {
@@ -286,19 +286,30 @@ func asciiLower(host string) (string, bool) {
 	return string(b), true
 }
 
-// readFile reads a regular file of at most limit bytes. It opens the file without blocking, so a FIFO cannot hold
-// the caller, and refuses anything that is not a regular file.
-func readFile(path string, limit int64) ([]byte, error) { return read(path, limit, false) }
+// sharedModes are the mode bits that a file of a setting that is not a secret must not have: write for its group or
+// others, so no other user can change the brokers, the hosts, the topic or the trust of the destination
+// (ST-SUP-RP01-LC32).
+const sharedModes = 0o022
+
+// readShared reads a file of a setting that is not a secret as read does, and refuses a file that its group or others
+// may write.
+func readShared(path string, limit int64) ([]byte, error) { return read(path, limit, sharedModes) }
 
 // privateModes are the mode bits that a secret file must not have: an execute bit, write for its group, or any access
 // for others, as the service runtime refuses a setting file (ST-SUP-RP01-LC32). 0400, 0440, 0600 and 0640 pass.
 const privateModes = 0o137
 
-// readPrivate reads a secret file as readFile does, and refuses a file whose mode has a bit of privateModes. It checks
+// readPrivate reads a secret file as read does, and refuses a file whose mode has a bit of privateModes. It checks
 // the mode of the file that it opened, so a link that changes after the check reads nothing else.
-func readPrivate(path string, limit int64) ([]byte, error) { return read(path, limit, true) }
+//
+// A Kubernetes secret volume projects its files with defaultMode 0644 unless the pod sets another: set defaultMode (or
+// the mode of the item) to 0400 or 0440 for the files of these settings.
+func readPrivate(path string, limit int64) ([]byte, error) { return read(path, limit, privateModes) }
 
-func read(path string, limit int64, private bool) ([]byte, error) {
+// read reads a regular file of at most limit bytes. It opens the file without blocking, so a FIFO cannot hold the
+// caller, refuses anything that is not a regular file, and refuses a file whose mode has a bit of refused. It checks
+// the mode of the file that it opened.
+func read(path string, limit int64, refused os.FileMode) ([]byte, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
@@ -311,8 +322,8 @@ func read(path string, limit int64, private bool) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, errors.New("not a regular file")
 	}
-	if private && info.Mode().Perm()&privateModes != 0 {
-		return nil, errors.New("the file has an execute bit, its group may write it, or others may use it")
+	if info.Mode().Perm()&refused != 0 {
+		return nil, errors.New("the mode of the file gives its group or others more than the setting allows")
 	}
 	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {

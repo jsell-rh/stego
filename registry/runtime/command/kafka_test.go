@@ -19,13 +19,15 @@ func TestKafkaEvent(t *testing.T) {
 	t.Run("ST-SUP-RP01-LC30-T01 A command's event arrives once, with its entity key and its headers", func(t *testing.T) {
 		broker := kafkatest.Start(t)
 		e := newEnv(t)
-		topic := "order-created-" + uuid.NewString()[:8]
+		// With no declared topic, the event of the kind <entity topic>.created goes to the topic of the entity.
+		topic := "orders-" + uuid.NewString()[:8]
+		kind := topic + ".created"
 		broker.CreateTopic(t, topic, 3)
 		// The command declares the Kafka destination as the generated code does: idempotent by the event ID, not must
 		// land, with the event type as its effect.
 		cmd := e.command("create-order", func(spec *CommandSpec[testProbe]) {
 			spec.Destinations = append(spec.Destinations, Destination{Name: kafkaoutbox.DestinationName, Idempotent: true,
-				Effects: []string{topic}})
+				Effects: []string{kind}})
 		}, e.orders)
 		payload := `{"id":"o-k1","status":"open"}`
 		if _, err := e.run(cmd, e.request("t1", u7(t), "k-kafka", `{}`), func(ctx context.Context, h *Handle[testProbe]) (idempotency.Response, error) {
@@ -33,7 +35,7 @@ func TestKafkaEvent(t *testing.T) {
 			if err != nil {
 				return idempotency.Response{}, err
 			}
-			return ok, h.Effects().Stage(ctx, kafkaoutbox.DestinationName, topic, o, json.RawMessage(payload))
+			return ok, h.Effects().Stage(ctx, kafkaoutbox.DestinationName, kind, o, json.RawMessage(payload))
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -81,7 +83,7 @@ func TestKafkaEvent(t *testing.T) {
 			t.Fatalf("the record value is %s, want the staged payload %s", r.Value, payload)
 		}
 		want := map[string]string{kafkaoutbox.HeaderEventID: id.String(), kafkaoutbox.HeaderIdempotencyKey: outgoing,
-			kafkaoutbox.HeaderEventType: topic, kafkaoutbox.HeaderTenant: "t1", kafkaoutbox.HeaderContentType: "application/json"}
+			kafkaoutbox.HeaderEventType: kind, kafkaoutbox.HeaderEventAction: "created", kafkaoutbox.HeaderTenant: "t1", kafkaoutbox.HeaderContentType: "application/json"}
 		for name, value := range want {
 			if got, once := kafkatest.Header(r, name); !once || got != value {
 				t.Fatalf("the header %s is %q (once: %v), want %q", name, got, once, value)
