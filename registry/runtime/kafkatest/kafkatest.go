@@ -1,5 +1,7 @@
-// Package kafkatest gives the Kafka tests of one test binary of the runtime module their local broker
-// (ST-STD-LOCAL-R04). It is test support: only test files import it.
+// Package kafkatest gives the Kafka tests of one test binary their local broker (ST-STD-LOCAL-R04): a test of the
+// runtime module, or a test in the module of a generated service, which reads the records that the service publishes
+// through the Kafka destination of the outbox. It is test support: only test files import it, and no generated
+// service code does.
 //
 // A package's TestMain calls Wrap around its other test main. A test calls Start. The broker is one container of
 // Image per test binary, which the first test that needs it starts and which Wrap removes when the tests end. It runs

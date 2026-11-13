@@ -2,7 +2,6 @@ package outbox
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"go/format"
 	"path"
@@ -14,7 +13,8 @@ import (
 // (ST-SUP-RC20-OC39), and the queue table, its policies and its relay functions come from the runtime outbox
 // migration, outbox.Migration of the pinned github.com/jsell-rh/stego/registry/runtime (ST-SUP-RP01-LC19), and this component emits only
 // what varies with the declaration (ST-STD-RUNTIME-R05): the destinations of the service with their payload
-// limits, the migration call with the roles, and the wiring of the queue and the worker. It emits no queue table,
+// limits, the migration call with the roles, and the wiring of the queue and the worker. With the kafka-producer
+// component the worker gets the Kafka destination of the runtime, kafkaoutbox (ST-SUP-RC18-OC31). It emits no queue table,
 // no queue code and no worker code of its own, and no grant: the runtime migration grants the runtime role and the
 // worker role what they may do, so the database access contract holds no outbox object.
 
@@ -26,7 +26,14 @@ const (
 	runtimeOutbox      = "github.com/jsell-rh/stego/registry/runtime/outbox"
 	runtimeAudit       = "github.com/jsell-rh/stego/registry/runtime/audit"
 	runtimeAuditOutbox = "github.com/jsell-rh/stego/registry/runtime/audit/auditoutbox"
+	runtimeKafkaOutbox = "github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox"
 )
+
+// kafkaComponent is the component whose change events go to Kafka through the outbox (ST-SUP-RC18-OC31).
+const kafkaComponent = "kafka-producer"
+
+// kafkaDestination is the name of the Kafka destination on the worker, kafkaoutbox.DestinationName of the runtime.
+const kafkaDestination = "kafka"
 
 // auditComponent is the component whose audit sink is a destination of the outbox (ST-SUP-RC28-OC07).
 const auditComponent = "audit-log"
@@ -67,16 +74,7 @@ type runtimePlan struct {
 	Package      string
 	Destinations []destination
 	Audit        bool
-}
-
-// validateRuntime refuses a context that the outbox on the runtime cannot serve: the kafka-producer component, whose
-// publisher ran on the worker of the former outbox, which STEGO no longer generates (ST-SUP-RC20-OC39). Kafka as a
-// destination of the runtime outbox waits for its generator wiring (ST-SUP-Q103).
-func validateRuntime(ctx gen.Context) error {
-	if ctx.PeerNamespaces["kafka-producer"] != "" {
-		return errors.New("outbox: the kafka-producer component ran on the worker of the former outbox, which STEGO no longer generates (ST-SUP-RC20-OC39); kafka-producer as a destination of the runtime outbox is not wired yet (ST-SUP-Q103)")
-	}
-	return nil
+	Kafka        bool
 }
 
 // readRuntime gives the plan of the outbox on the runtime: one destination for each peer component that owns one.
@@ -85,6 +83,10 @@ func readRuntime(ctx gen.Context) runtimePlan {
 	if ctx.PeerNamespaces[auditComponent] != "" {
 		p.Audit = true
 		p.Destinations = append(p.Destinations, destination{Name: "audit-sink"})
+	}
+	if ctx.PeerNamespaces[kafkaComponent] != "" {
+		p.Kafka = true
+		p.Destinations = append(p.Destinations, destination{Name: kafkaDestination})
 	}
 	return p
 }
@@ -119,7 +121,11 @@ func renderRuntime(p runtimePlan) []byte {
 	if p.Audit {
 		fmt.Fprintf(&b, "\t%q\n\t%q\n", runtimeAudit, runtimeAuditOutbox)
 	}
-	fmt.Fprintf(&b, "\t%q\n)\n\n", runtimeOutbox)
+	fmt.Fprintf(&b, "\t%q\n", runtimeOutbox)
+	if p.Kafka {
+		fmt.Fprintf(&b, "\t%q\n", runtimeKafkaOutbox)
+	}
+	b.WriteString(")\n\n")
 
 	b.WriteString("// Destinations are the names of the destinations of the service, each registered on the worker by NewWorker.\n")
 	b.WriteString("var Destinations = []string{")
@@ -177,9 +183,17 @@ func AuditQueue(queue *outbox.Queue) (*auditoutbox.Queue, error) {
 	}
 	b.WriteString("}\n\n")
 
-	b.WriteString(`// NewWorker returns the delivery worker on queue with config, with each destination of the service registered
+	if p.Kafka {
+		b.WriteString(`// NewWorker returns the delivery worker on queue with config, with each destination of the service registered
+// on it, before Run. The Kafka destination reads its settings from the process environment, and takes the log
+// provider of the worker for its event kafka.delivery_failed (ST-SUP-RC18-OC31).
+`)
+	} else {
+		b.WriteString(`// NewWorker returns the delivery worker on queue with config, with each destination of the service registered
 // on it, before Run.
-func NewWorker(queue *outbox.Queue, config outbox.WorkerConfig, ports Ports) (*outbox.Worker, error) {
+`)
+	}
+	b.WriteString(`func NewWorker(queue *outbox.Queue, config outbox.WorkerConfig, ports Ports) (*outbox.Worker, error) {
 	worker, err := outbox.NewWorker(queue, config)
 	if err != nil {
 		return nil, err
@@ -203,6 +217,21 @@ func NewWorker(queue *outbox.Queue, config outbox.WorkerConfig, ports Ports) (*o
 `)
 	} else {
 		b.WriteString("\t_ = ports\n")
+	}
+	if p.Kafka {
+		b.WriteString(`	settings, err := kafkaoutbox.ReadSettings()
+	if err != nil {
+		return nil, err
+	}
+	kafka, err := kafkaoutbox.New(settings, config.Logger)
+	if err != nil {
+		return nil, err
+	}
+	if err := worker.Register(kafka.Registration()); err != nil {
+		kafka.Close()
+		return nil, err
+	}
+`)
 	}
 	b.WriteString("\treturn worker, nil\n}\n")
 	return b.Bytes()

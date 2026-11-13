@@ -12,10 +12,11 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/audit/auditoutbox"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox"
 )
 
 // Destinations are the names of the destinations of the service, each registered on the worker by NewWorker.
-var Destinations = []string{"audit-sink"}
+var Destinations = []string{"audit-sink", "kafka"}
 
 // PayloadLimits gives the payload limit of each destination of the service that sets one of its own; a
 // destination it does not name takes outbox.MaxPayloadBytes (ST-SUP-RC18-OC02).
@@ -63,7 +64,8 @@ type Ports struct {
 }
 
 // NewWorker returns the delivery worker on queue with config, with each destination of the service registered
-// on it, before Run.
+// on it, before Run. The Kafka destination reads its settings from the process environment, and takes the log
+// provider of the worker for its event kafka.delivery_failed (ST-SUP-RC18-OC31).
 func NewWorker(queue *outbox.Queue, config outbox.WorkerConfig, ports Ports) (*outbox.Worker, error) {
 	worker, err := outbox.NewWorker(queue, config)
 	if err != nil {
@@ -81,6 +83,18 @@ func NewWorker(queue *outbox.Queue, config outbox.WorkerConfig, ports Ports) (*o
 		return nil, err
 	}
 	if err := worker.Register(auditSink.Destination()); err != nil {
+		return nil, err
+	}
+	settings, err := kafkaoutbox.ReadSettings()
+	if err != nil {
+		return nil, err
+	}
+	kafka, err := kafkaoutbox.New(settings, config.Logger)
+	if err != nil {
+		return nil, err
+	}
+	if err := worker.Register(kafka.Registration()); err != nil {
+		kafka.Close()
 		return nil, err
 	}
 	return worker, nil

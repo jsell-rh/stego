@@ -28,4 +28,4 @@
 {"id":"ST-SUP-TOOL12","title":"runtime-workspace.sh","domain_id":"ST-SUP","file":"scripts/runtime-workspace.sh"}
 {"id":"ST-SUP-TOOL13","title":"runtime-library.yml","domain_id":"ST-SUP","file":".github/workflows/runtime-library.yml"}
 {"id":"ST-SUP-TOOL14","title":"pgtest.go","domain_id":"ST-SUP","file":"registry/runtime/internal/pgtest/pgtest.go"}
-{"id":"ST-SUP-TOOL15","title":"kafkatest.go","domain_id":"ST-SUP","file":"registry/runtime/internal/kafkatest/kafkatest.go"}
+{"id":"ST-SUP-TOOL15","title":"kafkatest.go","domain_id":"ST-SUP","file":"registry/runtime/kafkatest/kafkatest.go"}

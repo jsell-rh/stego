@@ -86,6 +86,10 @@ slots:
       - org-provisioner
     short_circuit: true
 
+# The change events of the collections go to Kafka through the outbox (ST-SUP-Q103 (a)).
+mixins:
+  - event-publisher
+
 overrides:
   auth-provider: rh-sso-auth
   rh-sso-auth:

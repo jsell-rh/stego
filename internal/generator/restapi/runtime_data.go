@@ -41,6 +41,10 @@ var runtimeSlots = map[string]bool{
 	"after_create": true, "after_patch": true, "after_delete": true, "on_entity_changed": true,
 }
 
+// eventTypePattern is an event type that is both an outbox message kind and a Kafka topic name that Kafka does not
+// keep for itself (ST-SUP-RP01-LC30).
+var eventTypePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
+
 // runtimeFieldTypes are the field types that a handler converts between the API type and the command runtime's row
 // type.
 var runtimeFieldTypes = map[types.FieldType]bool{
@@ -149,6 +153,18 @@ func validateRuntimeData(ctx gen.Context, entities map[string]types.Entity) erro
 		}
 		if !runtimeSlots[b.Slot] {
 			return fmt.Errorf("rest-api: collection %s binds the slot %s, which the runtime data path does not call yet", b.Collection, b.Slot)
+		}
+	}
+	if changeEvents(ctx) {
+		if ctx.PeerNamespaces["outbox"] == "" {
+			return fmt.Errorf("rest-api: the change events of the collections go to Kafka through the outbox, so the service needs the outbox component (ST-SUP-RC20-OC40)")
+		}
+		for _, c := range ctx.Collections {
+			for _, action := range []string{eventCreated, eventUpdated, eventDeleted} {
+				if name := eventType(ctx.ServiceName, c.Entity, action); !eventTypePattern.MatchString(name) {
+					return fmt.Errorf("rest-api: the event type %q of the entity %s is not an outbox kind and a Kafka topic name: [a-zA-Z0-9._-], at most 128 characters, starting with a letter or a digit (ST-SUP-RC20-OC40)", name, c.Entity)
+				}
+			}
 		}
 	}
 	for _, c := range ctx.Collections {
@@ -445,12 +461,33 @@ func renderRuntimeHelpers(ctx gen.Context, names []string, dataImport, slotsImpo
 	if hasSlots {
 		b.WriteString(slotCallerHelper)
 	}
+	if changeEvents(ctx) {
+		b.WriteString(changeEventHelper)
+	}
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("rest-api: formatting runtime.go: %w\n%s", err, b.Bytes())
 	}
 	return formatted, nil
 }
+
+// changeEventHelper builds the payload of a change event (ST-SUP-RC20-OC40).
+const changeEventHelper = `// changeEvent gives the payload of a change event for the Kafka destination (ST-SUP-RC20-OC40): the entity, the
+// action and the ID of the row, and no field value, so no pii or secret field leaves the service in an event; a
+// consumer reads the row through the API, which decides its permission.
+func changeEvent(entity, action, id string) json.RawMessage {
+	payload, err := json.Marshal(struct {
+		Entity string ` + "`json:\"entity\"`" + `
+		Action string ` + "`json:\"action\"`" + `
+		ID     string ` + "`json:\"id\"`" + `
+	}{entity, action, id})
+	if err != nil {
+		panic(err)
+	}
+	return payload
+}
+
+`
 
 // listOrderHelper reads the orderBy and the fields parameters of a list (ST-SUP-RC20-OC38, ST-SUP-RC20-OC12).
 const listOrderHelper = `// errOrder is the error of an orderBy that names a field that is not declared, or a direction that is not asc or
@@ -920,6 +957,8 @@ type runtimeHandlerWriter struct {
 	keys       *idempotencyHeader
 	envelope   bool
 	slotsAlias string
+	// events tells whether each write stages its change event for the Kafka destination (ST-SUP-RC20-OC40).
+	events bool
 }
 
 func (w *runtimeHandlerWriter) f(format string, args ...any) { fmt.Fprintf(&w.Buffer, format, args...) }
@@ -927,7 +966,8 @@ func (w *runtimeHandlerWriter) f(format string, args ...any) { fmt.Fprintf(&w.Bu
 // renderRuntimeHandler writes the handler file of one collection: its command and query declarations, its handler
 // type, and one method per declared operation that calls Run.
 func renderRuntimeHandler(ctx gen.Context, c *runtimeCollection, dataImport, slotsImportPath string, keys *idempotencyHeader) ([]byte, error) {
-	w := &runtimeHandlerWriter{c: c, ctx: ctx, keys: keys, envelope: ctx.Conventions.ResponseFormat == "envelope"}
+	w := &runtimeHandlerWriter{c: c, ctx: ctx, keys: keys, envelope: ctx.Conventions.ResponseFormat == "envelope",
+		events: changeEvents(ctx)}
 	if c.ops[types.OpUpsert] {
 		read, err := command.KeyListRead(c.entity.Name, ctx.Entities, ctx.Tenancy.Key, c.decl.UpsertLookup())
 		if err != nil {
@@ -976,6 +1016,9 @@ func renderRuntimeHandler(ctx gen.Context, c *runtimeCollection, dataImport, slo
 	w.f("\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n")
 	if hasWrite {
 		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/idempotency\"\n")
+	}
+	if hasWrite && w.events {
+		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox\"\n")
 	}
 	if c.ops[types.OpRead] || c.ops[types.OpList] {
 		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/query\"\n")
@@ -1066,8 +1109,17 @@ func (w *runtimeHandlerWriter) declarations() {
 				}
 			}
 			w.f("var %s = mustCommand(command.NewCommand(command.CommandSpec[struct{}]{\n\tName: %q,\n\tWrites: []command.Declared{%s},\n\tProbe: noProbe,\n", w.commandVar(op), string(op), strings.Join(writes, ", "))
+			var destinations []string
 			if effects := w.afterEffects(op); len(effects) > 0 {
-				w.f("\tDestinations: []command.Destination{{Name: AfterSlotsDestination, Idempotent: true, MustLand: true, Effects: []string{%s}}},\n", quoteAll(effects))
+				destinations = append(destinations, fmt.Sprintf("{Name: AfterSlotsDestination, Idempotent: true, MustLand: true, Effects: []string{%s}}", quoteAll(effects)))
+			}
+			if w.events {
+				// The change events of the write go to Kafka, idempotent by the event ID and not must land, so an event
+				// whose attempts end is parked as on every other destination (ST-SUP-RP01-LC31).
+				destinations = append(destinations, fmt.Sprintf("{Name: kafkaoutbox.DestinationName, Idempotent: true, Effects: []string{%s}}", quoteAll(w.eventTypes(op))))
+			}
+			if len(destinations) > 0 {
+				w.f("\tDestinations: []command.Destination{%s},\n", strings.Join(destinations, ", "))
 			}
 			// A create and an upsert have no row to decide on before the fill: an upsert decides its permission on
 			// the stored row in the fill.
@@ -1475,6 +1527,67 @@ func (w *runtimeHandlerWriter) after(op types.Operation, entityVar, ref string, 
 	}
 }
 
+// changeEvents tells whether the service publishes the change events of its collections to Kafka: it has the
+// kafka-producer component, whose events the Kafka destination of the outbox delivers (ST-SUP-RC20-OC40).
+func changeEvents(ctx gen.Context) bool { return ctx.PeerNamespaces[kafkaComponent] != "" }
+
+// kafkaComponent is the component whose change events go to Kafka.
+const kafkaComponent = "kafka-producer"
+
+// The actions of a change event: an upsert is created or updated by its branch, and a patch is updated.
+const (
+	eventCreated = "created"
+	eventUpdated = "updated"
+	eventDeleted = "deleted"
+)
+
+// eventType gives the event type of a change of the entity of the collection with action: the service name, the
+// entity name in lower-case words joined by hyphens, and the action, joined by periods, such as
+// user-management.org-setting.updated. It is the kind of the outbox message and, when the settings declare no
+// topic, the Kafka topic (ST-SUP-RP01-LC30).
+func (w *runtimeHandlerWriter) eventType(action string) string {
+	return eventType(w.ctx.ServiceName, w.c.entity.Name, action)
+}
+
+func eventType(service, entity, action string) string {
+	var b strings.Builder
+	for i, r := range entity {
+		if 'A' <= r && r <= 'Z' {
+			if i > 0 {
+				b.WriteByte('-')
+			}
+			r += 'a' - 'A'
+		}
+		b.WriteRune(r)
+	}
+	return service + "." + b.String() + "." + action
+}
+
+// eventTypes gives the event types that the command of a write stages.
+func (w *runtimeHandlerWriter) eventTypes(op types.Operation) []string {
+	switch op {
+	case types.OpCreate:
+		return []string{w.eventType(eventCreated)}
+	case types.OpUpsert:
+		return []string{w.eventType(eventCreated), w.eventType(eventUpdated)}
+	case types.OpDelete:
+		return []string{w.eventType(eventDeleted)}
+	}
+	return []string{w.eventType(eventUpdated)}
+}
+
+// event writes, inside the fill of a write's command, after its write, the staging of its change event for the
+// Kafka destination in the command's transaction, for the loaded value ref of the row with the ID id: so the event is
+// sent only after the command committed, never after a replay or a before slot that halted the command, and never
+// lost when the broker is down (ST-SUP-RC20-OC40).
+func (w *runtimeHandlerWriter) event(action, ref, id string) {
+	if !w.events {
+		return
+	}
+	w.f("\t\tif err := ch.Effects().Stage(ctx, kafkaoutbox.DestinationName, %q, %s, changeEvent(%q, %q, %s)); err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n",
+		w.eventType(action), ref, w.c.entity.Name, action, id)
+}
+
 // afterEffects gives the effect names that the command of an operation stages for its after slots.
 func (w *runtimeHandlerWriter) afterEffects(op types.Operation) []string {
 	_, after := slotsForOp(op, w.c.slots)
@@ -1569,6 +1682,7 @@ func (w *runtimeHandlerWriter) create() {
 	w.f("\t\tcreated, err := repo.Create(ctx, %s, parents...)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", w.toData(c.lower))
 	w.f("\t\tpersisted = %s\n", w.fromData("created.Value()"))
 	w.after(types.OpCreate, "persisted", "created", nil)
+	w.event(eventCreated, "created", "persisted.ID")
 	w.respond("http.StatusCreated", "persisted")
 	w.f("\t})\n")
 	w.finish(types.OpCreate, "")
@@ -1594,6 +1708,7 @@ func (w *runtimeHandlerWriter) update() {
 	w.f("\t\tupdated, err := repo.Update(ctx, from, %s, parents...)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", w.toData(c.lower))
 	w.f("\t\tpersisted = %s\n", w.fromData("updated.Value()"))
 	w.after(types.OpUpdate, "persisted", "updated", nil)
+	w.event(eventUpdated, "updated", "persisted.ID")
 	w.respond("http.StatusOK", "persisted")
 	w.f("\t})\n")
 	w.finish(types.OpUpdate, "id")
@@ -1718,6 +1833,7 @@ func (w *runtimeHandlerWriter) upsert() {
 	w.f("\t\tcreated, err := repo.Create(ctx, %s, parents...)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", w.toData(c.lower))
 	w.f("\t\tpersisted = %s\n", w.fromData("created.Value()"))
 	w.after(types.OpUpsert, "persisted", "created", nil)
+	w.event(eventCreated, "created", "persisted.ID")
 	w.respond("http.StatusCreated", "persisted")
 	w.f("\t\t}\n")
 	w.f("\t\tfrom, err := repo.GetForUpdate(ctx, found[0].ID())\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n")
@@ -1737,6 +1853,7 @@ func (w *runtimeHandlerWriter) upsert() {
 	w.f("\t\tupdated, err := repo.Update(ctx, from, %s, parents...)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", w.toData(c.lower))
 	w.f("\t\tpersisted = %s\n", w.fromData("updated.Value()"))
 	w.after(types.OpUpsert, "persisted", "updated", nil)
+	w.event(eventUpdated, "updated", "persisted.ID")
 	w.respond("http.StatusOK", "persisted")
 	w.f("\t})\n")
 	w.finish(types.OpUpsert, "")
@@ -1804,6 +1921,7 @@ func (w *runtimeHandlerWriter) patch() {
 	w.f("\t\tupdated, err := repo.Update(ctx, from, %s, parents...)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", w.toData(c.lower))
 	w.f("\t\tpersisted = %s\n", w.fromData("updated.Value()"))
 	w.after(types.OpPatch, "persisted", "updated", fields)
+	w.event(eventUpdated, "updated", "persisted.ID")
 	w.respond("http.StatusOK", "persisted")
 	w.f("\t})\n")
 	w.finish(types.OpPatch, "id")
@@ -1822,6 +1940,7 @@ func (w *runtimeHandlerWriter) remove() {
 	w.before(types.OpDelete, nil)
 	w.f("\t\tif err := repo.Delete(ctx, from); err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n")
 	w.after(types.OpDelete, "", "from", nil)
+	w.event(eventDeleted, "from", "id")
 	w.f("\t\treturn idempotency.Response{Status: http.StatusNoContent}, nil\n\t})\n")
 	w.finish(types.OpDelete, "id")
 	w.f("\twriteResult(w, result)\n}\n\n")

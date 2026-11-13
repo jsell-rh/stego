@@ -71,7 +71,18 @@ another header for it), the certificate authorities of `STEGO_AUDIT_SINK_CA_FILE
 certificate of `STEGO_AUDIT_SINK_CLIENT_CERT_FILE` and `STEGO_AUDIT_SINK_CLIENT_KEY_FILE`; without
 it, to the table `stego_audit_sink.entries` in the service database. A separate sink is the
 stronger choice for production, because an administrator of the service database can change
-both. The controller mode runs the audit jobs under one lease. `/readyz/modes`
+both. With the event-publisher mixin, each write of a collection puts its change event in the
+outbox in the transaction of its command, and the worker mode sends it to Kafka: it reads
+`STEGO_KAFKA_BROKERS` (or `STEGO_KAFKA_BROKERS_FILE`), `STEGO_KAFKA_TOPIC` for one declared
+topic (else each event goes to the topic of its entity, such as `user-management.user`, so the
+actions of one row keep their order; the header `stego-event-action` holds the action),
+`STEGO_KAFKA_CA_FILE`, `STEGO_KAFKA_CLIENT_CERT_FILE` and `STEGO_KAFKA_CLIENT_KEY_FILE` for
+verified TLS, and `STEGO_KAFKA_SASL_MECHANISM` (SCRAM-SHA-512 with `STEGO_KAFKA_USERNAME` and
+`STEGO_KAFKA_PASSWORD_FILE`, or OAUTHBEARER with `STEGO_KAFKA_TOKEN_FILE`). The worker mode does
+not start without them. It refuses a password, token or client key file that its group may write
+or that others may use: in Kubernetes, mount these secrets with `defaultMode: 0400` or `0440`. It
+refuses a CA file or a `_FILE` setting that its group or others may write. An event holds the entity,
+the action and the ID of the row, and no field value. The controller mode runs the audit jobs under one lease. `/readyz/modes`
 answers the readiness of the worker and controller modes.
 Its binary with the one argument `migrate` is the migration job: it reads
 `STEGO_MIGRATION_DATABASE_URL` or `STEGO_MIGRATION_DATABASE_URL_FILE`, runs as the
@@ -332,9 +343,8 @@ It runs on the runtime data path and demonstrates the rest-crud archetype:
 - **OpenAPI validation** middleware via kin-openapi
 - **Slot wiring**: gate (RBAC policy), fan-out (welcome message), and
   short-circuit chain (org name validation + provisioning)
-
-The event-publisher mixin and its `on_entity_changed` fills return to the
-example when the runtime outbox delivers to Kafka.
+- **Change events**: the event-publisher mixin sends the change event of each
+  write to Kafka through the outbox
 
 ```bash
 export STEGO_REGISTRY=/path/to/stego/registry

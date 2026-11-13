@@ -17,9 +17,9 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/twmb/franz-go/pkg/kgo"
 
-	"github.com/jsell-rh/stego/registry/runtime/internal/kafkatest"
 	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
 	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/kafkatest"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
@@ -277,39 +277,78 @@ func TestDelivery(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP01-LC30-T03 An event goes to the declared topic, or else to the topic of its type", func(t *testing.T) {
-		created, deleted, declared := topicName("user.created"), topicName("user.deleted"), topicName("users")
-		for _, topic := range []string{created, deleted, declared} {
+	t.Run("ST-SUP-RP01-LC30-T03 An event goes to the declared topic, or else to the topic of its entity, with its action as a header", func(t *testing.T) {
+		entity, declared := topicName("user"), topicName("users")
+		created, deleted := entity+".created", entity+".deleted"
+		for _, topic := range []string{entity, declared} {
 			e.broker.CreateTopic(t, topic, 1)
 		}
-		byType := destination(t, e.plain(""))
+		byEntity := destination(t, e.plain(""))
 		toDeclared := destination(t, e.plain(declared))
 		tn := mustTenant(t, "t1")
 		ctx := context.Background()
-		send := func(d *Destination, kind string) {
+		send := func(d *Destination, kind string) error {
 			t.Helper()
 			id := uuid.New()
 			delivery := outbox.Delivery{Tenant: tn, Message: outbox.Message{ID: id, Destination: DestinationName,
 				ResourceKey: "user:u-1", Kind: kind, Payload: json.RawMessage(`{"id":"u-1"}`), OutgoingKey: id.String()}}
 			attempt, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
-			if err := d.Deliver(attempt, nil, delivery); err != nil {
-				t.Fatalf("deliver %s: %v", kind, err)
+			return d.Deliver(attempt, nil, delivery)
+		}
+		for _, c := range []struct {
+			d    *Destination
+			kind string
+		}{{byEntity, created}, {byEntity, deleted}, {toDeclared, created}, {toDeclared, deleted}} {
+			if err := send(c.d, c.kind); err != nil {
+				t.Fatalf("deliver %s: %v", c.kind, err)
 			}
 		}
-		send(byType, created)
-		send(byType, deleted)
-		send(toDeclared, created)
-		send(toDeclared, deleted)
-		for _, topic := range []string{created, deleted} {
-			records := e.broker.Records(t, topic, 1, 30*time.Second, time.Second)
-			if len(records) != 1 || header(t, records[0], HeaderEventType) != topic {
-				t.Fatalf("the topic %s holds %d records, want its one event", topic, len(records))
+		// With no declared topic, a kind with no action names no topic: it is refused for good.
+		if err := send(byEntity, entity); err == nil || !outbox.IsPermanent(err) {
+			t.Fatalf("a kind with no action gave %v, want a permanent refusal", err)
+		}
+		for _, topic := range []string{entity, declared} {
+			records := e.broker.Records(t, topic, 2, 30*time.Second, time.Second)
+			if len(records) != 2 || header(t, records[0], HeaderEventType) != created || header(t, records[1], HeaderEventType) != deleted ||
+				header(t, records[0], HeaderEventAction) != "created" || header(t, records[1], HeaderEventAction) != "deleted" {
+				t.Fatalf("the topic %s holds %d records, want the events created and deleted with their actions", topic, len(records))
 			}
 		}
-		records := e.broker.Records(t, declared, 2, 30*time.Second, time.Second)
-		if len(records) != 2 || header(t, records[0], HeaderEventType) != created || header(t, records[1], HeaderEventType) != deleted {
-			t.Fatalf("the declared topic holds %d records, want both events", len(records))
+	})
+
+	t.Run("ST-SUP-RP01-LC30-T04 With no declared topic, the actions of one entity arrive in their order on one partition of its topic", func(t *testing.T) {
+		entity := topicName("order")
+		e.broker.CreateTopic(t, entity, 3)
+		e.work(t, destination(t, e.plain("")), nil)
+		actions := []string{"created", "updated", "updated", "deleted"}
+		keys := []string{"order:o-1", "order:o-2"}
+		for n, action := range actions {
+			for _, key := range keys {
+				e.event(t, "t1", entity+"."+action, key, map[string]any{"key": key, "n": n})
+			}
+		}
+		records := e.broker.Records(t, entity, len(actions)*len(keys), time.Minute, 2*time.Second)
+		if len(records) != len(actions)*len(keys) {
+			t.Fatalf("the topic of the entity holds %d records, want %d", len(records), len(actions)*len(keys))
+		}
+		next, partition := map[string]int{}, map[string]int32{}
+		for _, r := range records {
+			var body struct {
+				Key string
+				N   int
+			}
+			if err := json.Unmarshal(r.Value, &body); err != nil {
+				t.Fatal(err)
+			}
+			if p, seen := partition[body.Key]; seen && p != r.Partition {
+				t.Fatalf("%s is on the partitions %d and %d", body.Key, p, r.Partition)
+			}
+			partition[body.Key] = r.Partition
+			if body.N != next[body.Key] || header(t, r, HeaderEventAction) != actions[body.N] {
+				t.Fatalf("%s: the event %d (%s) came where %d (%s) was due", body.Key, body.N, header(t, r, HeaderEventAction), next[body.Key], actions[next[body.Key]])
+			}
+			next[body.Key]++
 		}
 	})
 
