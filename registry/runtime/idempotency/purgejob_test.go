@@ -81,7 +81,7 @@ func TestPurgeJob(t *testing.T) {
 		insertExpiring(t, db, "later", 3, clock.Now().Add(90*time.Second))
 		insertExpiring(t, db, "live", 4, clock.Now().Add(time.Hour))
 		rec := &countingExecer{db: db}
-		j, err := NewPurgeJob(rec, PurgeJobConfig{Interval: time.Minute, Clock: clock})
+		j, err := NewPurgeJob(rec, PurgeJobConfig{Schema: testSchema(t, db), Interval: time.Minute, Clock: clock})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -120,7 +120,7 @@ func TestPurgeJob(t *testing.T) {
 
 		// A purge whose pause waits on the job's clock ends with ctx, and is not counted as a run.
 		insertExpiring(t, db, "many", 5, clock.Now().Add(-time.Second))
-		paused, err := NewPurgeJob(db, PurgeJobConfig{Batch: 2, Pause: time.Hour, Clock: clock})
+		paused, err := NewPurgeJob(db, PurgeJobConfig{Schema: testSchema(t, db), Batch: 2, Pause: time.Hour, Clock: clock})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -170,7 +170,7 @@ func TestPurgeJob(t *testing.T) {
 
 		// Two runs of one job never purge at once.
 		slow := &slowQuerier{db: db}
-		both, err := NewPurgeJob(slow, PurgeJobConfig{Clock: clock})
+		both, err := NewPurgeJob(slow, PurgeJobConfig{Schema: testSchema(t, db), Clock: clock})
 		if err != nil {
 			t.Fatal(err)
 		}

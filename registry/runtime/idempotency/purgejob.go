@@ -31,6 +31,8 @@ type PurgeJobConfig struct {
 	Pause time.Duration
 	// Clock is the clock of the interval and of the expiry time; nil is the system clock.
 	Clock JobClock
+	// Schema is the schema of the key table, as PurgeOptions takes it.
+	Schema string
 }
 
 // PurgeJob runs Purge on the declared interval (ST-SUP-RP07-LC09). The generated service only builds it and
@@ -66,7 +68,7 @@ func NewPurgeJob(db Querier, cfg PurgeJobConfig) (*PurgeJob, error) {
 	if j.clock == nil {
 		j.clock = systemClock{}
 	}
-	j.opts = PurgeOptions{Batch: cfg.Batch, Pause: cfg.Pause, Clock: j.clock.Now, Sleep: j.sleep}
+	j.opts = PurgeOptions{Batch: cfg.Batch, Pause: cfg.Pause, Clock: j.clock.Now, Sleep: j.sleep, Schema: cfg.Schema}
 	return j, nil
 }
 

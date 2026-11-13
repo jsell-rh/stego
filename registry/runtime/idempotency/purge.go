@@ -3,6 +3,7 @@ package idempotency
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -41,11 +42,14 @@ type PurgeOptions struct {
 	Clock func() time.Time
 	// Sleep waits d or until ctx ends; nil waits on a timer.
 	Sleep func(ctx context.Context, d time.Duration) error
+	// Schema is the schema of the key table and its purge function; empty is KeySchema.
+	Schema string
 }
 
-// purgeSQL calls the purge function of the key table that the search path resolves. The function, not the caller,
-// reads and deletes the rows of every tenant (ST-SUP-RP07-LC11).
-const purgeSQL = `SELECT ` + PurgeFunction + `($1, $2)`
+// purgeSQL calls the purge function of the key table in its schema. The function, not the caller, reads and deletes
+// the rows of every tenant (ST-SUP-RP07-LC11). The function is named with its schema, so no function of the same
+// name earlier on the search path runs in its place, and each parameter has its type, so no overload of it does.
+const purgeSQL = `SELECT {schema}.` + PurgeFunction + `($1::timestamptz, $2::integer)`
 
 // Purge deletes the key rows whose expires_at has passed, in batches of at most opts.Batch rows with a pause of
 // opts.Pause between two batches, and returns how many rows it deleted (ST-SUP-RP07-LC07). Each batch is one call of
@@ -61,6 +65,9 @@ func Purge(ctx context.Context, db Querier, opts PurgeOptions) (int64, error) {
 	}
 	if batch > MaxPurgeBatch {
 		return 0, fmt.Errorf("idempotency: the purge batch is at most %d", MaxPurgeBatch)
+	}
+	if opts.Schema != "" && !rolePattern.MatchString(opts.Schema) {
+		return 0, errors.New("idempotency: the schema of the key table is not a lower-case SQL name")
 	}
 	pause := opts.Pause
 	if pause <= 0 {
@@ -81,7 +88,7 @@ func Purge(ctx context.Context, db Querier, opts PurgeOptions) (int64, error) {
 				return total, err
 			}
 		}
-		n, err := purgeBatch(ctx, db, clock(), batch)
+		n, err := purgeBatch(ctx, db, withSchema(purgeSQL, opts.Schema), clock(), batch)
 		if err != nil {
 			return total, err
 		}
@@ -93,7 +100,7 @@ func Purge(ctx context.Context, db Querier, opts PurgeOptions) (int64, error) {
 }
 
 // purgeBatch runs one call of the purge function in a transaction of its own, with the limits of a batch.
-func purgeBatch(ctx context.Context, db Querier, now time.Time, batch int) (int64, error) {
+func purgeBatch(ctx context.Context, db Querier, purge string, now time.Time, batch int) (int64, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -103,7 +110,7 @@ func purgeBatch(ctx context.Context, db Querier, now time.Time, batch int) (int6
 		return 0, err
 	}
 	var n int64
-	if err := tx.QueryRowContext(ctx, purgeSQL, now, batch).Scan(&n); err != nil {
+	if err := tx.QueryRowContext(ctx, purge, now, batch).Scan(&n); err != nil {
 		return 0, err
 	}
 	return n, tx.Commit()

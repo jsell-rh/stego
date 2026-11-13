@@ -49,6 +49,9 @@ func runWrap(ctx context.Context, db *sql.DB, req Request, h handlerFunc) (Resul
 	if err != nil {
 		return Result{}, err
 	}
+	if req.Schema == "" {
+		req.Schema = currentSchema(db)
+	}
 	res, err := Wrap(ctx, SQLTx(tx), req, func(ctx context.Context) (Response, error) { return h(ctx, SQLTx(tx)) })
 	if err != nil || !res.Commit {
 		_ = tx.Rollback()
@@ -103,7 +106,9 @@ func TestWrap(t *testing.T) {
 		rec := &recorder{tx: tx}
 		const handlerSQL = `SELECT status FROM idempotency_keys WHERE tenant_id = $1 AND principal_id = $2 AND key = $3`
 		var seen string
-		res, err := Wrap(ctx, rec, request("k1", "f1"), func(ctx context.Context) (Response, error) {
+		req := request("k1", "f1")
+		req.Schema = testSchema(t, db)
+		res, err := Wrap(ctx, rec, req, func(ctx context.Context) (Response, error) {
 			if err := rec.QueryRowContext(ctx, handlerSQL, "t1", "p1", "k1").Scan(&seen); err != nil {
 				return Response{}, err
 			}
@@ -117,7 +122,7 @@ func TestWrap(t *testing.T) {
 		}
 		insert, handler := -1, -1
 		for i, q := range rec.stmts {
-			if insert < 0 && strings.HasPrefix(q, "INSERT INTO idempotency_keys") &&
+			if insert < 0 && strings.HasPrefix(q, "INSERT INTO "+req.Schema+".idempotency_keys") &&
 				strings.Contains(q, "ON CONFLICT DO NOTHING") && strings.Contains(q, "RETURNING") {
 				insert = i
 			}

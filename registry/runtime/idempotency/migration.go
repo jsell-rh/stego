@@ -4,7 +4,13 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 )
+
+// KeySchema is the schema of the key table that a service makes with its migration job, in which Wrap and Purge
+// name the table and its purge function when they get no schema, and which the service checks (ST-SUP-RP14-LC06).
+const KeySchema = "public"
 
 // PurgeFunction is the name of the purge function in the schema of the key table.
 const PurgeFunction = "idempotency_keys_purge"
@@ -46,6 +52,63 @@ func Migration(purgeRole, runtimeRole string) (string, error) {
 		return "", fmt.Errorf("idempotency: the purge role must be a role apart from the runtime role")
 	}
 	return strings.NewReplacer("{{purge}}", purgeRole, "{{runtime}}", runtimeRole).Replace(migration), nil
+}
+
+// Manifest gives what the code of the key table needs of the database that Migration makes in schema for the same
+// roles (ST-SUP-RP07-LC12, ST-SUP-RP15-LC01): the table idempotency_keys with its columns, its checks and its primary
+// key, row-level security with the tenant policy for every role and the two purge policies for purgeRole only, and
+// exactly these grants of the table: SELECT and DELETE to purgeRole, and SELECT, INSERT and UPDATE to runtimeRole,
+// which the grants of the runtime role give it; and the purge function, SECURITY DEFINER with its fixed search path,
+// owned by purgeRole, with EXECUTE for runtimeRole only; purgeRole owns no other object, and CREATE on schema goes
+// to no role but its owner and the owner of the manifest. schema is a lower-case SQL name that needs no quotes, such as
+// public. Manifest refuses the roles that Migration refuses.
+func Manifest(schema, purgeRole, runtimeRole string) (manifest.Manifest, error) {
+	if !rolePattern.MatchString(schema) {
+		return manifest.Manifest{}, fmt.Errorf("idempotency: %q is not a schema name the manifest accepts", schema)
+	}
+	text, err := Migration(purgeRole, runtimeRole)
+	if err != nil {
+		return manifest.Manifest{}, err
+	}
+	_, rest, found := strings.Cut(text, "AS $fn$")
+	source, _, closed := strings.Cut(rest, "$fn$")
+	if !found || !closed {
+		return manifest.Manifest{}, fmt.Errorf("idempotency: the migration has no function %s", PurgeFunction)
+	}
+	columns := []manifest.Column{
+		{Name: "tenant_id", Type: "text", NotNull: true}, {Name: "principal_id", Type: "text", NotNull: true},
+		{Name: "key", Type: "character varying(255)", NotNull: true}, {Name: "fingerprint", Type: "text", NotNull: true},
+		{Name: "status", Type: "text", NotNull: true}, {Name: "response_code", Type: "integer"},
+		{Name: "response_headers", Type: "bytea"}, {Name: "response_body", Type: "bytea"},
+		{Name: "locked_at", Type: "timestamp with time zone", NotNull: true}, {Name: "expires_at", Type: "timestamp with time zone", NotNull: true},
+	}
+	constraints := []manifest.Constraint{
+		{Name: "idempotency_keys_pkey", Kind: manifest.KindPrimaryKey, Definition: "PRIMARY KEY (tenant_id, principal_id, key)"},
+		{Name: "idempotency_keys_status_check", Kind: manifest.KindCheck, Definition: "CHECK ((status = ANY (ARRAY['in_progress'::text, 'completed'::text])))"},
+		{Name: "idempotency_keys_check", Kind: manifest.KindCheck, Definition: "CHECK (((status <> 'completed'::text) OR (response_code IS NOT NULL)))"},
+	}
+	wall := "(tenant_id = current_setting('app.tenant'::text, true))"
+	policies := []manifest.Policy{
+		{Name: "idempotency_keys_tenant", Command: "*", Using: wall, WithCheck: wall},
+		{Name: "idempotency_keys_purge_select", Command: "r", Using: "true", Roles: []string{purgeRole}},
+		{Name: "idempotency_keys_purge_delete", Command: "d", Using: "true", Roles: []string{purgeRole}},
+	}
+	grants := []manifest.Grant{
+		{Role: purgeRole, Privileges: []string{"SELECT", "DELETE"}},
+		{Role: runtimeRole, Privileges: []string{"SELECT", "INSERT", "UPDATE"}},
+	}
+	return manifest.Manifest{
+		Tables: []manifest.Table{{Schema: schema, Name: "idempotency_keys", Columns: columns, Constraints: constraints,
+			Indexes:     []manifest.Index{{Name: "idempotency_keys_pkey", Columns: []string{"tenant_id", "principal_id", "key"}}},
+			RowSecurity: true, Policies: policies, CheckGrants: true, Grants: grants}},
+		Functions: []manifest.Function{{Name: schema + "." + PurgeFunction, Args: "timestamptz, integer", Language: "plpgsql",
+			Source: strings.ReplaceAll(source, "%1$I", schema), SecurityDefiner: true, Config: []string{"search_path=pg_catalog, pg_temp"},
+			Owner: purgeRole, Execute: []string{runtimeRole}, Returns: "bigint"}},
+		// The purge function spans tenants with the rights of its owner, so the purge role owns nothing else. The
+		// schema may be public, so only its CREATE is checked: no other role can make an overload of the function.
+		Schemas:  []manifest.Schema{{Name: schema, Shared: true}},
+		Confined: []string{purgeRole},
+	}, nil
 }
 
 // rolePattern is a lower-case SQL name of at most 63 characters, which needs no quotes.

@@ -84,7 +84,7 @@ func orderEntity(t *testing.T) *command.Entity[order] {
 func parts(entities []command.Declared, calls *int) Parts {
 	return Parts{
 		Service: "todo-svc", DeclarationVersion: "d1", SubjectType: "user", TenantClaim: "tenant", ProblemCode: "TODO",
-		TenantConfig: tenantConfig(calls), OwnerRole: fixtureOwner, WorkerRole: fixtureWorker, OutboxRelayRole: fixtureOutboxRelay, RelayRole: fixtureRelay, AuthzSchema: "public",
+		TenantConfig: tenantConfig(calls), OwnerRole: fixtureOwner, WorkerRole: fixtureWorker, OutboxRelayRole: fixtureOutboxRelay, RelayRole: fixtureRelay, AuthzSchema: "public", PurgeRole: fixturePurge,
 		NewQueue: func(db *sql.DB) (*outbox.Queue, error) {
 			return outbox.New(db, outbox.Options{PayloadLimits: auditoutbox.PayloadLimits()})
 		},
@@ -343,6 +343,9 @@ func TestNew(t *testing.T) {
 			// The outbox is in the manifest too, with the exact grants of its table.
 			refused("GRANT SELECT ON stego_outbox.messages TO PUBLIC", "REVOKE SELECT ON stego_outbox.messages FROM PUBLIC",
 				"table stego_outbox.messages: the privilege SELECT to PUBLIC is granted, and the manifest does not grant it")
+			// The key table is in the manifest too: the runtime role may not delete a key row of another tenant's key.
+			refused("GRANT DELETE ON public.idempotency_keys TO "+f.runtime, "REVOKE DELETE ON public.idempotency_keys FROM "+f.runtime,
+				"table public.idempotency_keys: the privilege DELETE to "+f.runtime+" is granted, and the manifest does not grant it")
 			// Only the runtime role may run it: EXECUTE for PUBLIC is refused (#239 L2).
 			refused("GRANT EXECUTE ON FUNCTION public.audit_maintain() TO PUBLIC", "REVOKE EXECUTE ON FUNCTION public.audit_maintain() FROM PUBLIC",
 				"function public.audit_maintain may be run by roles that the manifest does not name")

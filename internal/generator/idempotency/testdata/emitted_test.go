@@ -186,7 +186,8 @@ func TestEmitted(t *testing.T) {
 	})
 }
 
-// database opens a new schema with SchemaSQL applied on the local server, and drops it when the test ends.
+// database opens a new database with SchemaSQL applied in its schema public on the local server, where the
+// generated purge job names the key table, and drops it when the test ends.
 func database(t *testing.T) (*sql.DB, string) {
 	t.Helper()
 	dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
@@ -199,26 +200,25 @@ func database(t *testing.T) (*sql.DB, string) {
 	}
 	var b [6]byte
 	_, _ = rand.Read(b[:])
-	schema := "idem_gen_" + hex.EncodeToString(b[:])
-	if _, err := admin.Exec("CREATE SCHEMA " + schema); err != nil {
-		t.Fatalf("create schema: %v", err)
+	name := "idem_gen_" + hex.EncodeToString(b[:])
+	if _, err := admin.Exec("CREATE DATABASE " + name); err != nil {
+		t.Fatalf("create database: %v", err)
 	}
 	u, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	q := u.Query()
-	q.Set("search_path", schema)
-	u.RawQuery = q.Encode()
+	u.Path = "/" + name
 	db, err := sql.Open("pgx", u.String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		_ = db.Close()
-		_, _ = admin.Exec("DROP SCHEMA " + schema + " CASCADE")
+		_, _ = admin.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)")
 		_ = admin.Close()
 	})
+	schema := "public"
 	if _, err := admin.Exec(`DO $$ BEGIN CREATE ROLE ` + runtimeRole + ` NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`); err != nil {
 		t.Fatal(err)
 	}
