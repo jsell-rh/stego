@@ -1014,7 +1014,10 @@ var identityMax = map[string]int64{"smallint": 32767, "integer": 2147483647, "bi
 
 // checkIdentities gives the faults of the identity columns of the table oid against columns: an identity on a column
 // that the manifest states none for, listed or not, another kind of identity, a stated identity that is missing, and
-// an identity whose sequence does not count up by 1 from 1 to the maximum of its type with no cycle.
+// an identity whose sequence does not count up by 1 from 1 to the maximum of its type with a cache of 1 and no cycle.
+// A column of the manifest that a serial sequence fills (a default of nextval) needs the same checks of its
+// sequence; no manifest states one yet. A RESTART is not seen here, as the role of the check cannot read the
+// sequence: the migration job checks it (ST-SUP-RP14-LC03).
 func checkIdentities(ctx context.Context, tx *sql.Tx, oid uint32, columns []Column) ([]string, error) {
 	want := map[string]string{}
 	for _, c := range columns {
@@ -1050,12 +1053,12 @@ func checkIdentities(ctx context.Context, tx *sql.Tx, oid uint32, columns []Colu
 			faults = append(faults, "column "+i.name+" is another identity than the manifest states")
 			continue
 		}
-		var increment, minimum, maximum int64
+		var increment, minimum, maximum, cache int64
 		var cycle bool
 		var seqType string
-		err := tx.QueryRowContext(ctx, `SELECT s.seqincrement, s.seqmin, s.seqmax, s.seqcycle, pg_catalog.format_type(s.seqtypid, NULL)
+		err := tx.QueryRowContext(ctx, `SELECT s.seqincrement, s.seqmin, s.seqmax, s.seqcache, s.seqcycle, pg_catalog.format_type(s.seqtypid, NULL)
   FROM pg_catalog.pg_sequence s WHERE s.seqrelid = pg_catalog.pg_get_serial_sequence(($1::pg_catalog.oid)::pg_catalog.regclass::text, $2)::pg_catalog.regclass`,
-			oid, i.name).Scan(&increment, &minimum, &maximum, &cycle, &seqType)
+			oid, i.name).Scan(&increment, &minimum, &maximum, &cache, &cycle, &seqType)
 		if errors.Is(err, sql.ErrNoRows) {
 			faults = append(faults, "column "+i.name+" is an identity with no sequence")
 			continue
@@ -1063,8 +1066,10 @@ func checkIdentities(ctx context.Context, tx *sql.Tx, oid uint32, columns []Colu
 		if err != nil {
 			return nil, err
 		}
-		if top, ok := identityMax[i.typ]; !ok || increment != 1 || minimum != 1 || maximum != top || cycle || seqType != i.typ {
-			faults = append(faults, "column "+i.name+" is an identity whose sequence does not count up by 1 from 1 to the maximum of its type with no cycle")
+		// A cache above 1 gives each session a block of its own, so a later insert of another session can take a smaller
+		// value than an earlier one.
+		if top, ok := identityMax[i.typ]; !ok || increment != 1 || minimum != 1 || maximum != top || cache != 1 || cycle || seqType != i.typ {
+			faults = append(faults, "column "+i.name+" is an identity whose sequence does not count up by 1 from 1 to the maximum of its type with a cache of 1 and no cycle")
 		}
 	}
 	for _, c := range columns {

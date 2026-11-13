@@ -54,7 +54,7 @@ func TestMigrate(t *testing.T) {
 		endpoint, key := startSpiceDB(t)
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
-		want := []string{StepOwnerRole, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepAuditTables, StepAuditSink,
+		want := []string{StepOwnerRole, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepOutboxSequence, StepAuditTables, StepAuditSink,
 			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain}
 		run := func(m Migration) (*steps, error) {
 			s := &steps{backends: map[int]bool{}}
@@ -157,6 +157,36 @@ func TestMigrateLedgerRole(t *testing.T) {
 		var owner string
 		if err := f.admin.QueryRow("SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'orders'").Scan(&owner); err != nil || owner != f.owner {
 			t.Fatalf("the table of the ledger is owned by %q (%v), want the owner role %s", owner, err, f.owner)
+		}
+	})
+
+	t.Run("ST-SUP-RP14-LC03-T04 Migrate refuses an outbox identity sequence that is behind its stored messages", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatal(err)
+		}
+		// A stored message at sequence 100, as after a failover that carried the rows and not the sequence.
+		if _, err := f.admin.Exec(`INSERT INTO stego_outbox.messages (id, sequence, tenant_id, destination, resource_key, kind, payload, outgoing_key,
+ created_at, available_at) OVERRIDING SYSTEM VALUE VALUES (gen_random_uuid(), 100, 't1', 'd', 'r', 'k', 'p', 'o', now(), now())`); err != nil {
+			t.Fatal(err)
+		}
+		for _, behind := range []string{"SELECT setval('stego_outbox.messages_sequence_seq', 5)", "SELECT setval('stego_outbox.messages_sequence_seq', 100, false)"} {
+			if _, err := f.admin.Exec(behind); err != nil {
+				t.Fatal(err)
+			}
+			err := Migrate(context.Background(), settings, f.migration(nil))
+			if Stage(err) != "migrate."+StepOutboxSequence || !errors.Is(err, errSequenceBehind) {
+				t.Fatalf("Migrate after %q gave %v at the stage %q, want the refusal of the sequence", behind, err, Stage(err))
+			}
+		}
+		// The sequence past the highest message: the job runs.
+		if _, err := f.admin.Exec("SELECT setval('stego_outbox.messages_sequence_seq', 100)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatalf("Migrate with the sequence at the highest message: %v", err)
 		}
 	})
 
@@ -312,7 +342,7 @@ func (f *fixture) migration(calls *int) Migration {
 		t.Fatal(err)
 	}
 	return Migration{
-		OwnerRole: f.owner, RuntimeRole: f.runtime, WorkerRole: f.worker, PurgeRole: f.purge, TenantConfig: tenantConfig(nil),
+		OwnerRole: f.owner, RuntimeRole: f.runtime, WorkerRole: f.worker, PurgeRole: f.purge, OutboxRelayRole: f.outboxRelay, TenantConfig: tenantConfig(nil),
 		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error {
 			var foreign bool
 			if err := conn.QueryRowContext(ctx, `SELECT to_regclass('public.foreign_orders') IS NOT NULL`).Scan(&foreign); err != nil {
