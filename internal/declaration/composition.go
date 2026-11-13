@@ -35,8 +35,9 @@ var invariantFieldForm = fieldNameForm
 
 // whereTerm is one term of the Where of a declared invariant: a field, an operator and a literal, such as
 // status = 'active' or done = false. A string literal holds no quote. The generated migration writes the condition
-// into a partial index or a constraint, so checking takes only this form and no other SQL.
-var whereTerm = regexp.MustCompile(`^([a-z][a-z0-9_]{0,62}) *(=|<>|!=) *(true|false|null|-?[0-9]{1,18}|'[A-Za-z0-9 _.:-]{0,255}')$`)
+// into a partial index or a constraint, so checking takes only this form and no other SQL. A comparison with null is
+// not of the form: in SQL it never matches, so the index or constraint would hold for no row.
+var whereTerm = regexp.MustCompile(`^([a-z][a-z0-9_]{0,62}) *(=|<>|!=) *(true|false|-?[0-9]{1,18}|'[A-Za-z0-9 _.:-]{0,255}')$`)
 
 // ModeUnknown is the specification ST-DECL-SP14: Modes names a mode other than api, worker or controller.
 func ModeUnknown(service *types.ServiceDeclaration) bool {
@@ -141,13 +142,24 @@ func validateModesAndMixins(service *types.ServiceDeclaration) []ValidationError
 	return faults
 }
 
-// validateControllers holds the declaration to ST-DECL-INV29: each controller declares its sources from scan and
+// validateControllers holds the declaration to ST-DECL-INV29: each controller has a name in lower kebab case, used
+// once, as a worker name is (ST-DECL-INV65), and declares its sources from scan and
 // watch, a resync and a lease TTL that are durations greater than zero, and at least one replica. A controller that
 // declares tenants other than each is refused by ST-DECL-INV20. Each fault names the controller and the field.
 func validateControllers(service *types.ServiceDeclaration) []ValidationError {
 	var faults []ValidationError
+	names := map[string]bool{}
 	for i, controller := range service.Controllers {
 		path := fmt.Sprintf("controllers[%d]", i)
+		switch {
+		case !kebabName.MatchString(controller.Name):
+			faults = append(faults, ValidationError{Category: "service", Rule: "controller-name", Path: path + ".name", Found: controller.Name, Allowed: []string{kebabName.String()},
+				Message: fmt.Sprintf("the controller name %q must match %s: lower kebab case, at most 63 characters", controller.Name, kebabName)})
+		case names[controller.Name]:
+			faults = append(faults, ValidationError{Category: "service", Rule: "controller-name", Path: path + ".name", Found: controller.Name,
+				Message: fmt.Sprintf("the controller name %q is used twice; give each controller its own name", controller.Name)})
+		}
+		names[controller.Name] = true
 		fault := func(field, found string, allowed []string, format string, args ...any) {
 			faults = append(faults, ValidationError{Category: "service", Rule: "controller", Path: path + "." + field, Found: found, Allowed: allowed,
 				Message: fmt.Sprintf("controller %q ", controller.Name) + fmt.Sprintf(format, args...)})
@@ -245,7 +257,7 @@ func validateDeclaredInvariants(service *types.ServiceDeclaration) []ValidationE
 		}
 		if invariant.Where != "" {
 			if field, bad := badWhereTerm(invariant.Where, entity); bad && field == "" {
-				fault("where", invariant.Where, nil, "has the condition %q; a condition is field = value terms joined by and, where a value is true, false, null, a whole number or a quoted text with no quote, such as status = 'active'", invariant.Where)
+				fault("where", invariant.Where, nil, "has the condition %q; a condition is field = value terms joined by and, where a value is true, false, a whole number or a quoted text with no quote, such as status = 'active'; a comparison with null never matches in SQL", invariant.Where)
 			} else if bad {
 				fault("where", invariant.Where, fieldNameList(*entity), "has a condition on %q, which is not a field of %s", field, entity.Name)
 			}

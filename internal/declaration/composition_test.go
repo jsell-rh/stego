@@ -130,6 +130,17 @@ func TestControllerLease(t *testing.T) {
 			t.Errorf("want one fault that names the source poll, got %+v", faults)
 		}
 	})
+	t.Run(inv29+": a controller name out of form, or used twice, is refused", func(t *testing.T) {
+		for added, want := range map[string]string{
+			strings.Replace(provisionerWithout(""), "name: provisioner", "name: Provisioner; DROP", 1): "must match",
+			provisionerWithout("") + strings.TrimPrefix(provisionerWithout(""), "controllers:\n"):      "used twice",
+		} {
+			faults := ruleFaults(td02Composition(t, "", added), "controller-name")
+			if len(faults) != 1 || !strings.Contains(faults[0].Message, want) {
+				t.Errorf("%s: want one fault that says %s, got %+v", added, want, faults)
+			}
+		}
+	})
 	t.Run(inv29+": a lease TTL that is not a duration", func(t *testing.T) {
 		faults := ruleFaults(td02Composition(t, "", strings.Replace(provisionerWithout(""), "lease_ttl: 15s", "lease_ttl: forever", 1)), "controller")
 		if len(faults) != 1 || faults[0].Found != "forever" {
@@ -192,6 +203,9 @@ func TestDeclaredInvariants(t *testing.T) {
 			"done = false or title = 'x'":    "",
 			"title = 'x''y'":                 "",
 			"closed = true":                  "closed",
+			"done = null":                    "never matches",
+			"done <> null":                   "never matches",
+			"title != null":                  "never matches",
 		} {
 			invariant := "{name: unique_open_title, kind: unique, on: Todo, by: [title], where: \"" + where + "\"}"
 			faults := ruleFaults(td02Composition(t, "", "invariants:\n  - "+invariant+"\n"), "declared-invariant")
