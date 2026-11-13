@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -173,8 +174,9 @@ func readBaseFile(commit, name string) ([]byte, bool, error) {
 	return append([]byte{}, data...), true, nil
 }
 
-// refuseMovedService refuses a base that holds no service.yaml at the path of the service folder while the service
-// in the working folder has a record: the folder moved, or the base is not a version of this service, and the check
+// refuseMovedService refuses a base that holds no service.yaml at the path of the service folder while a release of
+// the service may have run: when the service in the working folder has a record, or when the base tree holds a
+// record of a release at another path. The folder moved, or the base is not a version of this service, and the check
 // cannot take an absent declaration as a first release.
 func refuseMovedService(base compiler.BaseSource) error {
 	if base.Declaration != nil {
@@ -184,10 +186,54 @@ func refuseMovedService(base compiler.BaseSource) error {
 	if err != nil {
 		return err
 	}
-	if state.LastApplied == nil {
-		return nil
+	if state.LastApplied != nil {
+		return fmt.Errorf("the base ref %s (commit %s) holds no service.yaml at the path of this service folder, and the service has a record, so a release of it has run: if the folder moved, run the check from the folder at the path that the base holds, or name a base that holds this folder", base.Ref, base.Commit)
 	}
-	return fmt.Errorf("the base ref %s (commit %s) holds no service.yaml at the path of this service folder, and the service has a record, so a release of it has run: if the folder moved, run the check from the folder at the path that the base holds, or name a base that holds this folder", base.Ref, base.Commit)
+	released, err := releasedFolders(base.Commit)
+	if err != nil {
+		return fmt.Errorf("read the records of the base ref %s (commit %s): %w", base.Ref, base.Commit, err)
+	}
+	if len(released) > 0 {
+		return fmt.Errorf("the base ref %s (commit %s) holds no service.yaml at the path of this service folder, and it holds the record of a release in %s: if the service folder moved, run the check from the folder at the path that the base holds", base.Ref, base.Commit, strings.Join(released, ", "))
+	}
+	return nil
+}
+
+// maxBaseRecords bounds the records that releasedFolders reads in one base tree.
+const maxBaseRecords = 64
+
+// releasedFolders gives each folder of the commit whose .stego/state.yaml records a release. A record that cannot
+// be read counts as one.
+func releasedFolders(commit string) ([]string, error) {
+	listing, err := compatGit("ls-tree", "-r", "-z", "--name-only", "--full-tree", commit)
+	if err != nil {
+		return nil, err
+	}
+	var folders []string
+	read := 0
+	for _, name := range strings.Split(strings.TrimSuffix(string(listing), "\x00"), "\x00") {
+		if name != ".stego/state.yaml" && !strings.HasSuffix(name, "/.stego/state.yaml") {
+			continue
+		}
+		if read++; read > maxBaseRecords {
+			return nil, fmt.Errorf("the commit holds more than %d records", maxBaseRecords)
+		}
+		data, found, err := readBaseFile(commit, name)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			continue
+		}
+		if released, err := compiler.RecordsRelease(data, name); err != nil || released {
+			folder := strings.TrimSuffix(strings.TrimSuffix(name, ".stego/state.yaml"), "/")
+			if folder == "" {
+				folder = "the root"
+			}
+			folders = append(folders, folder)
+		}
+	}
+	return folders, nil
 }
 
 // compatGit runs one git command in the working folder with a time limit and gives its standard output. Git gets
@@ -221,7 +267,7 @@ func defaultBaseRef() (ref string, found bool, err error) {
 	if _, err := compatGit("rev-parse", "--is-inside-work-tree"); err != nil {
 		// Only git's own answer that the folder is in no repository means no repository; every other failure, such
 		// as a repository of another owner or no git at all, fails rather than skip the check.
-		if strings.Contains(err.Error(), "not a git repository") {
+		if strings.Contains(err.Error(), "not a git repository") && !gitEntryAbove() {
 			return "", false, nil
 		}
 		return "", false, fmt.Errorf("git cannot read the repository of the service folder, so the base check cannot run: %w", err)
@@ -245,6 +291,26 @@ func defaultBaseRef() (ref string, found bool, err error) {
 		}
 	}
 	return "", false, fmt.Errorf("the repository of the service folder has no default branch: refs/remotes/origin/HEAD is not set and there is no branch main or master; name the base with --base")
+}
+
+// gitEntryAbove tells whether a .git entry exists in the working folder or in a folder above it, up to the root. A
+// .git that git cannot read, such as the link of a worktree that was removed, is a broken repository, not the
+// absence of one, so the check fails rather than skip.
+func gitEntryAbove() bool {
+	folder, err := os.Getwd()
+	if err != nil {
+		return true
+	}
+	for {
+		if _, err := os.Lstat(filepath.Join(folder, ".git")); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return true
+		}
+		parent := filepath.Dir(folder)
+		if parent == folder {
+			return false
+		}
+		folder = parent
+	}
 }
 
 // baseGate is what plan and apply learn from the check against the base before they plan: the base they took, and

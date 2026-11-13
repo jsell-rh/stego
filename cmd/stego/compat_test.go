@@ -144,6 +144,21 @@ func TestCompat(t *testing.T) {
 		if output, code := s.compat(t, "--base", base); code != 2 || !strings.Contains(output, "holds no service.yaml at the path") {
 			t.Errorf("exit %d, want 2 and a refusal that names the missing service.yaml:\n%s", code, output)
 		}
+		// The folder moved in the head, and the head's record is gone: the base still holds the record of a release.
+		moved := filepath.Join(s.parent, "moved")
+		if err := os.MkdirAll(moved, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		git(t, s.service, "checkout", "-q", "--", ".")
+		git(t, s.service, "mv", "service.yaml", "moved-service.yaml")
+		git(t, s.service, "commit", "-q", "-m", "keep the service at the root only in the base")
+		released := git(t, s.service, "rev-parse", "HEAD~1")
+		other := *s
+		other.service = filepath.Join(s.service, "authz")
+		writeFile(t, other.service, "service.yaml", noteFields(renamedTitle), 0o644)
+		if output, code := other.compat(t, "--base", released); code != 2 || !strings.Contains(output, "it holds the record of a release in the root") {
+			t.Errorf("a moved folder with no record in the head: exit %d, want 2 and the folder of the base's record:\n%s", code, output)
+		}
 	})
 	t.Run("ST-GEN-UC14-R03-T01 Each fault names the entity, the field, the rule and the schema change and phase to declare", func(t *testing.T) {
 		t.Parallel()
