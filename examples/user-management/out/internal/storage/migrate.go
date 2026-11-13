@@ -69,6 +69,22 @@ func RegisterStep(name, body string, compatibleWith ...string) {
 	}})
 }
 
+// refreshMarker rewrites, under the ledger lock, the marker digest that a
+// release before ST-SUP-RC01-OC42 wrote, the digest of the entities and the
+// collections of the baseline, to the digest of the stored shape, once. The
+// marker check of this release accepts both; a later release whose
+// collections or permissions differ accepts only the digest of the stored
+// shape (ST-SUP-RC01-OC42).
+func refreshMarker(ctx context.Context, db Database) error {
+	return inTransaction(ctx, db, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
+		if err := lockLedger(ctx, tx); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "UPDATE stego_schema.generation SET definition = $1 WHERE singleton AND generation = $2 AND definition = $3", SchemaDefinition, SchemaGeneration, schemaDefinitionBefore)
+		return err
+	})
+}
+
 // addCompatibleWith adds the nullable column compatible_with to the ledger
 // under the ledger lock, before the migration job reads the ledger, and
 // writes no value into the rows already there; it writes no ledger row
@@ -108,6 +124,9 @@ func Migrate(ctx context.Context, db Database) error {
 		return err
 	}
 	if err := addCompatibleWith(ctx, db); err != nil {
+		return err
+	}
+	if err := refreshMarker(ctx, db); err != nil {
 		return err
 	}
 	return applyPending(ctx, db, ordered)
