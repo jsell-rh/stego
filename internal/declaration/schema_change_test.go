@@ -82,7 +82,7 @@ func TestSchemaChangeEntity(t *testing.T) {
 		{"a unique that names a declared invariant of kind no_overlap", renamed, "{id: todo-title-rename, kind: unique, entity: Todo, field: summary_window}", "summary_window"},
 	} {
 		t.Run("ST-DECL-INV58-T "+c.name+" is refused", func(t *testing.T) {
-			service := todoFields(c.fields, "", []string{c.change}, "todo-title-rename expand") + "invariants:\n  - {name: summary_window, kind: no_overlap, on: Todo, range: during, by: [summary]}\n"
+			service := todoFields(c.fields, "", []string{c.change}, "todo-title-rename expand") + "invariants:\n  - {name: summary_window, kind: no_overlap, on: Todo, range: 'starts_at, ends_at', by: [summary]}\n"
 			faults := schemaFaults(t, service, "schema-change-entity")
 			wantFault(t, faults, `"todo-title-rename"`, `"Todo"`, `"`+c.field+`"`)
 		})
