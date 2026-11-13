@@ -181,7 +181,7 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 		access string
 	}{{orderService("storage"), "access.json"}, {orderService("previous"), ""}, {widgetService(widgetEntities()), "widgets_access.json"}, {boundsService(), "bounds_access.json"},
 		{boardBase("boardsbase", "boardsbasetenancy"), "boardsbase_access.json"}, {boardSteps("boards", "boardtenancy"), "boards_access.json"},
-		{boardNoDefault("boardsnote", "boardsnotetenancy"), "boardsnote_access.json"}} {
+		{boardNoDefault("boardsnote", "boardsnotetenancy"), "boardsnote_access.json"}, {boardSlug("boardsslug", "boardsslugtenancy"), "boardsslug_access.json"}} {
 		files, wiring, err := new(postgresadapter.Generator).Generate(service.ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -388,6 +388,18 @@ func TestTables(t *testing.T) {
 
 	t.Run("ST-SUP-RC01-OC22-T03 An add step takes a database with rows to the schema of a new database, and the release before still runs on it", func(t *testing.T) {
 		onPostgres(t, "ST-SUP-RC01-OC22-T03")
+	})
+
+	t.Run("ST-SUP-RC01-OC22-T04 A step waits for a lock only within its lock timeout and runs again, and a reader keeps getting its row", func(t *testing.T) {
+		onPostgres(t, "ST-SUP-RC01-OC22-T04")
+	})
+
+	t.Run("ST-SUP-RC01-OC22-T05 An add step on a table with rows scans no row under its strong lock, and the release before restarts after each phase", func(t *testing.T) {
+		onPostgres(t, "ST-SUP-RC01-OC22-T05")
+	})
+
+	t.Run("ST-SUP-RC01-OC38-T02 An index of an add step is built concurrently, and a failed build drops its invalid index at once", func(t *testing.T) {
+		onPostgres(t, "ST-SUP-RC01-OC38-T02")
 	})
 
 	t.Run("ST-SUP-RC01-OC41-T03 A service that needs the store is refused on the runtime data path", func(t *testing.T) {

@@ -944,13 +944,20 @@ func TestUnnamedCode(t *testing.T) {
 		} {
 			stepCase(t, "the step form: "+c.name, c.setup, stepManifest(), false)
 			stepCase(t, "the step form on a table that is not an entity table: "+c.name, c.setup, want(), true)
+			// The add step adds the CHECK NOT VALID and validates it in a later migration (decision on finding F2), so
+			// the form that is not yet validated is the step form too.
+			at := strings.LastIndex(c.setup, ");\n")
+			notValid := c.setup[:at] + ") NOT VALID;\n"
+			stepCase(t, "the step form not yet validated: "+c.name, notValid, stepManifest(), false)
+			stepCase(t, "the step form not yet validated on a table that is not an entity table: "+c.name, notValid, want(), true)
 		}
 		const label = `ALTER TABLE public.books ADD COLUMN "label" text;` + "\n"
 		for _, c := range []struct{ name, setup string }{
 			{"the step CHECK under another name", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_len" CHECK (char_length("label") >= 1);` + "\n"},
 			{"a CHECK on two columns", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1 AND "label" <> "note");` + "\n"},
 			{"a CHECK on two unlisted columns", label + `ALTER TABLE public.books ADD COLUMN "label2" text;` + "\n" + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1 AND "label2" IS NULL);` + "\n"},
-			{"a CHECK NOT VALID", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1) NOT VALID;` + "\n"},
+			{"a CHECK NOT VALID under another name", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_len" CHECK (char_length("label") >= 1) NOT VALID;` + "\n"},
+			{"a CHECK NOT VALID and NO INHERIT", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1) NO INHERIT NOT VALID;` + "\n"},
 			{"a CHECK NO INHERIT", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1) NO INHERIT;` + "\n"},
 			{"a CHECK that calls random", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1 AND random() < 2);` + "\n"},
 			{"a CHECK that calls set_config", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (set_config('app.tenant', 'other', false) IS NOT NULL OR "label" IS NULL);` + "\n"},

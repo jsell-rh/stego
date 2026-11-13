@@ -74,6 +74,17 @@ func boardNoDefault(ns, tenancyNS string) gen.Context {
 	return ctx
 }
 
+// boardSlug is the release after boardBase with one add step: the optional unique field Board.slug, whose unique
+// index the step builds CONCURRENTLY on the table boards, which has rows (ST-SUP-RC01-OC38-T02).
+func boardSlug(ns, tenancyNS string) gen.Context {
+	entities := boardEntities()
+	entities[0].Fields = append(entities[0].Fields, types.Field{Name: "slug", Type: types.FieldTypeString, Optional: true, Unique: true})
+	ctx := runtimeService(ns, tenancyNS, entities, boardCollections(false))
+	ctx.SchemaChanges = []types.SchemaChange{{ID: "add-board-slug", Kind: "add", Entity: "Board", Field: "slug"}}
+	ctx.SchemaHistory = []types.SchemaStep{{Change: "add-board-slug", Phase: "expand"}}
+	return ctx
+}
+
 // boardBase is the release before boardSteps, as the base ref holds it.
 func boardBase(ns, tenancyNS string) gen.Context {
 	return runtimeService(ns, tenancyNS, boardEntities(), boardCollections(false))
@@ -100,12 +111,15 @@ func TestSchemaSteps(t *testing.T) {
 		}
 		names := []string{"step_0001_add-card_expand", "step_0002_add-board-note_expand", "step_0003_add-board-rank_expand"}
 		migrate := generated(t, files, "boards/migrate.go")
-		registered := regexp.MustCompile(`Register(?:SQL|Step)\("([^"]+)"`).FindAllStringSubmatch(migrate, -1)
+		registered := regexp.MustCompile(`Register(?:SQL|Step|IndexStep|ValidateStep)\("([^"]+)"`).FindAllStringSubmatch(migrate, -1)
 		var order []string
 		for _, match := range registered {
 			order = append(order, match[1])
 		}
-		if want := append([]string{"001_initial", "100_tenancy_row_security"}, names...); !slices.Equal(order, want) {
+		// A step on the table boards, which has rows, is its own migration, one migration for each index that it
+		// builds CONCURRENTLY, and one that validates its constraints (decision on finding F2).
+		all := []string{names[0], names[1], names[1] + "_index_01", names[1] + "_validate", names[2], names[2] + "_index_01"}
+		if want := append([]string{"001_initial", "100_tenancy_row_security"}, all...); !slices.Equal(order, want) {
 			t.Errorf("migrate.go registers %v, want %v", order, want)
 		}
 		if !slices.IsSorted(order) {
@@ -148,17 +162,23 @@ func TestSchemaSteps(t *testing.T) {
 
 		for name, want := range map[string]string{
 			names[1]: "ALTER TABLE public.\"boards\" ADD COLUMN \"note\" character varying(40);\n" +
-				"ALTER TABLE public.\"boards\" ADD CONSTRAINT \"boards_note_check\" CHECK (char_length(\"note\") >= 1);\n" +
-				"CREATE INDEX \"boards_note_search\" ON public.\"boards\" (\"tenant_id\", \"note\");\n",
-			names[2]: "ALTER TABLE public.\"boards\" ADD COLUMN \"rank\" integer NOT NULL DEFAULT 0;\n" +
-				"CREATE INDEX \"boards_rank_search\" ON public.\"boards\" (\"tenant_id\", \"rank\");\n",
+				"ALTER TABLE public.\"boards\" ADD CONSTRAINT \"boards_note_check\" CHECK (char_length(\"note\") >= 1) NOT VALID;\n",
+			names[1] + "_index_01": "CREATE INDEX CONCURRENTLY IF NOT EXISTS \"boards_note_search\" ON public.\"boards\" (\"tenant_id\", \"note\");\n",
+			names[1] + "_validate": "ALTER TABLE public.\"boards\" VALIDATE CONSTRAINT \"boards_note_check\";\n",
+			names[2]:               "ALTER TABLE public.\"boards\" ADD COLUMN \"rank\" integer NOT NULL DEFAULT 0;\n",
+			names[2] + "_index_01": "CREATE INDEX CONCURRENTLY IF NOT EXISTS \"boards_rank_search\" ON public.\"boards\" (\"tenant_id\", \"rank\");\n",
 		} {
 			if got := generated(t, files, "boards/migrations/"+name+".sql"); got != want {
 				t.Errorf("%s is\n%s\nwant\n%s", name, got, want)
 			}
-			if !strings.Contains(migrate, `RegisterStep("`+name+`", `) {
-				t.Errorf("migrate.go does not register %s", name)
+		}
+		for call, name := range map[string]string{"RegisterStep": names[1], "RegisterIndexStep": names[1] + "_index_01", "RegisterValidateStep": names[1] + "_validate"} {
+			if !strings.Contains(migrate, call+`("`+name+`", `) {
+				t.Errorf("migrate.go does not register %s by %s", name, call)
 			}
+		}
+		if !strings.Contains(migrate, `RegisterIndexStep("`+names[1]+`_index_01", "public.\"boards_note_search\"", `) {
+			t.Errorf("migrate.go does not name the index of %s_index_01", names[1])
 		}
 
 		again, _, err := new(postgresadapter.Generator).Generate(boardSteps("boards", "boardtenancy"))
@@ -256,12 +276,13 @@ func TestSchemaMarker(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RC01-OC43-T01 Generation refuses a ledgered migration that is not the baseline, the tenancy row-level security or a step", func(t *testing.T) {
-		for _, name := range []string{"001_initial", "100_tenancy_row_security", "step_0001_add-card_expand", "step_0012_note-title-rename_contract"} {
+		for _, name := range []string{"001_initial", "100_tenancy_row_security", "step_0001_add-card_expand", "step_0012_note-title-rename_contract",
+			"step_0002_add-board-note_expand_index_01", "step_0002_add-board-note_expand_validate"} {
 			if err := postgresadapter.CheckLedgerName(name); err != nil {
 				t.Errorf("%s is refused: %v", name, err)
 			}
 		}
-		for _, name := range []string{"101_x", "002_audit", "200_outbox", "step_1_add-card_expand", "step_0001_add-card_backfill", "step_0001_Add_expand", "zz_late", ""} {
+		for _, name := range []string{"101_x", "002_audit", "200_outbox", "step_1_add-card_expand", "step_0001_add-card_backfill", "step_0001_add-card_expand_index_1", "step_0001_add-card_expand_valid", "step_0001_add-card_validate", "step_0001_Add_expand", "zz_late", ""} {
 			if err := postgresadapter.CheckLedgerName(name); err == nil || !strings.Contains(err.Error(), "ST-SUP-RC01-OC43") {
 				t.Errorf("%s is accepted, or its refusal does not name ST-SUP-RC01-OC43: %v", name, err)
 			}

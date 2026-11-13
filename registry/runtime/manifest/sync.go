@@ -467,12 +467,13 @@ func acceptSync(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, 
 // manifest, which ends with the key id; with the tenant column of the table first when the referenced table is owned;
 // on one column only when the referenced table is a table of a declared entity that is not owned, whose primary key
 // is its key id alone and whose rows each tenant may read, so the check of the key, which runs past row-level
-// security, tells a tenant nothing it cannot read; NO ACTION on delete and on update, match simple, validated and not
-// deferrable; and named as ForeignKeyName names it.
+// security, tells a tenant nothing it cannot read; NO ACTION on delete and on update, match simple and not deferrable,
+// validated or not yet validated, as the add step leaves it before the migration that validates it (decision on
+// finding F2, orchestrator under the owner's delegation, 2026-11-13); and named as ForeignKeyName names it.
 func acceptForeignKey(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, steps *stepState, columns map[string]tableColumn) (bool, error) {
 	var from, to, ownKey, refKey, actions string
 	var target uint32
-	var validated, deferrable, targetRows bool
+	var deferrable, targetRows bool
 	keyOf := `COALESCE((SELECT pg_catalog.string_agg(a.attname, chr(31) ORDER BY k.o) FROM pg_catalog.pg_constraint pk
     CROSS JOIN LATERAL pg_catalog.unnest(pk.conkey) WITH ORDINALITY AS k(n, o)
     JOIN pg_catalog.pg_attribute a ON a.attrelid = pk.conrelid AND a.attnum = k.n WHERE pk.conrelid = %s AND pk.contype = 'p'), '')`
@@ -482,10 +483,10 @@ func acceptForeignKey(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n st
   COALESCE((SELECT pg_catalog.string_agg(a.attname, chr(31) ORDER BY k.o) FROM pg_catalog.unnest(c.confkey) WITH ORDINALITY AS k(n, o)
     JOIN pg_catalog.pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.n), ''),
   `+fmt.Sprintf(keyOf, "c.conrelid")+`, `+fmt.Sprintf(keyOf, "c.confrelid")+`,
-  c.confrelid, c.confdeltype::text || c.confupdtype::text || c.confmatchtype::text, c.convalidated, c.condeferrable OR c.condeferred,
+  c.confrelid, c.confdeltype::text || c.confupdtype::text || c.confmatchtype::text, c.condeferrable OR c.condeferred,
   (SELECT r.relrowsecurity FROM pg_catalog.pg_class r WHERE r.oid = c.confrelid)
   FROM pg_catalog.pg_constraint c WHERE c.conrelid = $1 AND c.conname = $2 AND c.contype = 'f'`, rel, n).Scan(
-		&from, &to, &ownKey, &refKey, &target, &actions, &validated, &deferrable, &targetRows)
+		&from, &to, &ownKey, &refKey, &target, &actions, &deferrable, &targetRows)
 	if err != nil {
 		return false, err
 	}
@@ -494,7 +495,7 @@ func acceptForeignKey(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n st
 	listed := slices.ContainsFunc(t.Columns, func(c Column) bool { return c.Name == column })
 	c, ok := columns[column]
 	switch {
-	case !ok || listed || c.notNull || !c.builtin || !steps.entities[target] || actions != "aas" || !validated || deferrable:
+	case !ok || listed || c.notNull || !c.builtin || !steps.entities[target] || actions != "aas" || deferrable:
 		return false, nil
 	case to != refKey || refCols[len(refCols)-1] != "id" || n != ForeignKeyName(t.Name, column):
 		return false, nil
@@ -537,7 +538,8 @@ var (
 
 // acceptCheck tells whether the CHECK n of the entity table t (rel) is the CHECK of a later add step in its exact form
 // (decision on ST-SUP-RP15-LC01 (a)): on one column of the table that is not in the manifest and is of a built-in base
-// type of pg_catalog; validated, local and inheritable; named as CheckName names it; with an expression that reads
+// type of pg_catalog; local and inheritable, validated or not yet validated, as the add step leaves it before the
+// migration that validates it (decision on finding F2); named as CheckName names it; with an expression that reads
 // that column only, holds only the nodes of checkNodes, and whose functions, operators, types and collations are each
 // built in (oid below 16384), each function and the function of each operator IMMUTABLE and no set function; and with
 // no dependency in pg_depend on an object that is not built in, or on another column or relation. PostgreSQL records
@@ -547,17 +549,17 @@ func acceptCheck(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string,
 	var con uint32
 	var keys, attnum int
 	var column, tree string
-	var validated, noInherit, local bool
+	var noInherit, local bool
 	err := tx.QueryRowContext(ctx, `SELECT c.oid, COALESCE(pg_catalog.array_length(c.conkey, 1), 0), COALESCE(c.conkey[1], 0),
-  COALESCE(a.attname, ''), COALESCE(c.conbin::pg_catalog.text, ''), c.convalidated, c.connoinherit, c.conislocal AND c.coninhcount = 0
+  COALESCE(a.attname, ''), COALESCE(c.conbin::pg_catalog.text, ''), c.connoinherit, c.conislocal AND c.coninhcount = 0
   FROM pg_catalog.pg_constraint c LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
-  WHERE c.conrelid = $1 AND c.conname = $2 AND c.contype = 'c'`, rel, n).Scan(&con, &keys, &attnum, &column, &tree, &validated, &noInherit, &local)
+  WHERE c.conrelid = $1 AND c.conname = $2 AND c.contype = 'c'`, rel, n).Scan(&con, &keys, &attnum, &column, &tree, &noInherit, &local)
 	if err != nil {
 		return false, err
 	}
 	listed := slices.ContainsFunc(t.Columns, func(c Column) bool { return c.Name == column })
 	c, ok := columns[column]
-	if keys != 1 || attnum <= 0 || !ok || listed || !c.builtin || !validated || noInherit || !local || n != CheckName(t.Name, column) {
+	if keys != 1 || attnum <= 0 || !ok || listed || !c.builtin || noInherit || !local || n != CheckName(t.Name, column) {
 		return false, nil
 	}
 	// The expression: only the nodes of the step form, reading the one column of conkey.

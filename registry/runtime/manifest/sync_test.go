@@ -360,6 +360,8 @@ func TestStepForeignKey(t *testing.T) {
 	const fk = "ALTER TABLE public.books ADD CONSTRAINT books_shelf_id_fkey FOREIGN KEY (tenant_id, shelf_id) REFERENCES public.folders (tenant_id, id);\n"
 	t.Run("ST-SUP-RP15-LC03-T01 Check accepts the foreign key of a later add step only in its exact form", func(t *testing.T) {
 		stepCase(t, "the exact form", shelf+fk, stepManifest(), false)
+		// The add step adds the foreign key NOT VALID and validates it in a later migration (decision on finding F2).
+		stepCase(t, "the exact form not yet validated", shelf+strings.Replace(fk, ";", " NOT VALID;", 1), stepManifest(), false)
 		plain := stepManifest()
 		plain.Tables[1].Entity = false
 		stepCase(t, "a table that is not the table of a declared entity", shelf+fk, plain, true)
@@ -373,7 +375,8 @@ func TestStepForeignKey(t *testing.T) {
 			{"ON UPDATE RESTRICT", shelf + strings.Replace(fk, ";", " ON UPDATE RESTRICT;", 1)},
 			{"MATCH FULL", shelf + strings.Replace(fk, ";", " MATCH FULL;", 1)},
 			{"DEFERRABLE", shelf + strings.Replace(fk, ";", " DEFERRABLE;", 1)},
-			{"NOT VALID", shelf + strings.Replace(fk, ";", " NOT VALID;", 1)},
+			{"NOT VALID and ON DELETE CASCADE", shelf + strings.Replace(fk, ";", " ON DELETE CASCADE NOT VALID;", 1)},
+			{"NOT VALID and DEFERRABLE", shelf + strings.Replace(fk, ";", " DEFERRABLE NOT VALID;", 1)},
 			{"another name", shelf + strings.Replace(fk, "books_shelf_id_fkey", "books_shelf_fk", 1)},
 			{"without the tenant column", shelf + "CREATE UNIQUE INDEX folders_id_key ON public.folders (id);\nALTER TABLE public.books ADD CONSTRAINT books_shelf_id_fkey FOREIGN KEY (shelf_id) REFERENCES public.folders (id);\n"},
 			{"the tenant column second", shelf + "CREATE UNIQUE INDEX folders_id_tenant_key ON public.folders (id, tenant_id);\nALTER TABLE public.books ADD CONSTRAINT books_shelf_id_fkey FOREIGN KEY (shelf_id, tenant_id) REFERENCES public.folders (id, tenant_id);\n"},

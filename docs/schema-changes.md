@@ -57,6 +57,19 @@ each new step with its change, kind, phase, migration, trigger and backfill.
 A new database and a database that each release migrated in turn get the
 same schema.
 
+A step on a table with rows takes only short locks. Its own migration adds
+each CHECK and foreign key `NOT VALID`, so it reads no row while it holds
+its lock. Each index of the step is a migration of its own after it,
+`step_<position>_<change>_<phase>_index_<nn>`, which builds the index with
+`CREATE INDEX CONCURRENTLY` outside a transaction. A build that fails drops
+its invalid index at once, and the next job builds it again. The last
+migration of the step, `..._validate`, validates the constraints in its own
+transaction, which blocks no read and no write. Each migration of a step
+waits at most 1 s for a lock, and runs for at most 15 s, or 1 h for an index
+build or a validation. When the lock wait ends, the job tries again after a
+short random pause, at most 10 times, so a request that queues behind the
+step waits at most 1 s.
+
 An add of a field that is required and has no default is refused, because
 the rows that the table holds cannot take it. Make the field optional or
 give it a default. An entity that refers to an entity that a later step adds
@@ -86,11 +99,14 @@ in the exact form that the step gives it, on the table of a declared entity:
 - the foreign key of an add of a reference field: on the new nullable column,
   to the primary key of the table of an entity that it knows, with the tenant
   column first when the referenced entity is owned, with no action,
-  validated, not deferrable, and named `<table>_<column>_fkey`
+  validated or not yet validated, not deferrable, and named
+  `<table>_<column>_fkey`
   (ST-SUP-RP15-LC03). A foreign key on one column refers only to a shared
   entity, whose rows each tenant may read;
 - the default of the new column of an add: a constant of a built-in type,
   and no function call (ST-GEN-Q15);
+- the CHECK of the new column of an add, validated or not yet validated,
+  named `<table>_<column>_check` (ST-SUP-RP15-LC01);
 - the sync trigger of the expand step of a rename, a retype or a require:
   a BEFORE INSERT OR UPDATE row trigger whose function is the fixed
   template of this release, in the schema `stego_steps`, for one column

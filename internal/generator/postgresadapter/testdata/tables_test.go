@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"example.com/tables-check/boards"
 	"example.com/tables-check/boardsbase"
 	"example.com/tables-check/boardsnote"
+	"example.com/tables-check/boardsslug"
 	"example.com/tables-check/bounds"
 	"example.com/tables-check/previous"
 	"example.com/tables-check/storage"
@@ -455,7 +457,8 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 			ledger = append(ledger, version+" "+set)
 		}
 		rows.Close()
-		want := "001_initial none,100_tenancy_row_security none,step_0001_add-card_expand {},step_0002_add-board-note_expand {},step_0003_add-board-rank_expand {}"
+		want := "001_initial none,100_tenancy_row_security none,step_0001_add-card_expand {},step_0002_add-board-note_expand {}," +
+			"step_0002_add-board-note_expand_index_01 {},step_0002_add-board-note_expand_validate {},step_0003_add-board-rank_expand {},step_0003_add-board-rank_expand_index_01 {}"
 		if strings.Join(ledger, ",") != want {
 			t.Errorf("the ledger is %v, want %s", ledger, want)
 		}
@@ -569,6 +572,309 @@ FROM pg_catalog.pg_class c WHERE c.oid = $1::pg_catalog.regclass`, "public."+tab
 		}
 	})
 
+	t.Run("ST-SUP-RC01-OC22-T04 A step waits for a lock only within its lock timeout and runs again, and a reader keeps getting its row", func(t *testing.T) {
+		ctx := context.Background()
+		lockCfg, locked := database(t, cfg, admin)
+		migrate(t, lockCfg, locked, func(ctx context.Context, conn *sql.Conn) error { return boardsbase.Migrate(ctx, conn) }, "boardsbase_access.json")
+		first := uuid.Must(uuid.NewV7()).String()
+		if code := write(t, locked, "tenant-a", `INSERT INTO public."boards" ("id", "title") VALUES ($1, 'first')`, first); code != "" {
+			t.Fatalf("the release before writes no board: %s", code)
+		}
+		// A session of the release before holds a lock on boards in an open transaction, as a long read does.
+		holder, err := locked.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer holder.Close()
+		if _, err := holder.ExecContext(ctx, `BEGIN; LOCK TABLE public."boards" IN ACCESS SHARE MODE`); err != nil {
+			t.Fatal(err)
+		}
+		job := stdlib.OpenDB(*lockCfg)
+		defer job.Close()
+		conn, err := job.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		if _, err := conn.ExecContext(ctx, "SET ROLE "+pgx.Identifier{tenancy.OwnerRole}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() { done <- boards.Migrate(ctx, conn) }()
+		// The step waits for its ACCESS EXCLUSIVE lock behind the holder.
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			var waiting bool
+			if err := locked.QueryRow(`SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks WHERE relation = 'public.boards'::pg_catalog.regclass AND mode = 'AccessExclusiveLock' AND NOT granted)`).Scan(&waiting); err != nil {
+				t.Fatal(err)
+			}
+			if waiting {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the step never waits for its lock on boards")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		// A reader that comes after the waiting step gets its row within the lock timeout of the step and a margin,
+		// and never waits for the holder: the step gives up its place in the queue when its lock timeout ends.
+		started := time.Now()
+		for i := 0; i < 3; i++ {
+			var title string
+			tx, err := locked.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.Exec(`SET LOCAL statement_timeout = '2500ms'`); err != nil {
+				t.Fatal(err)
+			}
+			err = tx.QueryRow(`SELECT "title" FROM public."boards" WHERE "id" = $1`, first).Scan(&title)
+			_ = tx.Rollback()
+			if err != nil {
+				t.Fatalf("a read of the release before while the step waits: %v", err)
+			}
+			if title != "first" {
+				t.Fatalf("a read of the release before gives %q", title)
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		// The step runs again after each lock timeout and does not fail while the holder holds its lock.
+		if wait := time.Since(started); wait < 2*time.Second {
+			time.Sleep(2*time.Second - wait)
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("the migration job ended while the holder held its lock, with %v; want it to wait and run again", err)
+		default:
+		}
+		if _, err := holder.ExecContext(ctx, `COMMIT`); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("the migration job after the holder ended: %v", err)
+			}
+		case <-time.After(60 * time.Second):
+			t.Fatal("the migration job did not end after the holder ended")
+		}
+		var rows int
+		if err := locked.QueryRow(`SELECT count(*) FROM stego_schema.migrations WHERE version LIKE 'step_%'`).Scan(&rows); err != nil || rows != 6 {
+			t.Errorf("the ledger holds %d step rows (error %v), want 6", rows, err)
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC22-T05 An add step on a table with rows scans no row under its strong lock, and the release before restarts after each phase", func(t *testing.T) {
+		ctx := context.Background()
+		stepCfg, stepped := database(t, cfg, admin)
+		migrate(t, stepCfg, stepped, func(ctx context.Context, conn *sql.Conn) error { return boardsbase.Migrate(ctx, conn) }, "boardsbase_access.json")
+		if _, err := stepped.Exec(`INSERT INTO public."boards" ("tenant_id", "id", "title") SELECT 'tenant-a', gen_random_uuid(), 'b' || g FROM generate_series(1, 2000) AS g`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := stepped.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
+			t.Fatal(err)
+		}
+		runtime := stepCfg.Copy()
+		runtime.User, runtime.Password = tenancy.RuntimeRole, "tables-check"
+		reader := stdlib.OpenDB(*runtime)
+		defer reader.Close()
+		// The migrations of the add steps of boardsnote in the order of the ledger, as the files give them; each phase
+		// is applied as the owner role, and the release before restarts after each one.
+		names, err := os.ReadDir("../boardsnote/migrations")
+		if err != nil {
+			t.Fatal(err)
+		}
+		job := stdlib.OpenDB(*stepCfg)
+		defer job.Close()
+		conn, err := job.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		if _, err := conn.ExecContext(ctx, "SET ROLE "+pgx.Identifier{tenancy.OwnerRole}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+		var phases []string
+		for _, entry := range names {
+			name := strings.TrimSuffix(entry.Name(), ".sql")
+			if !strings.HasPrefix(name, "step_") {
+				continue
+			}
+			body, err := os.ReadFile("../boardsnote/migrations/" + entry.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			phases = append(phases, name)
+			switch {
+			case strings.Contains(name, "_index_"):
+				if !strings.HasPrefix(string(body), "CREATE INDEX CONCURRENTLY IF NOT EXISTS ") && !strings.HasPrefix(string(body), "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ") {
+					t.Errorf("%s does not build its index concurrently: %s", name, body)
+				}
+				if _, err := conn.ExecContext(ctx, string(body)); err != nil {
+					t.Fatalf("%s: %v", name, err)
+				}
+			case strings.HasSuffix(name, "_validate"):
+				if _, err := conn.ExecContext(ctx, string(body)); err != nil {
+					t.Fatalf("%s: %v", name, err)
+				}
+			default:
+				// The migration of the step itself: in one transaction, it scans no row of boards and builds no
+				// index, while it holds the ACCESS EXCLUSIVE lock of an ALTER TABLE (decision on finding F2).
+				tx, err := conn.BeginTx(ctx, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// The view holds the counts of the session that are not yet reported, so the step's are the difference.
+				const scanned = `SELECT coalesce((SELECT seq_scan + coalesce(idx_scan, 0) FROM pg_catalog.pg_stat_xact_user_tables WHERE relid = 'public.boards'::pg_catalog.regclass), 0)`
+				var before int64
+				if err := tx.QueryRowContext(ctx, scanned).Scan(&before); err != nil {
+					_ = tx.Rollback()
+					t.Fatal(err)
+				}
+				if _, err := tx.ExecContext(ctx, string(body)); err != nil {
+					_ = tx.Rollback()
+					t.Fatalf("%s: %v", name, err)
+				}
+				var scans int64
+				var modes string
+				if err := tx.QueryRowContext(ctx, scanned+`,
+  coalesce((SELECT pg_catalog.string_agg(mode, ',' ORDER BY mode) FROM pg_catalog.pg_locks WHERE pid = pg_catalog.pg_backend_pid() AND relation = 'public.boards'::pg_catalog.regclass), '')`).Scan(&scans, &modes); err != nil {
+					_ = tx.Rollback()
+					t.Fatal(err)
+				}
+				if scans -= before; scans != 0 {
+					t.Errorf("%s scans boards %d times while it holds the locks %s; want no scan", name, scans, modes)
+				}
+				for _, line := range strings.Split(string(body), "\n") {
+					if strings.HasPrefix(line, "CREATE") && strings.Contains(line, " INDEX ") && strings.Contains(line, `ON public."boards"`) {
+						t.Errorf("%s builds an index of boards in the transaction of the step: %s", name, line)
+					}
+				}
+				// Each CHECK and foreign key that the step adds to boards is not yet validated: PostgreSQL validates a
+				// constraint that is not NOT VALID by a scan in the transaction that adds it.
+				var added, notValid int
+				if err := tx.QueryRowContext(ctx, `SELECT count(*), count(*) FILTER (WHERE NOT convalidated) FROM pg_catalog.pg_constraint
+  WHERE conrelid = 'public.boards'::pg_catalog.regclass AND contype IN ('c', 'f') AND conname = ANY ($1)`, constraintsOf(string(body))).Scan(&added, &notValid); err != nil {
+					_ = tx.Rollback()
+					t.Fatal(err)
+				}
+				if added != notValid || added != len(constraintsOf(string(body))) {
+					t.Errorf("%s adds %d constraints to boards, of which %d are not yet validated; want each of %v NOT VALID", name, added, notValid, constraintsOf(string(body)))
+				}
+				if err := tx.Commit(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := boardsbase.VerifySchema(ctx, stepped); err != nil {
+				t.Errorf("after %s the schema check of the release before refuses the database: %v", name, err)
+			}
+			if err := manifest.Check(ctx, reader, owned(boardsbase.SchemaManifest)); err != nil {
+				t.Errorf("after %s the schema manifest of the release before refuses the database: %v", name, err)
+			}
+		}
+		if len(phases) < 6 || !slices.ContainsFunc(phases, func(n string) bool { return strings.HasSuffix(n, "_validate") }) || !slices.ContainsFunc(phases, func(n string) bool { return strings.Contains(n, "_index_") }) {
+			t.Errorf("the add steps of boardsnote have the migrations %v; want each phase", phases)
+		}
+		// After every phase the constraints are validated, and the release with the steps accepts the database.
+		var invalid int
+		if err := stepped.QueryRow(`SELECT count(*) FROM pg_catalog.pg_constraint WHERE conrelid = 'public.boards'::pg_catalog.regclass AND NOT convalidated`).Scan(&invalid); err != nil || invalid != 0 {
+			t.Errorf("%d constraints of boards are not validated after the steps (error %v)", invalid, err)
+		}
+		if err := manifest.Check(ctx, reader, owned(boardsnote.SchemaManifest)); err != nil {
+			t.Errorf("the schema manifest of the release with the steps refuses the database: %v", err)
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC38-T02 An index of an add step is built concurrently, and a failed build drops its invalid index at once", func(t *testing.T) {
+		ctx := context.Background()
+		slugCfg, slugged := database(t, cfg, admin)
+		migrate(t, slugCfg, slugged, func(ctx context.Context, conn *sql.Conn) error { return boardsbase.Migrate(ctx, conn) }, "boardsbase_access.json")
+		if _, err := slugged.Exec(`INSERT INTO public."boards" ("tenant_id", "id", "title") VALUES ('tenant-a', gen_random_uuid(), 'a'), ('tenant-a', gen_random_uuid(), 'b')`); err != nil {
+			t.Fatal(err)
+		}
+		// A database event trigger gives both rows one slug right after the ALTER TABLE of the step, so the unique
+		// build that follows fails on a duplicate after it made its index.
+		if _, err := slugged.Exec(`CREATE FUNCTION public.dup_slug() RETURNS event_trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.boards'::pg_catalog.regclass AND attname = 'slug') THEN
+    UPDATE public."boards" SET "slug" = 'same';
+  END IF;
+END $$;
+CREATE EVENT TRIGGER dup_slug ON ddl_command_end WHEN TAG IN ('ALTER TABLE') EXECUTE FUNCTION public.dup_slug();`); err != nil {
+			t.Fatal(err)
+		}
+		job := stdlib.OpenDB(*slugCfg)
+		defer job.Close()
+		conn, err := job.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		if _, err := conn.ExecContext(ctx, "SET ROLE "+pgx.Identifier{tenancy.OwnerRole}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+		index := func() (bool, bool) {
+			var present, valid bool
+			if err := slugged.QueryRow(`SELECT count(*) > 0, coalesce(bool_and(i.indisvalid), false) FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
+  WHERE c.relname = 'boards_slug_key'`).Scan(&present, &valid); err != nil {
+				t.Fatal(err)
+			}
+			return present, valid
+		}
+		ledger := func(version string) bool {
+			var found bool
+			if err := slugged.QueryRow(`SELECT EXISTS (SELECT 1 FROM stego_schema.migrations WHERE version = $1)`, version).Scan(&found); err != nil {
+				t.Fatal(err)
+			}
+			return found
+		}
+		// The step builds the search index of slug, then its unique index.
+		const step, build = "step_0001_add-board-slug_expand", "step_0001_add-board-slug_expand_index_02"
+		if err := boardsslug.Migrate(ctx, conn); err == nil || !strings.Contains(err.Error(), build) {
+			t.Fatalf("the migration job with a duplicate gives %v, want the failure of %s", err, build)
+		}
+		if present, _ := index(); present {
+			t.Error("the failed build left its invalid index; want it dropped at once (decision on finding F9)")
+		}
+		if !ledger(step) || ledger(build) {
+			t.Errorf("after the failed build the ledger holds the step %v and the build %v; want the step only", ledger(step), ledger(build))
+		}
+		// The job holds no lock after it ends: neither the ledger lock of its session nor a transaction.
+		var held int
+		if err := slugged.QueryRow(`SELECT count(*) FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND granted`).Scan(&held); err != nil || held != 0 {
+			t.Errorf("after the failed build %d advisory locks are held (error %v), want none", held, err)
+		}
+		// An invalid index of the same name that a build which stopped part way left is dropped before the next build.
+		if _, err := slugged.Exec(`DROP EVENT TRIGGER dup_slug`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := slugged.Exec(`CREATE UNIQUE INDEX CONCURRENTLY boards_slug_key ON public."boards" ("tenant_id", "slug")`); err == nil {
+			t.Fatal("a unique build over the duplicate succeeded")
+		}
+		if present, valid := index(); !present || valid {
+			t.Fatalf("the stand-in for a stopped build left the index present %v, valid %v; want an invalid index", present, valid)
+		}
+		if _, err := slugged.Exec(`UPDATE public."boards" SET "slug" = NULL`); err != nil {
+			t.Fatal(err)
+		}
+		if err := boardsslug.Migrate(ctx, conn); err != nil {
+			t.Fatalf("the migration job after the duplicate is gone: %v", err)
+		}
+		if present, valid := index(); !present || !valid || !ledger(build) {
+			t.Errorf("after the second job the index is present %v and valid %v, and the ledger holds the build %v; want all", present, valid, ledger(build))
+		}
+		if _, err := slugged.Exec("DROP FUNCTION public.dup_slug(); ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
+			t.Fatal(err)
+		}
+		runtime := slugCfg.Copy()
+		runtime.User, runtime.Password = tenancy.RuntimeRole, "tables-check"
+		reader := stdlib.OpenDB(*runtime)
+		defer reader.Close()
+		if err := manifest.Check(ctx, reader, owned(boardsslug.SchemaManifest)); err != nil {
+			t.Errorf("the schema manifest of the release with the step refuses the database: %v", err)
+		}
+	})
+
 	t.Run("ST-SUP-RC01-OC42-T02 The marker check accepts the digest of the stored shape and the one a release before wrote, and no other", func(t *testing.T) {
 		ctx := context.Background()
 		markCfg, mark := database(t, cfg, admin)
@@ -661,6 +967,17 @@ FROM pg_catalog.pg_class c WHERE c.oid = $1::pg_catalog.regclass`, "public."+tab
 			t.Errorf("a job that fails its ledger check left the marker %q (error %v), want the digest of a release before", definition, err)
 		}
 	})
+}
+
+// constraintsOf gives the names of the constraints that the statements of body add to the table boards.
+func constraintsOf(body string) []string {
+	var names []string
+	for _, line := range strings.Split(body, "\n") {
+		if rest, ok := strings.CutPrefix(line, `ALTER TABLE public."boards" ADD CONSTRAINT "`); ok {
+			names = append(names, rest[:strings.Index(rest, `"`)])
+		}
+	}
+	return names
 }
 
 // owned gives the generated manifest m with the owner role of the tenancy component as its owner, as the service
