@@ -34,14 +34,14 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261113174434-e1d685b079b8
+        module_version: v0.0.0-20261113204047-0e7e0ecdfa89
         vcs: git
-        revision: e1d685b079b8a7495bf37dbbe515e8aa51f4447e
+        revision: 0e7e0ecdfa89249aaa7e9afd92b64c932f2c49af
         source_state: clean
     service_name: user-management
     service_hash: 57f491b2bcbc66d8735ede7923556203fb6bc4c387029904e670fcfce15fadbd
     registry_sha: env-override
-    registry_content_sha256: 8295c395fb87e118f4afd78bc047175616ffac0eea03c1b04626ddeb0b1e0fbc
+    registry_content_sha256: 54aac1e525a287a13bba883258c4f34860d4ea35ec35921459e6f939cb988ec9
     components:
         audit-log:
             version: 1.1.0
@@ -74,8 +74,8 @@ last_applied:
             version: 1.1.0
             sha: 9b4a5a4b5afcbc9d23c6d02d78b3a227ff445b857bef9e73c547af184d7226e0
         rest-api:
-            version: 4.2.0
-            sha: 022266412cf52de490579fe64cd58356f2bfa7cd60f19eb84772e3eba63d5fc7
+            version: 4.2.1
+            sha: 4dfad82c9de90ef492885e003d86de63757dd4d0803e6fd37000adb37666b413
         spicedb-authz:
             version: 1.0.0
             sha: e46e1e85a2676de44a569688ce225f1f347e56319bf0f3f5953a10d6632b9e23
@@ -153,7 +153,7 @@ last_applied:
         internal/api/router.go: d6124ed4af38af0415a23e5bfcc77ada26e18fe0cea5cf71dee839d28ff93fa6
         internal/api/runtime.go: 3986798f77afe2614f86f11e215f571c3ddeafab84face282697302f640e64ed
         internal/api/user_activity_handler.go: 2ee7e092f82883e37a80db27d9bc4104cd7512d9883137fe2cb3e10932e998df
-        internal/api/validation.go: df178f48fa19a0702e37c90b401f6ba0079a1d279ce54ad5d48cc1deee29cf7d
+        internal/api/validation.go: fffc28ced8307baaad9d4429217f555c5b16ee4e01de68998b53cb85a03a07a3
         internal/auditlog/audit.go: 7fa2142f0f392775f4e230cef051034f050d33723732be342d1ae8eed40364fc
         internal/authz/authz.go: 12e919abea5effc80b1c40747f85d71283cde21d65d0ff026a70a86ee4f1d878
         internal/authz/schema.zed: d4862acfa0f82e11d3394e12c6476447940cff59b2affb6650b096fdce52bccd
