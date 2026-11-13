@@ -146,7 +146,7 @@ func parts(afterSlots *api.AfterSlots) service.Parts {
 		AuditSettings: svcaudit.Settings,
 		// The schema manifest of the tables, which New checks before the service serves (ST-SUP-RC01-OC12).
 		Schema: svcstorage.SchemaManifest, OwnerRole: OwnerRole, WorkerRole: WorkerRole, OutboxRelayRole: OutboxRelayRole,
-		RelayRole: RelayRole, AuthzSchema: svcauthz.DatabaseSchema,
+		RelayRole: RelayRole, AuthzSchema: svcauthz.DatabaseSchema, PurgeRole: PurgeRole,
 		Workers: service.WorkerParts{
 			NewWorker: func(q *outbox.Queue, config outbox.WorkerConfig, sink audit.Sink) (*outbox.Worker, error) {
 				w, err := svcoutbox.NewWorker(q, config, svcoutbox.Ports{AuditSink: sink})
