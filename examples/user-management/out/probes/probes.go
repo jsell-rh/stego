@@ -85,6 +85,40 @@ func OrgUsersAfterCreateProbeFrom(ctx context.Context) OrgUsersAfterCreateProbe 
 	return OrgUsersAfterCreateProbe{p: held.p}
 }
 
+// OrgUsersOnEntityChangedProbe is the probe of the slot binding org-users.on_entity_changed: it has a method for each observation that names it, and no other.
+type OrgUsersOnEntityChangedProbe struct{ p *probe.Probe }
+
+// NewOrgUsersOnEntityChangedProbe wraps the runtime probe of one call of org-users.on_entity_changed, for the runtime that binds the call.
+func NewOrgUsersOnEntityChangedProbe(p *probe.Probe) OrgUsersOnEntityChangedProbe {
+	return OrgUsersOnEntityChangedProbe{p: p}
+}
+
+// RecordOrgUsersOnEntityChanged binds a probe of org-users.on_entity_changed to the recorder r for a fill test, with RecorderTenant and RecorderPrincipal.
+// The test ends the call with Commit or Rollback before it reads the emissions.
+func RecordOrgUsersOnEntityChanged(r *probe.Recorder) (OrgUsersOnEntityChangedProbe, *probe.Call) {
+	call := r.Bind(context.Background(), RecorderTenant, RecorderPrincipal, "org-users.on_entity_changed")
+	return OrgUsersOnEntityChangedProbe{p: call.Probe()}, call
+}
+
+// BindOrgUsersOnEntityChanged binds a probe call of org-users.on_entity_changed to the call's span context, tenant and principal, and gives the
+// context that the slot's component passes the fill. The component ends the call with Commit or Rollback.
+func BindOrgUsersOnEntityChanged(ctx context.Context, probes interface {
+	Bind(ctx context.Context, tenant, principal, operation string) *probe.Call
+}, tenant, principal string) (context.Context, *probe.Call) {
+	call := probes.Bind(ctx, tenant, principal, "org-users.on_entity_changed")
+	return context.WithValue(ctx, slotKey{}, slotProbe{emitter: "org-users.on_entity_changed", p: call.Probe()}), call
+}
+
+// OrgUsersOnEntityChangedProbeFrom gives the fill of org-users.on_entity_changed its probe from the context its slot's component passed it. In the context
+// of another emitter it gives a probe that emits nothing and counts each attempt.
+func OrgUsersOnEntityChangedProbeFrom(ctx context.Context) OrgUsersOnEntityChangedProbe {
+	held, _ := ctx.Value(slotKey{}).(slotProbe)
+	if held.emitter != "org-users.on_entity_changed" {
+		return OrgUsersOnEntityChangedProbe{p: held.p.Muted()}
+	}
+	return OrgUsersOnEntityChangedProbe{p: held.p}
+}
+
 // OrganizationsBeforeCreateProbe is the probe of the slot binding organizations.before_create: it has a method for each observation that names it, and no other.
 type OrganizationsBeforeCreateProbe struct{ p *probe.Probe }
 
