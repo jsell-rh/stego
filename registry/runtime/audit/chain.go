@@ -114,14 +114,14 @@ func (f Finding) String() string {
 }
 
 const (
-	selectCheckpoints = `SELECT seq, hash FROM ` + CheckpointsTable + ` WHERE tenant_id = $1 ORDER BY seq`
+	selectCheckpoints = `SELECT seq, hash FROM ` + RecordSchema + "." + CheckpointsTable + ` WHERE tenant_id = $1 ORDER BY seq`
 	selectChain       = `SELECT seq, id::text, occurred_at, recorded_at, tenant_id, actor_id, actor_kind, actor_ip,
  user_agent, action, resource_type, resource_id, outcome, error_code, request_id, trace_id, span_id, idempotency_key,
  before::text, after::text, patch::text, service, service_version, declaration_version, prev_hash, hash, operation,
  hash_version, on_behalf_of
- FROM ` + EventsTable + ` WHERE tenant_id = $1 AND seq > $2 ORDER BY seq`
+ FROM ` + RecordSchema + "." + EventsTable + ` WHERE tenant_id = $1 AND seq > $2 ORDER BY seq`
 	selectTenant = `SELECT coalesce(pg_catalog.current_setting('app.tenant', true), '')`
-	selectBelow  = `SELECT seq, id::text FROM ` + EventsTable + ` WHERE tenant_id = $1 AND seq <= $2 ORDER BY seq LIMIT 1`
+	selectBelow  = `SELECT seq, id::text FROM ` + RecordSchema + "." + EventsTable + ` WHERE tenant_id = $1 AND seq <= $2 ORDER BY seq LIMIT 1`
 )
 
 // Verify walks the chain of the tenant t in seq order (ST-SUP-RP05-LC06), in tx, a transaction of t that

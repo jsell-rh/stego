@@ -537,10 +537,11 @@ func namedFunctions(ctx context.Context, tx *sql.Tx, m Manifest) (map[uint32]str
 	return named, nil
 }
 
-// checkSearchPath gives a fault for each relation that has the name of a table of the manifest, and each function
-// that has the name of a function of the manifest, in a schema of the search path of the session (path, as
-// current_schemas(true) gives it) that comes before the schema of the table or the function, or in any schema of the
-// path when the path does not hold that schema: a name with no schema resolves to it first. It also refuses a schema
+// checkSearchPath gives a fault for each relation that has the name of a table of the manifest in a schema of the
+// search path of the session (path, as current_schemas(true) gives it) that comes before the schema of the table, or
+// in any schema of the path when the path does not hold that schema: a name with no schema resolves to it first. It
+// gives a fault for each function that has the name of a function of the manifest in a schema of the path before the
+// schema of that function, when the path holds that schema. It also refuses a schema
 // named after the role of the session (role), which the default search path "$user", public puts first.
 func checkSearchPath(ctx context.Context, tx *sql.Tx, m Manifest, path []string, role string) ([]string, error) {
 	var faults []string
@@ -568,6 +569,11 @@ func checkSearchPath(ctx context.Context, tx *sql.Tx, m Manifest, path []string,
 		objects = append(objects, object{"function", schema, fn})
 	}
 	for _, o := range objects {
+		// A function of the manifest is called with its schema (ST-STD-TXN-R19), so only a function earlier on the
+		// path than its own schema, when that schema is on it, could stand in for a call with no schema.
+		if o.kind == "function" && !slices.Contains(path, o.schema) {
+			continue
+		}
 		before := earlier(o.schema)
 		if len(before) == 0 {
 			continue

@@ -761,3 +761,24 @@ func TestSearchPath(t *testing.T) {
 		}
 	})
 }
+
+func TestSearchPathFunctions(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC01-T08 A function of a manifest name in a schema of the path is no fault when the schema of the manifest function is not on the path", func(t *testing.T) {
+		ctx := context.Background()
+		admin, reader := database(t)
+		var role string
+		if err := reader.QueryRow("SELECT current_user").Scan(&role); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.Exec("CREATE SCHEMA held; GRANT USAGE ON SCHEMA held TO " + role + "; " +
+			"CREATE FUNCTION held.claim() RETURNS integer LANGUAGE sql AS 'SELECT 1'; REVOKE ALL ON FUNCTION held.claim() FROM PUBLIC; " +
+			"CREATE FUNCTION public.claim() RETURNS integer LANGUAGE sql AS 'SELECT 2'"); err != nil {
+			t.Fatal(err)
+		}
+		m := want()
+		m.Functions = []Function{{Name: "held.claim", Language: "sql", Source: "SELECT 1", Returns: "integer"}}
+		if err := Check(ctx, reader, m); err != nil {
+			t.Fatalf("Check refused a function of the same name in public, which no call of held.claim reaches: %v", err)
+		}
+	})
+}

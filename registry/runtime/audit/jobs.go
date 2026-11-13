@@ -28,6 +28,10 @@ const (
 	BoundariesTable = "audit_anchor_boundaries"
 	// CheckpointsTable holds the retention checkpoints of each tenant's chain (ST-SUP-RP05-LC11).
 	CheckpointsTable = "audit_retention_checkpoints"
+	// RecordSchema is the schema of the audit record that the writer, the chain check and the anchorer name each
+	// table with, so no relation of the same name earlier on the search path stands in for it (ST-STD-TXN-R19). The
+	// migration job makes the record there, as Config.Schema does when it is empty.
+	RecordSchema = "public"
 	// MaintainFunction is the owner function that maintains the partitions (ST-SUP-RP05-LC10).
 	MaintainFunction = "audit_maintain"
 	partitionPrefix  = EventsTable + "_p"
@@ -446,10 +450,10 @@ func (a *Anchorer) Boundary(now time.Time) time.Time {
 }
 
 const (
-	selectBoundary = `SELECT boundary FROM ` + BoundariesTable + ` WHERE tenant_id = $1`
-	upsertBoundary = `INSERT INTO ` + BoundariesTable + ` (tenant_id, boundary) VALUES ($1, $2)
+	selectBoundary = `SELECT boundary FROM ` + RecordSchema + "." + BoundariesTable + ` WHERE tenant_id = $1`
+	upsertBoundary = `INSERT INTO ` + RecordSchema + "." + BoundariesTable + ` (tenant_id, boundary) VALUES ($1, $2)
  ON CONFLICT (tenant_id) DO UPDATE SET boundary = EXCLUDED.boundary`
-	selectLast = `SELECT seq, hash FROM ` + EventsTable + ` WHERE tenant_id = $1 ORDER BY seq DESC LIMIT 1`
+	selectLast = `SELECT seq, hash FROM ` + RecordSchema + "." + EventsTable + ` WHERE tenant_id = $1 ORDER BY seq DESC LIMIT 1`
 )
 
 // tickResult is what one tenant's transaction of a Tick did; it counts only once the commit succeeded.
@@ -645,8 +649,9 @@ const (
 	setTenant    = `SELECT pg_catalog.set_config('app.tenant', $1, true)`
 	readTenant   = `SELECT coalesce(pg_catalog.current_setting('app.tenant', true), '')`
 	leaseTimeout = `SET LOCAL lock_timeout = '2s'`
-	partitionOf  = `SELECT EXISTS (SELECT 1 FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid
- WHERE i.inhparent = '` + EventsTable + `'::regclass AND c.relname = $1)`
+	// partitionOf tells whether the events table of the schema {s} has the partition $1.
+	partitionOf = `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits i JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid
+ WHERE i.inhparent = '{s}.` + EventsTable + `'::pg_catalog.regclass AND c.relname = $1)`
 )
 
 // ErrTenantLeft is the error of a maintenance transaction that would commit with a tenant set.
@@ -755,7 +760,7 @@ func (m *Maintainer) Check(ctx context.Context) error {
 	next := monthStart(m.cfg.Now()).AddDate(0, 1, 0)
 	var ok bool
 	if err := noTenant(ctx, m.cfg.DB, func(tx *sql.Tx) error {
-		if err := tx.QueryRowContext(ctx, partitionOf, partitionName(next)).Scan(&ok); err != nil {
+		if err := tx.QueryRowContext(ctx, strings.ReplaceAll(partitionOf, "{s}", m.cfg.Schema), partitionName(next)).Scan(&ok); err != nil {
 			return stmtError(ctx, "partition check", err)
 		}
 		return nil

@@ -354,10 +354,18 @@ func TestNew(t *testing.T) {
 			// Only the runtime role may run it: EXECUTE for PUBLIC is refused (#239 L2).
 			refused("GRANT EXECUTE ON FUNCTION public.audit_maintain() TO PUBLIC", "REVOKE EXECUTE ON FUNCTION public.audit_maintain() FROM PUBLIC",
 				"function public.audit_maintain may be run by roles that the manifest does not name")
+			// A function of the name of a relay function in public, a schema of the path that the relay function's own
+			// schema stego_outbox is not on, stands in for no call, as each call names stego_outbox (#245 Q3).
+			if _, err := f.admin.Exec("CREATE FUNCTION public.claim() RETURNS integer LANGUAGE sql AS 'SELECT 1'"); err != nil {
+				t.Fatal(err)
+			}
 			if svc, err := New(context.Background(), settings, declared); err != nil {
-				t.Fatalf("New refused the restored database: %v", err)
+				t.Fatalf("New refused the restored database with an unrelated public.claim(): %v", err)
 			} else {
 				_ = svc.Close()
+			}
+			if _, err := f.admin.Exec("DROP FUNCTION public.claim()"); err != nil {
+				t.Fatal(err)
 			}
 		})
 	})

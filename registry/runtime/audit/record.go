@@ -243,17 +243,17 @@ func (w *Writer) alone(ctx context.Context, db *sql.DB, t tenant.Tenant, e Event
 const (
 	// lockHead takes the row lock of the tenant's chain head and reads the head and the recorded_at to use: the
 	// greater of the database clock and the chain's last recorded_at, read after the lock.
-	lockHead = `INSERT INTO ` + HeadsTable + ` AS h (tenant_id, seq, head, last_recorded_at)
+	lockHead = `INSERT INTO ` + RecordSchema + "." + HeadsTable + ` AS h (tenant_id, seq, head, last_recorded_at)
  VALUES ($1, 0, $2, '-infinity')
  ON CONFLICT (tenant_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id
  RETURNING h.seq, h.head, greatest(date_trunc('microseconds', clock_timestamp()), h.last_recorded_at)`
-	insertEvent = `INSERT INTO ` + EventsTable + ` (tenant_id, seq, id, occurred_at, recorded_at, actor_id, actor_kind,
+	insertEvent = `INSERT INTO ` + RecordSchema + "." + EventsTable + ` (tenant_id, seq, id, occurred_at, recorded_at, actor_id, actor_kind,
  actor_ip, user_agent, action, resource_type, resource_id, outcome, error_code, request_id, trace_id, span_id,
  idempotency_key, before, after, patch, service, service_version, declaration_version, prev_hash, hash, operation,
  hash_version, on_behalf_of)
  VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb,
  $20::jsonb, $21::jsonb, $22, $23, $24, $25, $26, $27, $28, $29)`
-	moveHead = `UPDATE ` + HeadsTable + ` SET seq = $2, head = $3, last_recorded_at = $4 WHERE tenant_id = $1`
+	moveHead = `UPDATE ` + RecordSchema + "." + HeadsTable + ` SET seq = $2, head = $3, last_recorded_at = $4 WHERE tenant_id = $1`
 )
 
 // write links the events to the head of their tenant's chain and stores them. The head row lock orders the

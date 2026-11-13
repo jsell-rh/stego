@@ -693,7 +693,7 @@ func TestRecord(t *testing.T) {
 		}
 		locks, lockAt := 0, -1
 		for i, s := range rec.statements {
-			if strings.Contains(s, "INSERT INTO "+HeadsTable) {
+			if strings.Contains(s, "INSERT INTO "+RecordSchema+"."+HeadsTable) {
 				locks++
 				lockAt = i
 			}
