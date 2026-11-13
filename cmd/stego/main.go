@@ -95,6 +95,8 @@ func main() {
 		err = runValidate(os.Args[2:])
 	case "drift":
 		err = runDrift(os.Args[2:])
+	case "compat":
+		err = runCompat(os.Args[2:], os.Stdout)
 	case "test":
 		err = runTest(os.Args[2:])
 	case "fill":
@@ -116,6 +118,10 @@ func main() {
 			return
 		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		var status exitStatus
+		if errors.As(err, &status) {
+			os.Exit(status.code)
+		}
 		os.Exit(1)
 	}
 }
@@ -139,6 +145,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Validation:")
 	fmt.Fprintln(os.Stderr, "  validate        Check service.yaml against registry")
+	fmt.Fprintln(os.Stderr, "  compat          Check service.yaml against the version that runs now")
 	fmt.Fprintln(os.Stderr, "  test            Run all fill tests and record their evidence")
 	fmt.Fprintln(os.Stderr, "  fill sign       Sign a fill's evidence with your key")
 	fmt.Fprintln(os.Stderr, "  fill status     Show the qualification of each bound fill")

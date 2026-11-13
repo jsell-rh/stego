@@ -1,3 +1,5 @@
 # The user doc inventory (ST-STD-DOCS-R01, ST-ASR-TOOL05): the user docs, one path from the
 # repository root per line, README.md first. Add a doc here in the change that writes it.
 README.md
+docs/compat.md
+docs/schema-changes.md
