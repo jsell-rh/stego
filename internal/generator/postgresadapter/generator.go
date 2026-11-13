@@ -291,10 +291,16 @@ type MigrationFunc func(ctx context.Context, tx *sql.Tx) error
 
 // Migration represents a named database migration. The digest covers the
 // migration body; an edited migration changes the digest and is rejected.
+// A migration of a schema step records its compatible_with set: the
+// migrations that code must register to run on a schema that holds its row
+// (ST-SUP-RC01-OC27). Step tells that the set is recorded; a row with no set
+// is an exact match.
 type Migration struct {
-	Name   string
-	Digest string
-	Func   MigrationFunc
+	Name           string
+	Digest         string
+	Func           MigrationFunc
+	Step           bool
+	CompatibleWith []string
 }
 
 var migrations []Migration
@@ -324,6 +330,30 @@ func RegisterSQL(name, body string) {
 	}})
 }
 
+// RegisterStep adds the SQL migration of a schema step with its compatible_with
+// set: none for a step at expand, and the migration of the expand step of its
+// change for a step at contract (ST-SUP-RC01-OC27).
+func RegisterStep(name, body string, compatibleWith ...string) {
+	migrations = append(migrations, Migration{Name: name, Digest: Digest(body), Step: true, CompatibleWith: append([]string{}, compatibleWith...), Func: func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, body)
+		return err
+	}})
+}
+
+// addCompatibleWith adds the nullable column compatible_with to the ledger
+// under the ledger lock, before the migration job reads the ledger, and
+// writes no value into the rows already there; it writes no ledger row
+// (ST-SUP-RC01-OC29).
+func addCompatibleWith(ctx context.Context, db Database) error {
+	return inTransaction(ctx, db, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
+		if err := lockLedger(ctx, tx); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "ALTER TABLE stego_schema.migrations ADD COLUMN IF NOT EXISTS compatible_with pg_catalog.text[]")
+		return err
+	})
+}
+
 // Migrate applies every registered migration and records each one in the
 // stego_schema.migrations ledger. Applied versions must match the
 // registered history exactly: a re-application, a version gap, an edited
@@ -340,12 +370,15 @@ func Migrate(ctx context.Context, db Database) error {
 			if err := m.Func(ctx, tx); err != nil {
 				return fmt.Errorf("migration %s: %w", m.Name, err)
 			}
-			if err := recordMigration(ctx, tx, m.Name, m.Digest); err != nil {
+			if err := recordMigration(ctx, tx, m); err != nil {
 				return err
 			}
 		}
 		return nil
 	}); err != nil {
+		return err
+	}
+	if err := addCompatibleWith(ctx, db); err != nil {
 		return err
 	}
 	return applyPending(ctx, db, ordered)
@@ -382,7 +415,7 @@ func ApplyMigration(ctx context.Context, db Database, name, body string) error {
 		if err := checkLedger(applied, ordered); err != nil {
 			return err
 		}
-		if len(applied) < len(ordered) {
+		if len(applied) != len(ordered) {
 			return ErrMigrationLedger
 		}
 		if len(applied) > 0 && name <= applied[len(applied)-1].Name {
@@ -391,7 +424,7 @@ func ApplyMigration(ctx context.Context, db Database, name, body string) error {
 		if _, err := tx.ExecContext(ctx, body); err != nil {
 			return fmt.Errorf("migration %s: %w", name, err)
 		}
-		return recordMigration(ctx, tx, name, Digest(body))
+		return recordMigration(ctx, tx, Migration{Name: name, Digest: Digest(body)})
 	})
 }
 
@@ -405,17 +438,43 @@ func orderedMigrations() []Migration {
 	return ordered
 }
 
-// recordMigration writes the ledger row of one migration in its transaction.
-func recordMigration(ctx context.Context, tx *sql.Tx, name, digest string) error {
-	_, err := tx.ExecContext(ctx, "INSERT INTO stego_schema.migrations(version,digest) VALUES($1,$2)", name, digest)
+// recordMigration writes the ledger row of one migration in its transaction,
+// with the compatible_with set of a schema step, as a text array literal, and
+// no set for every other migration (ST-SUP-RC01-OC27).
+func recordMigration(ctx context.Context, tx *sql.Tx, m Migration) error {
+	var set any
+	if m.Step {
+		set = arrayLiteral(m.CompatibleWith)
+	}
+	_, err := tx.ExecContext(ctx, "INSERT INTO stego_schema.migrations(version,digest,compatible_with) VALUES($1,$2,$3::pg_catalog.text[])", m.Name, m.Digest, set)
 	return err
+}
+
+// arrayLiteral writes migration names as a PostgreSQL text array literal.
+// A migration name holds no quote, backslash, comma or brace.
+func arrayLiteral(names []string) string {
+	quoted := make([]string, len(names))
+	for i, name := range names {
+		quoted[i] = "\"" + name + "\""
+	}
+	return "{" + strings.Join(quoted, ",") + "}"
 }
 
 // appliedMigrations reads the ledger in apply order: the byte order of the
 // version, as orderedMigrations sorts the names, whatever the collation of
 // the database. It fails closed when the ledger is missing or unreadable.
+// A ledger that has no column compatible_with yet, which a release before
+// it wrote, holds rows with no set (ST-SUP-RC01-OC29).
 func appliedMigrations(ctx context.Context, tx *sql.Tx) ([]Migration, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT version, digest FROM stego_schema.migrations ORDER BY version COLLATE \"C\"")
+	var column bool
+	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'stego_schema.migrations'::pg_catalog.regclass AND attname = 'compatible_with' AND attnum > 0 AND NOT attisdropped)").Scan(&column); err != nil {
+		return nil, ErrMigrationLedger
+	}
+	query := "SELECT version, digest, NULL::pg_catalog.text[] FROM stego_schema.migrations ORDER BY version COLLATE \"C\""
+	if column {
+		query = "SELECT version, digest, compatible_with FROM stego_schema.migrations ORDER BY version COLLATE \"C\""
+	}
+	rows, err := tx.QueryContext(ctx, query)
 	if err != nil {
 		return nil, ErrMigrationLedger
 	}
@@ -423,8 +482,17 @@ func appliedMigrations(ctx context.Context, tx *sql.Tx) ([]Migration, error) {
 	var applied []Migration
 	for rows.Next() {
 		var row Migration
-		if err := rows.Scan(&row.Name, &row.Digest); err != nil {
+		var set sql.NullString
+		if err := rows.Scan(&row.Name, &row.Digest, &set); err != nil {
 			return nil, ErrMigrationLedger
+		}
+		if set.Valid {
+			row.Step = true
+			names, err := parseArray(set.String)
+			if err != nil {
+				return nil, ErrMigrationLedger
+			}
+			row.CompatibleWith = names
 		}
 		applied = append(applied, row)
 	}
@@ -434,14 +502,49 @@ func appliedMigrations(ctx context.Context, tx *sql.Tx) ([]Migration, error) {
 	return applied, nil
 }
 
+// parseArray reads a text array that recordMigration wrote: {} or
+// {"a","b"}, each name in double quotes with no quote, backslash or comma.
+func parseArray(text string) ([]string, error) {
+	if text == "{}" {
+		return []string{}, nil
+	}
+	if len(text) < 2 || text[0] != '{' || text[len(text)-1] != '}' {
+		return nil, ErrMigrationLedger
+	}
+	var names []string
+	for _, part := range strings.Split(text[1:len(text)-1], ",") {
+		name := strings.Trim(part, "\"")
+		if name == "" || strings.ContainsAny(name, "\"\\{} ") {
+			return nil, ErrMigrationLedger
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
 // checkLedger rejects any mismatch between the applied versions and the
-// registered history. Applied versions must be a prefix of the registered
-// list, in order, with matching digests: no gaps, no extras, no edits.
+// registered history. Applied versions must start with the registered list,
+// or be a prefix of it, in order, with matching digests: no gaps and no
+// edits. A row after the registered history is accepted only when it has a
+// compatible_with set and this code registers each migration that the set
+// names (ST-SUP-RC01-OC28).
 func checkLedger(applied, registered []Migration) error {
-	if len(applied) > len(registered) {
-		return ErrMigrationLedger
+	known := map[string]bool{}
+	for _, m := range registered {
+		known[m.Name] = true
 	}
 	for i, row := range applied {
+		if i >= len(registered) {
+			if !row.Step {
+				return ErrMigrationLedger
+			}
+			for _, name := range row.CompatibleWith {
+				if !known[name] {
+					return ErrMigrationLedger
+				}
+			}
+			continue
+		}
 		if row.Name != registered[i].Name || row.Digest != registered[i].Digest {
 			return ErrMigrationLedger
 		}
@@ -470,7 +573,7 @@ func applyPending(ctx context.Context, db Database, ordered []Migration) error {
 			if err := checkLedger(applied, ordered); err != nil {
 				return err
 			}
-			if len(applied) == len(ordered) {
+			if len(applied) >= len(ordered) {
 				done = true
 				return nil
 			}
@@ -478,7 +581,7 @@ func applyPending(ctx context.Context, db Database, ordered []Migration) error {
 			if err := m.Func(ctx, tx); err != nil {
 				return fmt.Errorf("migration %s: %w", m.Name, err)
 			}
-			return recordMigration(ctx, tx, m.Name, m.Digest)
+			return recordMigration(ctx, tx, m)
 		}); err != nil {
 			return err
 		}
@@ -505,6 +608,7 @@ func generateMigrate(ns string, rowSecurity string) (gen.File, error) {
 	fmt.Fprintf(&buf, "\t\"encoding/hex\"\n")
 	fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	fmt.Fprintf(&buf, "\t\"sort\"\n")
+	fmt.Fprintf(&buf, "\t\"strings\"\n")
 	if rowSecurity != "" {
 		fmt.Fprintf(&buf, "\n\tstegotenancy %q\n", rowSecurity)
 	}
