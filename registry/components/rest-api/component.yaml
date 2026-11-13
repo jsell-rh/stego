@@ -3,10 +3,11 @@
 # components, which a service with collections must therefore have. Version 4.0.0 removed the handlers of the store
 # path and their storage interface. Version 4.2.0 stages the change event of each write when the service has the
 # kafka-producer component (ST-SUP-RC20-OC40). Version 4.2.1 lists each failed member of a body in a 400 validation
-# problem, not only the first (ST-SUP-RC20-OC05).
+# problem, not only the first (ST-SUP-RC20-OC05). Version 4.2.2 lists at most 50 of them and one entry that counts
+# the rest, and no entry quotes a value of the request.
 kind: component
 name: rest-api
-version: 4.2.1
+version: 4.2.2
 stage: ga
 output_namespace: internal/api
 
