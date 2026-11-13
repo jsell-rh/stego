@@ -41,7 +41,7 @@ func oidcServer(t *testing.T) *oidcFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &oidcFixture{t: t, key: key, directory: t.TempDir()}
+	f := &oidcFixture{t: t, key: key, directory: privateDir(t)}
 	f.server = httptest.NewTLSServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.server.Close)
 	f.ca = filepath.Join(f.directory, "ca.pem")

@@ -26,7 +26,7 @@ func definition() Application {
 
 func TestCommandWorkflowAndBoundaries(t *testing.T) {
 	proof := func(t *testing.T) {
-		directory := t.TempDir()
+		directory := privateDir(t)
 		config := filepath.Join(directory, "config.json")
 		t.Setenv("TEST_CLI_CONFIG", config)
 		token := filepath.Join(directory, "token")
@@ -320,8 +320,19 @@ func TestDefinitionAndJSONLimits(t *testing.T) {
 	})
 }
 
-func TestExplicitEmptyResponses(t *testing.T) {
+// privateDir gives a temporary directory that only the user may write to, as the CLI requires of its configuration
+// directory, whatever the umask of the process that runs the test, such as 0002 on a workstation.
+func privateDir(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestExplicitEmptyResponses(t *testing.T) {
+	dir := privateDir(t)
 	t.Setenv("TEST_CLI_CONFIG", filepath.Join(dir, "config.json"))
 	token := filepath.Join(dir, "token")
 	if err := os.WriteFile(token, []byte("private-token"), 0600); err != nil {
