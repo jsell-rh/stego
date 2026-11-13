@@ -1,8 +1,10 @@
 package declaration
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTenantProvisioning(t *testing.T) {
@@ -76,5 +78,56 @@ func TestTenantProvisioning(t *testing.T) {
 		expectOneFault(t, Validate(readTD03(t, unbound)).All(), "tenant-provisioning", "needs authorization")
 		single := change(t, service, "tenancy:\n  kind: pooled\n  key: tenant_id\n  claim: tenant\n", "tenancy:\n  kind: single\n  reason: one customer per deployment\n")
 		expectOneFault(t, Validate(readTD03(t, single)).All(), "tenant-provisioning", "single", "remove tenancy.provisioning")
+	})
+
+	// The cases of the recheck of the security review of PR 253: whether service#provision reaches a wildcard.
+	for _, c := range []struct {
+		name, schema string
+		want         bool
+	}{
+		{"a cycle of relations with a wildcard in it", "definition user {}\ndefinition service {\n relation aaa: service#bbb | user\n relation bbb: service#aaa | user:*\n permission provision = aaa\n}\n", true},
+		{"a cycle of permissions with no wildcard", "definition user {}\ndefinition service {\n relation own: user\n permission provision = qqq + own\n permission qqq = provision\n}\n", false},
+		{"an arrow to a permission that reaches a wildcard", "definition user {}\ndefinition org {\n relation mem: user:*\n permission admin = mem\n}\ndefinition service {\n relation org: org\n permission provision = org->admin\n}\n", true},
+		{"a wildcard of a type that is not user", "definition user {}\ndefinition bot {}\ndefinition service {\n relation own: bot:*\n permission provision = own\n}\n", true},
+		{"a wildcard with a caveat", "caveat c(x int) { x > 0 }\ndefinition user {}\ndefinition service {\n relation own: user:* with c\n permission provision = own\n}\n", true},
+		{"a wildcard with an expiration", "use expiration\ndefinition user {}\ndefinition service {\n relation own: user:* with expiration\n permission provision = own\n}\n", true},
+		{"a permission through two permissions to a wildcard", "definition user {}\ndefinition service {\n relation wild: user:*\n permission inner = wild\n permission mid = inner\n permission provision = mid\n}\n", true},
+		{"a userset that admits a wildcard", "definition user {}\ndefinition group {\n relation member: user:*\n}\ndefinition service {\n relation own: group#member\n permission provision = own\n}\n", true},
+		{"an intersection with one wildcard", "definition user {}\ndefinition service {\n relation own: user\n relation wild: user:*\n permission provision = own & wild\n}\n", false},
+		{"an intersection of two wildcards", "definition user {}\ndefinition service {\n relation wild: user:*\n relation wild2: user:*\n permission provision = wild & wild2\n}\n", true},
+		{"an exclusion whose base is a wildcard", "definition user {}\ndefinition service {\n relation own: user\n relation wild: user:*\n permission provision = wild - own\n}\n", true},
+		{"an exclusion that only subtracts a wildcard", "definition user {}\ndefinition service {\n relation own: user\n relation wild: user:*\n permission provision = own - wild\n}\n", false},
+		{"an intersection with a nested union", "definition user {}\ndefinition service {\n relation own: user\n relation wild: user:*\n permission provision = own & (wild + own) \n}\n", false},
+		{"an all arrow to a permission that reaches a wildcard", "definition user {}\ndefinition org {\n relation mem: user:*\n permission admin = mem\n}\ndefinition service {\n relation org: org\n permission provision = org.all(admin)\n}\n", true},
+	} {
+		t.Run(inv78+": the recheck case "+c.name, func(t *testing.T) {
+			compiled := compileTD03(t, c.schema)
+			if got := compiled.reachesWildcard("service", "provision"); got != c.want {
+				t.Errorf("want %v, got %v", c.want, got)
+			}
+		})
+	}
+
+	// A chain of diamonds made each level double the work of a search that does not keep its answers (security
+	// review of PR 253, L3). The fixed point answers it at once, so a crafted schema cannot hang checking.
+	t.Run(inv78+": a chain of 60 diamonds is checked in well under a second", func(t *testing.T) {
+		chain := func(last string) string {
+			var text strings.Builder
+			fmt.Fprintf(&text, "definition user {}\ndefinition node60 {\n relation anyone: %s\n permission perm = anyone\n}\n", last)
+			for i := 59; i >= 0; i-- {
+				fmt.Fprintf(&text, "definition node%d {\n relation left: node%d\n relation right: node%d\n permission perm = left->perm + right->perm\n}\n", i, i+1, i+1)
+			}
+			return text.String()
+		}
+		// With no wildcard at the end, a search that does not keep its answers walks 2^60 paths.
+		for last, want := range map[string]bool{"user": false, "user:*": true} {
+			start := time.Now()
+			if got := compileTD03(t, chain(last)).reachesWildcard("node0", "perm"); got != want {
+				t.Errorf("a chain that ends in %s: want %v, got %v", last, want, got)
+			}
+			if elapsed := time.Since(start); elapsed > time.Second {
+				t.Errorf("a chain that ends in %s took %v", last, elapsed)
+			}
+		}
 	})
 }

@@ -84,7 +84,7 @@ func checkProvisioningSchema(service *types.ServiceDeclaration, schema *AuthzSch
 		case !definition.permissions[part.value]:
 			faults = append(faults, ValidationError{Category: "authorization", Rule: "tenant-provisioning", Path: path + "." + part.key, Found: part.value, Allowed: sortedKeys(definition.permissions),
 				Message: fmt.Sprintf("the tenant provisioning names the %s permission %q, which the resource type %s of the schema %s lacks", part.what, part.value, provisioning.ResourceType, schema.Path)})
-		case schema.reachesWildcard(provisioning.ResourceType, part.value, map[string]bool{}):
+		case schema.reachesWildcard(provisioning.ResourceType, part.value):
 			// A wildcard such as user:* makes the permission public in effect (security review of PR 253, M1).
 			faults = append(faults, ValidationError{Category: "authorization", Rule: "tenant-provisioning", Path: path + "." + part.key, Found: part.value,
 				Message: fmt.Sprintf("the tenant provisioning names the %s permission %q, which reaches a wildcard subject of the schema %s, so anyone could hold it; Provision and Retire are never public", part.what, part.value, schema.Path)})
