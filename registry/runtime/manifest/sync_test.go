@@ -34,22 +34,25 @@ func syncSQL(t *testing.T, function, k, u, conversion string) string {
 }
 
 // stepCase runs setup on a new test database as its owner and checks it against m: refused tells that Check must
-// give a *Mismatch, and else it must accept the database.
+// give a *Mismatch, and else it must accept the database. Each case is a subtest of its own, so its database is
+// dropped when the case ends, and the server of the test, whose data is in its 512 MiB of memory, holds few at once.
 func stepCase(t *testing.T, name, setup string, m Manifest, refused bool) {
 	t.Helper()
-	admin, reader := database(t)
-	if _, err := admin.Exec(setup); err != nil {
-		t.Fatalf("%s: %v", name, err)
-	}
-	m.Owner = testOwner
-	err := Check(context.Background(), reader, m)
-	var mismatch *Mismatch
-	switch {
-	case refused && !errors.As(err, &mismatch):
-		t.Errorf("%s: Check gives %v, want a refusal", name, err)
-	case !refused && err != nil:
-		t.Errorf("%s: Check refuses the step form: %v", name, err)
-	}
+	t.Run(name, func(t *testing.T) {
+		admin, reader := database(t)
+		if _, err := admin.Exec(setup); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		m.Owner = testOwner
+		err := Check(context.Background(), reader, m)
+		var mismatch *Mismatch
+		switch {
+		case refused && !errors.As(err, &mismatch):
+			t.Errorf("%s: Check gives %v, want a refusal", name, err)
+		case !refused && err != nil:
+			t.Errorf("%s: Check refuses the step form: %v", name, err)
+		}
+	})
 }
 
 const (
@@ -321,6 +324,7 @@ func TestStepDefault(t *testing.T) {
 			{"a sequence", "CREATE SEQUENCE public.s; ALTER TABLE public.books ADD COLUMN n bigint DEFAULT nextval('public.s');\n"},
 			{"a cast through a user type", "CREATE DOMAIN public.d AS text; ALTER TABLE public.books ADD COLUMN v public.d DEFAULT 'x'::public.d;\n"},
 			{"an expression", "ALTER TABLE public.books ADD COLUMN r integer DEFAULT 1 + 1;\n"},
+			{"a constant on a column of a built-in type that is not on the list of builtinType", "ALTER TABLE public.books ADD COLUMN o oid DEFAULT 0;\n"},
 			{"a listed column", "ALTER TABLE public.books ALTER COLUMN pages SET DEFAULT 1;\n"},
 		} {
 			stepCase(t, c.name, c.setup, stepManifest(), true)
