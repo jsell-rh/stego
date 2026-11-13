@@ -51,13 +51,14 @@ func boardSteps(ns, tenancyNS string) gen.Context {
 }
 
 // boardNoDefault is boardSteps with only its adds that give no default: the table Card and the optional field
-// Board.note, and not Board.rank, whose default the release before refuses until ST-GEN-Q15 (a) ships.
+// Board.note, and not Board.rank; and an add of the optional reference Board.parent_id, whose foreign key the release
+// before accepts in its exact form (ST-SUP-RP15-LC03).
 func boardNoDefault(ns, tenancyNS string) gen.Context {
 	ctx := boardSteps(ns, tenancyNS)
 	fields := ctx.Entities[0].Fields
-	ctx.Entities[0].Fields = fields[:len(fields)-1]
-	ctx.SchemaChanges = ctx.SchemaChanges[:2]
-	ctx.SchemaHistory = ctx.SchemaHistory[:2]
+	ctx.Entities[0].Fields = append(fields[:len(fields)-1:len(fields)-1], types.Field{Name: "parent_id", Type: types.FieldTypeRef, To: "Board", Optional: true})
+	ctx.SchemaChanges = append(ctx.SchemaChanges[:2:2], types.SchemaChange{ID: "add-board-parent-id", Kind: "add", Entity: "Board", Field: "parent_id"})
+	ctx.SchemaHistory = append(ctx.SchemaHistory[:2:2], types.SchemaStep{Change: "add-board-parent-id", Phase: "expand"})
 	return ctx
 }
 

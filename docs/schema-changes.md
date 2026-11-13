@@ -79,29 +79,24 @@ deploy first.
 
 ## Restarts during a rolling deploy
 
-In a pooled service, the schema check of a release refuses a foreign key
-that it does not name on a table with row-level security. An add of a
-reference field to an entity of the base adds such a foreign key, so a pod of
-the release before the add fails its schema check when it restarts after the
-add's migration. During the rolling deploy, do not restart the pods of the
-release before. An add of a new entity, or of a field that is not a
-reference and has no default, has no such limit. A later release of the
-schema check accepts that foreign key in its exact form (ST-SUP-RP15-LC03).
+A pod of the release before a step restarts on the database after the
+step's migration. Its schema check accepts what a later step adds, each only
+in the exact form that the step gives it, on the table of a declared entity:
 
-The schema check of a release also refuses a default of a column that it
-does not state. An add of a field with a default gives its new column that
-default, so a pod of the release before the add fails its schema check when
-it restarts after the add's migration. During the rolling deploy, do not
-restart the pods of the release before. An add of a field with no default
-has no such limit. A later release of the schema check accepts a constant
-default on a column that it does not name (ST-GEN-Q15).
+- the foreign key of an add of a reference field: on the new nullable column,
+  with the tenant column first when the referenced key holds it, to the
+  primary key of a table that it knows, with no action, validated, not
+  deferrable, and named `<table>_<column>_fkey` (ST-SUP-RP15-LC03);
+- the default of the new column of an add: a constant of a built-in type,
+  and no function call (ST-GEN-Q15);
+- the sync trigger of the expand step of a rename, a retype or a require:
+  a BEFORE INSERT OR UPDATE row trigger whose function is the fixed
+  template of this release, in the schema `stego_steps`, for one column
+  that the release before knows and one new column (ST-SUP-RP15-LC02).
 
-The expand step of a rename, a retype or a require adds a sync trigger. Until
-the schema check of a release accepts the sync trigger of a later step, a pod
-of the release before the expand step fails its schema check when it restarts
-after the expand migration. During the rolling deploy, do not restart the pods
-of the release before. To roll back to the release before, remove the sync
-trigger of the open change first.
+Every other change to such a table still fails the check. A release before
+this rule refuses these forms: during the first rolling deploy of a step
+after it, do not restart the pods of a release that does not have it.
 
 ## The check against the base
 

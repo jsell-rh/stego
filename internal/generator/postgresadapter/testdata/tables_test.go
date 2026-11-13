@@ -398,7 +398,7 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		reader := stdlib.OpenDB(*runtime)
 		defer reader.Close()
 		ctx := context.Background()
-		if err := manifest.Check(ctx, reader, widgets.SchemaManifest); err != nil {
+		if err := manifest.Check(ctx, reader, owned(widgets.SchemaManifest)); err != nil {
 			t.Fatalf("the database that the migrations made does not hold the schema manifest: %v", err)
 		}
 		// The bounds of each shape: each CHECK definition of the manifest is the text that PostgreSQL writes.
@@ -411,13 +411,13 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		boundsRuntime.User, boundsRuntime.Password = tenancy.RuntimeRole, "tables-check"
 		boundsReader := stdlib.OpenDB(*boundsRuntime)
 		defer boundsReader.Close()
-		if err := manifest.Check(ctx, boundsReader, bounds.SchemaManifest); err != nil {
+		if err := manifest.Check(ctx, boundsReader, owned(bounds.SchemaManifest)); err != nil {
 			t.Fatalf("the database of the bounds does not hold the schema manifest: %v", err)
 		}
 		if _, err := db.Exec(`ALTER TABLE public."orders" DROP CONSTRAINT "orders_widget_id_fkey"`); err != nil {
 			t.Fatal(err)
 		}
-		if err := manifest.Check(ctx, reader, widgets.SchemaManifest); !errors.Is(err, manifest.ErrNotSatisfied) ||
+		if err := manifest.Check(ctx, reader, owned(widgets.SchemaManifest)); !errors.Is(err, manifest.ErrNotSatisfied) ||
 			!strings.Contains(err.Error(), "table public.orders: constraint orders_widget_id_fkey is missing") {
 			t.Fatalf("a dropped foreign key gave %v, want the fault that names it", err)
 		}
@@ -475,15 +475,12 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		if err := boardsbase.VerifySchema(ctx, up); err != nil {
 			t.Errorf("the schema check of the release before refuses the database: %v", err)
 		}
-		// Interim rule (b) of ST-GEN-Q15: the schema manifest of the release before refuses the default of the column
-		// rank that a later add gives, so its pods must not restart after such an add. The strict-trigger change makes
-		// this case pass (ST-GEN-Q15 (a)).
-		var mismatch *manifest.Mismatch
-		if err := manifest.Check(ctx, reader, boardsbase.SchemaManifest); !errors.As(err, &mismatch) ||
-			strings.Join(mismatch.Faults, "; ") != "table public.boards: column rank has a default that the manifest does not state" {
-			t.Errorf("the schema manifest of the release before gives %v after an add with a default, want only the fault of the default of rank (ST-GEN-Q15 (b))", err)
+		// The schema manifest of the release before accepts the constant default of the column rank that a later add
+		// gives, on the table of a declared entity (ST-GEN-Q15 (a)).
+		if err := manifest.Check(ctx, reader, owned(boardsbase.SchemaManifest)); err != nil {
+			t.Errorf("the schema manifest of the release before refuses the database after an add with a default: %v", err)
 		}
-		if err := manifest.Check(ctx, reader, boards.SchemaManifest); err != nil {
+		if err := manifest.Check(ctx, reader, owned(boards.SchemaManifest)); err != nil {
 			t.Errorf("the schema manifest of the release with the steps refuses the database: %v", err)
 		}
 		if code := write(t, up, "tenant-a", `INSERT INTO public."boards" ("id", "title") VALUES ($1, 'second')`, uuid.Must(uuid.NewV7()).String()); code != "" {
@@ -529,7 +526,8 @@ FROM pg_catalog.pg_class c WHERE c.oid = $1::pg_catalog.regclass`, "public."+tab
 			t.Error("the migration job of the release before changed the database after the steps")
 		}
 
-		// An add with no default, here of the table cards and the optional field note: the release before restarts
+		// Adds with no default, here of the table cards, the optional field note and the optional reference parent_id,
+		// whose foreign key the release before accepts in its exact form (ST-SUP-RP15-LC03): the release before restarts
 		// on the database after the add migrations, and its ledger, schema and manifest checks accept it.
 		noteCfg, noted := database(t, cfg, admin)
 		migrate(t, noteCfg, noted, func(ctx context.Context, conn *sql.Conn) error { return boardsbase.Migrate(ctx, conn) }, "boardsbase_access.json")
@@ -547,10 +545,10 @@ FROM pg_catalog.pg_class c WHERE c.oid = $1::pg_catalog.regclass`, "public."+tab
 		if err := boardsbase.VerifySchema(ctx, noted); err != nil {
 			t.Errorf("the schema check of the release before refuses the adds with no default: %v", err)
 		}
-		if err := manifest.Check(ctx, noteReader, boardsbase.SchemaManifest); err != nil {
+		if err := manifest.Check(ctx, noteReader, owned(boardsbase.SchemaManifest)); err != nil {
 			t.Errorf("the schema manifest of the release before refuses the adds with no default: %v", err)
 		}
-		if err := manifest.Check(ctx, noteReader, boardsnote.SchemaManifest); err != nil {
+		if err := manifest.Check(ctx, noteReader, owned(boardsnote.SchemaManifest)); err != nil {
 			t.Errorf("the schema manifest of the release with the adds refuses the database: %v", err)
 		}
 
@@ -656,4 +654,11 @@ FROM pg_catalog.pg_class c WHERE c.oid = $1::pg_catalog.regclass`, "public."+tab
 			t.Errorf("a job that fails its ledger check left the marker %q (error %v), want the digest of a release before", definition, err)
 		}
 	})
+}
+
+// owned gives the generated manifest m with the owner role of the tenancy component as its owner, as the service
+// runtime gives it (service.checkSchema), so the held schema of the sync functions has an owner to check.
+func owned(m manifest.Manifest) manifest.Manifest {
+	m.Owner = tenancy.OwnerRole
+	return m
 }
