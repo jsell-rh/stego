@@ -6,6 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
 	"github.com/jsell-rh/stego/registry/runtime/manifest"
 )
 
@@ -94,17 +98,48 @@ func TestManifest(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP07-LC12-T02 Purge runs the purge function of the manifest when an overload of it is on the search path", func(t *testing.T) {
+	t.Run("ST-SUP-RP07-LC12-T02 Wrap and Purge use the key table and the purge function of their schema when an earlier schema of the search path has ones of the same name", func(t *testing.T) {
 		ctx := context.Background()
-		db, _ := testDB(t)
-		// An overload whose second parameter is double precision takes an untyped parameter before the function of
-		// the manifest; Purge names each parameter's type, so it runs idempotency_keys_purge(timestamptz, integer).
-		if _, err := db.ExecContext(ctx, `CREATE FUNCTION idempotency_keys_purge(p_now timestamptz, p_limit double precision) RETURNS bigint
-LANGUAGE plpgsql AS $x$ BEGIN RAISE EXCEPTION 'the overload ran'; END $x$`); err != nil {
+		db, admin := testDB(t)
+		schema := testSchema(t, db)
+		earlier := schema + "_earlier"
+		// A schema earlier on the search path holds a purge function of the same signature and a key table of the
+		// same name, with a completed row for the key of the request.
+		for _, statement := range []string{
+			"CREATE SCHEMA " + earlier,
+			"CREATE FUNCTION " + earlier + ".idempotency_keys_purge(p_now timestamptz, p_limit integer) RETURNS bigint " +
+				"LANGUAGE plpgsql AS $x$ BEGIN RAISE EXCEPTION 'the earlier purge ran'; END $x$",
+			"CREATE TABLE " + earlier + ".idempotency_keys (LIKE " + schema + ".idempotency_keys)",
+			"INSERT INTO " + earlier + ".idempotency_keys (tenant_id, principal_id, key, fingerprint, status, response_code, response_body, locked_at, expires_at) " +
+				"VALUES ('t1', 'p1', 'k1', 'f1', 'completed', 200, 'planted', now(), now() + interval '1 hour')",
+		} {
+			if _, err := admin.ExecContext(ctx, statement); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Cleanup(func() { _, _ = admin.ExecContext(context.Background(), "DROP SCHEMA "+earlier+" CASCADE") })
+		cfg, err := pgx.ParseConfig(pgtest.DSN(t))
+		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := Purge(ctx, db, PurgeOptions{}); err != nil {
-			t.Fatalf("Purge gave %v, want the purge function of the manifest", err)
+		cfg.RuntimeParams["search_path"] = earlier + ", " + schema
+		shadowed := stdlib.OpenDB(*cfg)
+		t.Cleanup(func() { _ = shadowed.Close() })
+		if _, err := Purge(ctx, shadowed, PurgeOptions{Schema: schema}); err != nil {
+			t.Fatalf("Purge gave %v, want the purge function of the schema of the key table", err)
+		}
+		ran := false
+		res, err := runWrap(ctx, shadowed, Request{Tenant: "t1", Principal: "p1", Key: "k1", Fingerprint: "f1", Schema: schema},
+			func(context.Context, Tx) (Response, error) { ran = true; return Response{Status: 201}, nil })
+		if err != nil || !ran || res.Replayed || res.Response.Status != 201 {
+			t.Fatalf("Wrap = %+v, %v, ran %v; want the handler run on the key table of the schema, not the planted row", res, err, ran)
+		}
+		// The key is now completed in the key table of the schema, so the same request replays its own response, not
+		// the planted one.
+		again, err := runWrap(ctx, shadowed, Request{Tenant: "t1", Principal: "p1", Key: "k1", Fingerprint: "f1", Schema: schema},
+			func(context.Context, Tx) (Response, error) { return Response{Status: 500}, nil })
+		if err != nil || !again.Replayed || again.Response.Status != 201 || string(again.Response.Body) == "planted" {
+			t.Fatalf("Wrap = %+v, %v; want the replay of the stored 201", again, err)
 		}
 	})
 }

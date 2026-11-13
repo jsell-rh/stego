@@ -199,6 +199,21 @@ func loginRole(t *testing.T, admin *sql.DB, schema, prefix string) (string, *sql
 	return role, db
 }
 
+// testSchema gives the schema of the key table of the test database db, the one that testDB made.
+func testSchema(t testing.TB, db *sql.DB) string {
+	t.Helper()
+	return currentSchema(db)
+}
+
+// currentSchema gives the current schema of db, the schema of its key table in the tests.
+func currentSchema(db *sql.DB) string {
+	var schema string
+	if err := db.QueryRow("SELECT current_schema()").Scan(&schema); err != nil {
+		panic(err)
+	}
+	return schema
+}
+
 // inTenant runs one statement in a transaction whose app.tenant is tenant, and gives the rows it changed.
 func inTenant(ctx context.Context, db *sql.DB, tenant, statement string, args ...any) (int64, error) {
 	tx, err := db.BeginTx(ctx, nil)
@@ -243,14 +258,7 @@ func countIn(t *testing.T, db *sql.DB, tenant, query string) int {
 
 func TestKeyTableTenancy(t *testing.T) {
 	ctx := context.Background()
-	schemaOf := func(t *testing.T, db *sql.DB) string {
-		t.Helper()
-		var schema string
-		if err := db.QueryRowContext(ctx, "SELECT current_schema()").Scan(&schema); err != nil {
-			t.Fatal(err)
-		}
-		return schema
-	}
+	schemaOf := testSchema
 
 	t.Run("ST-SUP-RP07-LC11-T01 Two tenants cannot see each other's key rows", func(t *testing.T) {
 		db, admin := testDB(t)
@@ -328,7 +336,7 @@ func TestKeyTableTenancy(t *testing.T) {
 			}
 		}
 		// PUBLIC has no EXECUTE, so the runtime role cannot purge before the grant of the migration job.
-		if _, err := Purge(ctx, runtime, PurgeOptions{}); pgCode(err) != "42501" {
+		if _, err := Purge(ctx, runtime, PurgeOptions{Schema: schema}); pgCode(err) != "42501" {
 			t.Fatalf("Purge with no grant gave %v, want a refusal", err)
 		}
 		// A direct delete with no tenant removes nothing.
@@ -342,7 +350,7 @@ func TestKeyTableTenancy(t *testing.T) {
 		}
 		// A cut-off two hours ahead is held at the database's clock, so no live key goes.
 		future := func() time.Time { return now.Add(2 * time.Hour) }
-		n, err := Purge(ctx, runtime, PurgeOptions{Clock: future})
+		n, err := Purge(ctx, runtime, PurgeOptions{Schema: schema, Clock: future})
 		if err != nil || n != 6 {
 			t.Fatalf("Purge = %d, %v; want the 6 expired rows of both tenants", n, err)
 		}
@@ -355,7 +363,7 @@ func TestKeyTableTenancy(t *testing.T) {
 			}
 		}
 		// Purge refuses such a batch before it sends a statement.
-		if _, err := Purge(ctx, runtime, PurgeOptions{Batch: MaxPurgeBatch + 1}); err == nil || pgCode(err) != "" {
+		if _, err := Purge(ctx, runtime, PurgeOptions{Schema: schema, Batch: MaxPurgeBatch + 1}); err == nil || pgCode(err) != "" {
 			t.Fatalf("Purge with a batch above MaxPurgeBatch gave %v, want its own refusal", err)
 		}
 		var definer, public bool

@@ -93,7 +93,7 @@ func orderStore(db, admin *sql.DB, wrap wrapper) Subject {
 		if err != nil {
 			return Response{}, err
 		}
-		req := Request{Tenant: "t1", Principal: "p1", Key: call.Key, Fingerprint: fp}
+		req := Request{Tenant: "t1", Principal: "p1", Key: call.Key, Fingerprint: fp, Schema: currentSchema(db)}
 		res, err := wrap(ctx, db, tx, req, func(ctx context.Context) (Response, error) {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO orders (id, note) VALUES (gen_random_uuid()::text, $1)`,
 				call.Key); err != nil {

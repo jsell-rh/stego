@@ -234,8 +234,8 @@ func checkSchema(ctx context.Context, db *sql.DB, p Parts) error {
 	if err != nil {
 		return fmt.Errorf("service: the manifest of the authorization runtime: %w", err)
 	}
-	// The migration job makes the key table in the schema public, and the grants of the runtime role name it there.
-	keys, err := idempotency.Manifest("public", p.PurgeRole, runtimeRole)
+	// The migration job makes the key table in idempotency.KeySchema, where Wrap and Purge name it.
+	keys, err := idempotency.Manifest(idempotency.KeySchema, p.PurgeRole, runtimeRole)
 	if err != nil {
 		return fmt.Errorf("service: the manifest of the key table: %w", err)
 	}

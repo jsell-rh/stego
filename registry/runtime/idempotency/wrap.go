@@ -87,6 +87,9 @@ type Request struct {
 	Retention time.Duration
 	// Clock gives the current time; nil is time.Now.
 	Clock func() time.Time
+	// Schema is the schema of the key table, a lower-case SQL name that needs no quotes; empty is KeySchema. Each
+	// statement names the table with it, so no table of the same name earlier on the search path stands in for it.
+	Schema string
 }
 
 // Response is a response that a handler gives and that Wrap stores and replays.
@@ -128,17 +131,18 @@ func (e *StatementError) Error() string {
 	return fmt.Sprintf("idempotency: the %s statement failed: %v", e.Step, e.Err)
 }
 
+// The statements of Wrap, each with {schema} for the schema of the key table.
 const (
-	lockSQL   = `SELECT pg_try_advisory_xact_lock($1::bigint # 'idempotency_keys'::regclass::oid::bigint)`
-	insertSQL = `INSERT INTO idempotency_keys (tenant_id, principal_id, key, fingerprint, status, locked_at, expires_at)
+	lockSQL   = `SELECT pg_try_advisory_xact_lock($1::bigint # '{schema}.idempotency_keys'::pg_catalog.regclass::oid::bigint)`
+	insertSQL = `INSERT INTO {schema}.idempotency_keys (tenant_id, principal_id, key, fingerprint, status, locked_at, expires_at)
 VALUES ($1, $2, $3, $4, 'in_progress', $5, $6)
 ON CONFLICT DO NOTHING
 RETURNING key`
 	selectSQL = `SELECT fingerprint, status, response_code, response_headers, response_body
-FROM idempotency_keys
+FROM {schema}.idempotency_keys
 WHERE tenant_id = $1 AND principal_id = $2 AND key = $3
 FOR UPDATE NOWAIT`
-	completeSQL = `UPDATE idempotency_keys
+	completeSQL = `UPDATE {schema}.idempotency_keys
 SET status = 'completed', response_code = $4, response_headers = $5, response_body = $6, expires_at = $7
 WHERE tenant_id = $1 AND principal_id = $2 AND key = $3 AND status = 'in_progress'`
 )
@@ -171,7 +175,7 @@ func Wrap(ctx context.Context, tx Tx, req Request, handler Handler) (Result, err
 	}
 
 	var locked bool
-	if err := tx.QueryRowContext(ctx, lockSQL, req.lockID()).Scan(&locked); err != nil {
+	if err := tx.QueryRowContext(ctx, req.statement(lockSQL), req.lockID()).Scan(&locked); err != nil {
 		return failure(ctx, "lock", err)
 	}
 	if !locked {
@@ -180,7 +184,7 @@ func Wrap(ctx context.Context, tx Tx, req Request, handler Handler) (Result, err
 
 	start := clock()
 	var inserted string
-	err := tx.QueryRowContext(ctx, insertSQL, req.Tenant, req.Principal, req.Key, req.Fingerprint, start,
+	err := tx.QueryRowContext(ctx, req.statement(insertSQL), req.Tenant, req.Principal, req.Key, req.Fingerprint, start,
 		start.Add(retention)).Scan(&inserted)
 	if errors.Is(err, sql.ErrNoRows) {
 		return existing(ctx, tx, req)
@@ -201,7 +205,7 @@ func Wrap(ctx context.Context, tx Tx, req Request, handler Handler) (Result, err
 		body = []byte{}
 	}
 	done := clock()
-	res, err := tx.ExecContext(ctx, completeSQL, req.Tenant, req.Principal, req.Key, resp.Status,
+	res, err := tx.ExecContext(ctx, req.statement(completeSQL), req.Tenant, req.Principal, req.Key, resp.Status,
 		encodeHeader(resp.Header), body, done.Add(retention))
 	if err != nil {
 		return failure(ctx, "complete", err)
@@ -220,7 +224,7 @@ func existing(ctx context.Context, tx Tx, req Request) (Result, error) {
 		header              []byte
 		body                []byte
 	)
-	err := tx.QueryRowContext(ctx, selectSQL, req.Tenant, req.Principal, req.Key).
+	err := tx.QueryRowContext(ctx, req.statement(selectSQL), req.Tenant, req.Principal, req.Key).
 		Scan(&fingerprint, &status, &code, &header, &body)
 	if errors.Is(err, sql.ErrNoRows) {
 		// The row went after the insert saw it, as when Purge removed it: the client can send the request again.
@@ -285,13 +289,26 @@ func (req Request) check() error {
 		return ErrKeyMalformed
 	case req.Fingerprint == "":
 		return errors.New("idempotency: the request has no fingerprint")
+	case req.Schema != "" && !rolePattern.MatchString(req.Schema):
+		return errors.New("idempotency: the schema of the key table is not a lower-case SQL name")
 	}
 	return nil
 }
 
+// statement gives one statement of Wrap with the schema of the key table.
+func (req Request) statement(text string) string { return withSchema(text, req.Schema) }
+
+// withSchema puts schema, or KeySchema when it is empty, in place of {schema} in text.
+func withSchema(text, schema string) string {
+	if schema == "" {
+		schema = KeySchema
+	}
+	return strings.ReplaceAll(text, "{schema}", schema)
+}
+
 // lockID is the advisory lock key of the request's key scope: the first 8 bytes of a SHA-256 over a fixed name and
-// the tenant, the principal and the key, each prefixed by its length. lockSQL mixes in the OID of the key table that
-// the search path resolves, so two schemas or services in one database never share a lock.
+// the tenant, the principal and the key, each prefixed by its length. lockSQL mixes in the OID of the key table of
+// the schema, so two schemas or services in one database never share a lock.
 func (req Request) lockID() int64 {
 	sum, err := sumParts([]byte("github.com/jsell-rh/stego/registry/runtime/idempotency"), []byte(req.Tenant), []byte(req.Principal),
 		[]byte(req.Key))

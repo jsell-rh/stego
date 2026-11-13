@@ -8,6 +8,10 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/manifest"
 )
 
+// KeySchema is the schema of the key table that a service makes with its migration job, in which Wrap and Purge
+// name the table and its purge function when they get no schema, and which the service checks (ST-SUP-RP14-LC06).
+const KeySchema = "public"
+
 // PurgeFunction is the name of the purge function in the schema of the key table.
 const PurgeFunction = "idempotency_keys_purge"
 

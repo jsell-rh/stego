@@ -57,7 +57,7 @@ func TestPurge(t *testing.T) {
 		db, _ := testDB(t)
 		insertExpiring(t, db, "old", 10, now.Add(-time.Minute))
 		insertExpiring(t, db, "live", 5, now.Add(time.Minute))
-		n, err := Purge(ctx, db, PurgeOptions{Clock: clock, Sleep: func(context.Context, time.Duration) error { return nil }})
+		n, err := Purge(ctx, db, PurgeOptions{Schema: testSchema(t, db), Clock: clock, Sleep: func(context.Context, time.Duration) error { return nil }})
 		if err != nil || n != 10 {
 			t.Fatalf("Purge = %d, %v; want 10", n, err)
 		}
@@ -74,7 +74,7 @@ func TestPurge(t *testing.T) {
 		insertExpiring(t, db, "old", 2500, now.Add(-time.Hour))
 		rec := &countingExecer{db: db}
 		var pauses []time.Duration
-		n, err := Purge(ctx, rec, PurgeOptions{Batch: 1000, Pause: 250 * time.Millisecond, Clock: clock,
+		n, err := Purge(ctx, rec, PurgeOptions{Schema: testSchema(t, db), Batch: 1000, Pause: 250 * time.Millisecond, Clock: clock,
 			Sleep: func(_ context.Context, d time.Duration) error { pauses = append(pauses, d); return nil }})
 		if err != nil || n != 2500 {
 			t.Fatalf("Purge = %d, %v; want 2500", n, err)
@@ -121,7 +121,7 @@ func TestPurgeLimits(t *testing.T) {
 			t.Fatal(err)
 		}
 		start := time.Now()
-		_, err = Purge(ctx, db, PurgeOptions{Sleep: func(context.Context, time.Duration) error { return nil }})
+		_, err = Purge(ctx, db, PurgeOptions{Schema: testSchema(t, db), Sleep: func(context.Context, time.Duration) error { return nil }})
 		took := time.Since(start)
 		if pgCode(err) != "55P03" || took < PurgeLockTimeout || took > PurgeLockTimeout+5*time.Second {
 			t.Fatalf("Purge with a locked row gave %v after %v, want a lock timeout after about %v", err, took, PurgeLockTimeout)
@@ -137,7 +137,7 @@ func TestPurgeLimits(t *testing.T) {
 		if err := holder.Rollback(); err != nil {
 			t.Fatal(err)
 		}
-		if n, err := Purge(ctx, db, PurgeOptions{Sleep: func(context.Context, time.Duration) error { return nil }}); err != nil || n != 3 {
+		if n, err := Purge(ctx, db, PurgeOptions{Schema: testSchema(t, db), Sleep: func(context.Context, time.Duration) error { return nil }}); err != nil || n != 3 {
 			t.Fatalf("the next run gave %d, %v; want the 3 expired rows", n, err)
 		}
 		// The statement timeout is SET LOCAL in the transaction of the batch.
