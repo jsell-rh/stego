@@ -38,7 +38,7 @@ const (
 	// Service is the name of the service, which its audit rows and its telemetry carry.
 	Service = "user-management"
 	// DeclarationVersion is the SHA-256 of the declaration, which each audit row carries.
-	DeclarationVersion = "7b506044039a698b5d436b60e4c5e5581aa774206c54f1f8cbc7b57b17c3a351"
+	DeclarationVersion = "6a388dd67ba56c520a7b9a433fce8709d156b224dcb80fdecd4eb702dbedb1d1"
 	// subjectType is the subject type of the schema that a verified identity maps to.
 	subjectType = "user"
 	// tenantClaim is the dotted path of the claim that names the caller's tenant.
