@@ -8,7 +8,8 @@ import (
 
 // pooledWithClaim is the tenancy setting of a pooled service with the key org_id and the claim given.
 func pooledWithClaim(claim string) string {
-	return "tenancy:\n  kind: pooled\n  key: org_id\n  claim: " + strconv.Quote(claim) + "\n"
+	return "tenancy:\n  kind: pooled\n  key: org_id\n  claim: " + strconv.Quote(claim) + "\n  provisioning: {resource_type: service, provision: provision, retire: retire}\n" +
+		"authorization: {provider: spicedb, schema_path: authz/schema.zed, subject_from_identity: user}\n"
 }
 
 func TestTenancyClaim(t *testing.T) {

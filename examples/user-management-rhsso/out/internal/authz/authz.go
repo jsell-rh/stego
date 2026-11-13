@@ -26,6 +26,13 @@ import (
 // job writes it to the provider with WriteSchema (ST-SUP-RC29-OC23); generation never does (ST-SUP-RC29-OC13).
 const Schema = `definition user {}
 
+// The service-level resource that an operator provisions and retires tenants on, whose ID is the service name.
+definition service {
+	relation operator: user
+	permission provision = operator
+	permission retire = operator
+}
+
 definition organization {
 	relation owner: user
 	relation viewer: user
