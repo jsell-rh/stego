@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -352,6 +353,103 @@ func TestSmallListSearch(t *testing.T) {
 		if len(hiddenIDs) != 0 || len(noneIDs) != 0 || len(hiddenReads) != len(noneReads) || hiddenSearches != noneSearches {
 			t.Errorf("a filter that only hidden rows match gave %v in %d reads and %d searches, one that no row matches %v in %d reads and %d searches; want none in the same work",
 				hiddenIDs, len(hiddenReads), hiddenSearches, noneIDs, len(noneReads), noneSearches)
+		}
+	})
+}
+
+func TestSmallListOrder(t *testing.T) {
+	t.Run("ST-SUP-RP11-LC20-T06 An ordered list of an entity of small expected cardinality reads only the searched keys, and more keys than the bound fail closed", func(t *testing.T) {
+		e := newEnv(t)
+		// The principal may see o-10 to o-14; hidden rows sort before and after them, by key and by total.
+		var allowed []string
+		for i := range 25 {
+			id := fmt.Sprintf("o-%02d", i)
+			if i >= 10 && i < 15 {
+				allowed = append(allowed, id)
+			}
+			e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) VALUES ('t1', $1, $2)", id, int64(i%3))
+		}
+		var keys []string
+		port := &fakeDecision{decide: func(authz.EvaluationRequest) bool { return true }, search: func(r authz.SearchRequest) authz.SearchResult {
+			from := 0
+			if cursor, _, ok := r.Page.Token.CursorFor("fake"); ok {
+				fmt.Sscan(cursor, &from)
+			}
+			to := min(from+r.Page.Limit, len(keys))
+			var result authz.SearchResult
+			for _, id := range keys[from:to] {
+				result.Resources = append(result.Resources, resourceIn(t, "t1", "order", id))
+			}
+			if to < len(keys) {
+				result.Next = authz.NewPageToken("fake", fmt.Sprint(to), authz.Fresh())
+			}
+			return result
+		}}
+		rt := e.servedRuntime(t, port)
+		searched := orderEntity(t, true)
+		q := mustListQuery(t, "list-searched-orders", searched, "view")
+		tn, p := mustTenant(t, "t1"), mustPrincipal(t, "user:u-7")
+		list := func(request ListRequest) (ListResult[Order], []statement, error) {
+			rec := &statements{}
+			tx, err := tenant.Begin(context.Background(), e.traced(t, rec), tn, &sql.TxOptions{ReadOnly: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback() }()
+			h, err := bind(context.Background(), rt, tx, tn, p, q, noProbe{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			repo, err := Repo(h, searched)
+			if err != nil {
+				t.Fatal(err)
+			}
+			page, err := repo.List(context.Background(), request)
+			return page, rec.all(), err
+		}
+		// Every decision allows, so only the searched keys keep the hidden rows out.
+		keys = allowed
+		var got []string
+		after := Cursor{}
+		for range 10 {
+			page, seen, err := list(ListRequest{Limit: 2, After: after, Order: []OrderBy{{Field: "total", Descending: true}}, Where: []Equal{{Field: "total", Value: int64(1)}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, s := range seen {
+				if strings.Contains(s.sql, "app.orders") && !strings.Contains(s.sql, "= ANY(") {
+					t.Errorf("the ordered list of a small entity paged the table: %s", s.sql)
+				}
+			}
+			for _, item := range page.Items {
+				got = append(got, item.ID())
+			}
+			if !page.More {
+				break
+			}
+			after = page.Next
+		}
+		if want := []string{"o-10", "o-13"}; !slices.Equal(got, want) {
+			t.Errorf("the ordered list of total 1 gave %v, want the visible %v", got, want)
+		}
+		// One key over the bound fails closed, with an error that names the entity and the bound.
+		keys = make([]string, MaxSearchKeys+1)
+		for i := range keys {
+			keys[i] = fmt.Sprintf("k-%05d", i)
+		}
+		_, seen, err := list(ListRequest{Order: []OrderBy{{Field: "total"}}})
+		if !errors.Is(err, ErrTooManyKeys) || !strings.Contains(err.Error(), "entity order") || !strings.Contains(err.Error(), strconv.Itoa(MaxSearchKeys)) {
+			t.Errorf("an ordered list with %d searched keys gave %v, want ErrTooManyKeys that names the entity and the bound", len(keys), err)
+		}
+		for _, s := range seen {
+			if strings.Contains(s.sql, "app.orders") {
+				t.Errorf("the refused list read the table: %s", s.sql)
+			}
+		}
+		// The bound itself is taken.
+		keys = keys[:MaxSearchKeys]
+		if _, _, err := list(ListRequest{Order: []OrderBy{{Field: "total"}}}); err != nil {
+			t.Errorf("an ordered list with %d searched keys gave %v, want it taken", len(keys), err)
 		}
 	})
 }

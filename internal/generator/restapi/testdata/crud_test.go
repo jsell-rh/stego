@@ -1426,6 +1426,69 @@ func TestCrud(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RC33-OC09-T02 A search of an entity of small expected cardinality reads only the rows that the caller may see, so hidden rows that match do not fill its pages", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		// Event is of small expected cardinality. Red events that the caller may not see match the search, and sort
+		// both before and after its own two: 1100 in the default order (created_time descending) and by key before
+		// them, and 100 after them. A list that paged the table would read 1000 hidden rows first and give an empty
+		// first page with a cursor.
+		if _, err := e.admin.ExecContext(e.ctx, `INSERT INTO events (tenant_id, id, source, note, created_time, updated_time)
+SELECT $1, ('00000000-0000-4000-8000-' || lpad(g::text, 12, '0'))::uuid, 'red', 'match', now() + interval '1 day', now() FROM generate_series(1, 1100) g`, a.tenant.ID()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.admin.ExecContext(e.ctx, `INSERT INTO events (tenant_id, id, source, note, created_time, updated_time)
+SELECT $1, ('ffffffff-0000-4000-8000-' || lpad(g::text, 12, '0'))::uuid, 'red', 'match', now() - interval '1 day', now() FROM generate_series(1, 100) g`, a.tenant.ID()); err != nil {
+			t.Fatal(err)
+		}
+		var page func(text, cursor string) ([]string, string)
+		mine := map[string]bool{}
+		for range 2 {
+			mine[e.create(a, "red-events", "event", `{"note":"match"}`)] = true
+		}
+		// search gives the IDs of every page of the search, and the number of pages.
+		search := func(text string) (ids []string, pages int) {
+			cursor := ""
+			for pages < 5 {
+				got, next := page(text, cursor)
+				ids, pages = append(ids, got...), pages+1
+				if cursor = next; cursor == "" {
+					break
+				}
+			}
+			return ids, pages
+		}
+		page = func(text, cursor string) (ids []string, next string) {
+			q := url.Values{"search": {text}, "pageSize": {"10"}}
+			if cursor != "" {
+				q.Set("cursor", cursor)
+			}
+			r := e.send(a, http.MethodGet, "/api/v1/red-events?"+q.Encode(), "", "")
+			if r.status != http.StatusOK {
+				t.Fatalf("the search %q answered %d %s, want 200", text, r.status, r.body)
+			}
+			var page struct {
+				Items []map[string]any `json:"items"`
+				Next  string           `json:"next"`
+			}
+			must(t, json.Unmarshal(r.body, &page))
+			for _, item := range page.Items {
+				ids = append(ids, fmt.Sprint(item["id"]))
+			}
+			return ids, page.Next
+		}
+		// The first page holds both: no page is filled with hidden rows first. The search may give a cursor of the
+		// provider after them, whose page is empty.
+		first, _ := page("note = 'match'", "")
+		ids, pages := search("note = 'match'")
+		if len(first) != 2 || !mine[first[0]] || !mine[first[1]] || len(ids) != 2 || pages > 2 {
+			t.Errorf("the search of the caller's two events gave %v on its first page and %v in %d pages, want its two events on the first page", first, ids, pages)
+		}
+		if ids, pages := search("note = 'none'"); len(ids) != 0 || pages > 2 {
+			t.Errorf("a search that no row matches gave %v in %d pages, want none", ids, pages)
+		}
+	})
+
 	t.Run("ST-SUP-RC20-OC23-T04 Implicit fields are forced and filtered on the runtime data path, under their path prefixes", func(t *testing.T) {
 		e := service(t)
 		a := e.as("u-1", newTenant())
