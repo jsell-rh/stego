@@ -497,6 +497,25 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		if code := write(t, up, "tenant-b", `INSERT INTO public."cards" ("tenant_id", "id", "board_id") VALUES ('tenant-a', $1, $2)`, uuid.Must(uuid.NewV7()).String(), first); code != "42501" {
 			t.Errorf("a card written into another tenant gives %q, want 42501", code)
 		}
+		// A card of one tenant cannot refer to a board of another: the foreign key holds the tenant column.
+		if code := write(t, up, "tenant-b", `INSERT INTO public."cards" ("id", "board_id") VALUES ($1, $2)`, uuid.Must(uuid.NewV7()).String(), first); code != "23503" {
+			t.Errorf("a card of tenant-b that refers to a board of tenant-a gives %q, want 23503", code)
+		}
+		// The table of the step has the tenant wall of a table of the baseline: the same row-level security, the
+		// same policy text and the same grants.
+		wall := func(table string) string {
+			var state string
+			if err := up.QueryRow(`SELECT c.relrowsecurity::text || '|' || c.relforcerowsecurity::text || '|' || coalesce(c.relacl::text, '') || '|' ||
+  coalesce((SELECT pg_catalog.string_agg(p.policyname || ' ' || p.permissive || ' ' || p.roles::text || ' ' || p.cmd || ' ' || coalesce(p.qual, '') || ' ' || coalesce(p.with_check, ''), ';' ORDER BY p.policyname)
+    FROM pg_catalog.pg_policies p WHERE p.schemaname = 'public' AND p.tablename = c.relname), '')
+FROM pg_catalog.pg_class c WHERE c.oid = $1::pg_catalog.regclass`, "public."+table).Scan(&state); err != nil {
+				t.Fatal(err)
+			}
+			return state
+		}
+		if cards, boards := wall("cards"), wall("boards"); cards != boards || !strings.HasPrefix(cards, "true|true|") || !strings.Contains(cards, "stego_tenant") {
+			t.Errorf("the tenant wall of the step table cards is %q, want that of the baseline table boards, %q", cards, boards)
+		}
 		// The migration job of the release before runs again, as in a rollback of the job, and changes nothing.
 		before := catalog(t, up)
 		migrate(t, upCfg, up, func(ctx context.Context, conn *sql.Conn) error { return boardsbase.Migrate(ctx, conn) }, "boardsbase_access.json")
