@@ -201,6 +201,38 @@ func anchorRegistration(t *testing.T, source string) (int64, bool) {
 	return seconds, registered
 }
 
+func TestRetention(t *testing.T) {
+	t.Run("ST-SUP-RC28-OC06-T05 A retention of more than 1200 months is refused at generation", func(t *testing.T) {
+		for _, c := range []struct {
+			name    string
+			setting any
+			audit   string
+			ok      bool
+		}{
+			{"the setting 1200", 1200, "", true},
+			{"the setting 1201", 1201, "", false},
+			{"the setting 1e9", float64(1e9), "", false},
+			{"the declaration 1200 months", nil, "1200 months", true},
+			{"the declaration 9999 months", nil, "9999 months", false},
+		} {
+			ctx := customerContext(t, nil)
+			if c.setting != nil {
+				ctx.ComponentConfig["retention_months"] = c.setting
+			}
+			if c.audit != "" {
+				ctx.Audit = &types.Audit{Retention: c.audit}
+			}
+			_, _, err := new(Generator).Generate(ctx)
+			switch {
+			case c.ok && err != nil:
+				t.Errorf("%s: refused: %v", c.name, err)
+			case !c.ok && (err == nil || !strings.Contains(err.Error(), "1200")):
+				t.Errorf("%s: %v, want a refusal that names the bound", c.name, err)
+			}
+		}
+	})
+}
+
 func TestJobs(t *testing.T) {
 	t.Run("ST-SUP-RC28-OC08-T01 The emitted job schedule registers the anchor job at the anchor period of the audit-log component", func(t *testing.T) {
 		c := component(t)

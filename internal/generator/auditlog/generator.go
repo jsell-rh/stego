@@ -35,6 +35,10 @@ const (
 	schema           = "public"
 )
 
+// MaxRetentionMonths is the longest retention that generation takes, 100 years, so that a huge value is refused here
+// and not at the first maintenance run of audit_maintain (#239 review).
+const MaxRetentionMonths = 1200
+
 // retentionText is the grammar of the declaration's audit.retention: a whole number of months.
 var retentionText = regexp.MustCompile(`^([1-9][0-9]{0,3}) months?$`)
 
@@ -157,7 +161,11 @@ func retention(setting any, declared string) (int, error) {
 		if m == nil {
 			return 0, fmt.Errorf("audit-log: the audit retention %q is not a number of months, such as 13 months", declared)
 		}
-		return strconv.Atoi(m[1])
+		months, err := strconv.Atoi(m[1])
+		if err != nil || months > MaxRetentionMonths {
+			return 0, fmt.Errorf("audit-log: the audit retention %q is longer than %d months", declared, MaxRetentionMonths)
+		}
+		return months, nil
 	}
 	var months int
 	switch v := setting.(type) {
@@ -171,8 +179,8 @@ func retention(setting any, declared string) (int, error) {
 			months = 0
 		}
 	}
-	if months < 1 {
-		return 0, fmt.Errorf("audit-log: the component setting retention_months %v is not a whole number of at least 1", setting)
+	if months < 1 || months > MaxRetentionMonths {
+		return 0, fmt.Errorf("audit-log: the component setting retention_months %v is not a whole number of 1 to %d", setting, MaxRetentionMonths)
 	}
 	return months, nil
 }

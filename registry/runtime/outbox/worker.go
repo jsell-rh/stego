@@ -39,7 +39,7 @@ type Destination struct {
 	StateHook StateHook
 }
 
-// WorkerConfig holds the limits of the worker. NewWorker refuses a value outside its bounds (ST-SUP-RC18-OC16).
+// WorkerConfig holds the limits of the worker. NewWorker refuses a value outside its bounds (ST-SUP-RP01-LC05, ST-SUP-RP01-LC23).
 type WorkerConfig struct {
 	Concurrency    int
 	PollInterval   time.Duration
@@ -234,11 +234,11 @@ func (w *Worker) Stats() WorkerStats {
 	}
 }
 
-// Run claims and steps messages with at most Concurrency at one time (ST-SUP-RC18-OC17) until StopClaiming or the
+// Run claims and steps messages with at most Concurrency at one time (ST-SUP-RP01-LC05) until StopClaiming or the
 // end of ctx. Claims run on a claim context that StopClaiming ends; handlers and lookups run on a separate work
 // context that only the end of ctx or the drain bound of Finish ends, so StopClaiming lets every claimed message
 // finish its step (ST-SUP-RP09-LC06). Run waits for every step that started, and a step that completed is still
-// recorded (ST-SUP-RC18-OC23). A handler that ignores its context can hold up the end; no goroutine is left behind
+// recorded (ST-SUP-RP01-LC05). A handler that ignores its context can hold up the end; no goroutine is left behind
 // to hide that. Run returns nil after StopClaiming, the cancellation of ctx when ctx ended, and an error on a second
 // run.
 func (w *Worker) Run(ctx context.Context) error {

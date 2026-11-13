@@ -124,7 +124,7 @@ func workerParts(sink audit.Sink, notify *deliveries) WorkerParts {
 			maintainer, err := audit.NewMaintainer(audit.MaintainConfig{Lease: of, DB: db, Outbox: q})
 			return anchorer, maintainer, err
 		},
-		AnchorPeriod: time.Hour,
+		AnchorPeriod: time.Hour, RetentionMonths: 12,
 		TenantSchema: "public",
 	}
 }
