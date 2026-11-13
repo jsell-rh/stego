@@ -34,14 +34,14 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261113152110-5bb6a55a9a94
+        module_version: v0.0.0-20261113174239-139cc5f8b91d
         vcs: git
-        revision: 5bb6a55a9a946e3305a277cd6bea55c5b06a0184
+        revision: 139cc5f8b91dae74d27ffce93beac7c7ebe85426
         source_state: clean
     service_name: user-management
     service_hash: 6a388dd67ba56c520a7b9a433fce8709d156b224dcb80fdecd4eb702dbedb1d1
     registry_sha: env-override
-    registry_content_sha256: 0a07e1dbd41aa46ac0e5d53a4a2205dfec65582b7fb32a7eaf27e285397e9b44
+    registry_content_sha256: b7ad95e118226fad3143c3d78e2a4542b052965cbdc1c5523c6ec84c91b5a241
     components:
         audit-log:
             version: 1.1.0
@@ -65,8 +65,8 @@ last_applied:
             version: 2.1.0
             sha: f9e7ee9c85ef6e0b7304429e7a6ba59f6e99c5bd249720221fe76d529574e465
         postgres-adapter:
-            version: 6.1.0
-            sha: c0a3e3a283e4e037f1441cb65833981fdfe9eec745ca5be9e9d08ef8c589e0f5
+            version: 6.2.0
+            sha: b949a4ac00015f1e401334edffd23b1633fa29ba88124a0db046ca593fb3906c
         query:
             version: 1.1.0
             sha: 9b4a5a4b5afcbc9d23c6d02d78b3a227ff445b857bef9e73c547af184d7226e0
@@ -148,7 +148,7 @@ last_applied:
         internal/storage/migrate.go: 22fb2b6a1d2cd44dee9a8e5195375a30e7d74973383af6e2c3858b4eb8df100b
         internal/storage/migrations/001_initial.sql: ab78775163028811859a9a67ca89769c43529c4a72451340e6551134668393f9
         internal/storage/runtime_access.go: a2cf0172d9113da261aff6cca3349d065ba2fe748a2af36cfd915cdfc3157fce
-        internal/storage/schema_generation.go: 6305f93b0cfdec0fbf69e213ca2d504ed75e6a42bdf4c58052791978403fa793
+        internal/storage/schema_generation.go: eac0cae3fc272d0dfc546f23a7fbd19d5579a530dbc0331be3aa08f7969860c5
         internal/storage/schema_manifest.go: 74c82d11ec859808d471258380c0c94e984da29d178b5d7d485c8a3e6f800b50
         internal/storage/tables.go: 327a9ad18567353433f3d21c6ce77cc4cd10332c8fb40aa35b5dd0441a061f4e
         internal/tenancy/migrations/roles.sql: 131dcb112a94f82ead145bcb5797c5915ad94a230564e2181883d19944450fc9

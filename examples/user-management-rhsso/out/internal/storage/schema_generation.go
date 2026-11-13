@@ -13,7 +13,12 @@ import (
 )
 
 const SchemaGeneration = "tables-v1"
-const SchemaDefinition = "bcfa51e9f30f1fa4a2e2e9928a292a4d2cf59bd6f843acc51a43a22c9ad2297b"
+
+// SchemaDefinition is the digest of the stored shape of the baseline, which the marker of a database that this
+// release made holds; schemaDefinitionBefore is the digest of the entities and the collections of the same baseline,
+// which a release before ST-SUP-RC01-OC42 wrote, and the marker check accepts it too.
+const SchemaDefinition = "4cea00f7330bb233c8831bafce608b622684b9e99f5cd69aeb190e31c8762009"
+const schemaDefinitionBefore = "bcfa51e9f30f1fa4a2e2e9928a292a4d2cf59bd6f843acc51a43a22c9ad2297b"
 
 var ErrSchemaGeneration = errors.New("database schema generation is not supported")
 
@@ -237,7 +242,7 @@ func readSchemaGeneration(ctx context.Context, tx *sql.Tx) (bool, error) {
 	for rows.Next() {
 		var singleton bool
 		var generation, definition string
-		if rows.Scan(&singleton, &generation, &definition) != nil || !singleton || generation != SchemaGeneration || definition != SchemaDefinition {
+		if rows.Scan(&singleton, &generation, &definition) != nil || !singleton || generation != SchemaGeneration || (definition != SchemaDefinition && definition != schemaDefinitionBefore) {
 			return false, ErrSchemaGeneration
 		}
 		marked++
