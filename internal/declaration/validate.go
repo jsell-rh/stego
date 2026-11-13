@@ -66,6 +66,9 @@ type ValidationResult struct {
 	Errors []ValidationError
 	// Settings holds the settings of the declaration as checking resolved them (ResolvedSettings).
 	Settings []Setting
+	// Warnings holds the notices that checking gives about an accepted part of the declaration, such as a
+	// deprecated alias (Warnings). A warning does not refuse the declaration (decision on ST-DECL-Q15).
+	Warnings []ValidationError
 }
 
 // HasErrors returns true if the result contains any validation errors.

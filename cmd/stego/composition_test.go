@@ -74,16 +74,46 @@ func TestDeclareComposition(t *testing.T) {
 		refusedNaming(t, td02+"mixins: [kafka-events]\n", "mixins[0]", "kafka-events", "durable-events")
 	})
 
-	for _, c := range []struct{ id, without, path, name string }{
-		{"ST-DECL-UC09-R03-T01 A controller with no lease TTL is refused, naming the controller and the field", "lease_ttl", "controllers[0].lease_ttl", "lease TTL"},
-		{"ST-DECL-UC09-R03-T02 A controller with no sources is refused, naming the controller and the field", "sources", "controllers[0].sources", "sources"},
-		{"ST-DECL-UC09-R03-T03 A controller with no resync is refused, naming the controller and the field", "resync", "controllers[0].resync", "resync"},
-		{"ST-DECL-UC09-R03-T04 A controller with no replicas is refused, naming the controller and the field", "replicas", "controllers[0].replicas", "replicas"},
-	} {
-		t.Run(c.id, func(t *testing.T) {
-			refusedNaming(t, td02+provisionerController(c.without), c.path, `"provisioner"`, c.name)
-		})
-	}
+	t.Run("ST-DECL-UC09-R02-T03 event-publisher is accepted as a deprecated alias, with a warning", func(t *testing.T) {
+		project := td02Project(t, td02+"mixins: [event-publisher]\n")
+		document, run := validateJSON(t, project)
+		if run.code != 0 || !document.Accepted || len(document.Faults) != 0 {
+			t.Fatalf("the mixin event-publisher was refused: exit %d\n%s%s", run.code, run.stdout, run.stderr)
+		}
+		if len(document.Warnings) != 1 {
+			t.Fatalf("want one warning, got %+v", document.Warnings)
+		}
+		warning := document.Warnings[0]
+		for _, text := range []string{"event-publisher", "deprecated alias", "durable-events", "kafka-events"} {
+			if !strings.Contains(warning.Message, text) {
+				t.Errorf("the warning does not name %s: %+v", text, warning)
+			}
+		}
+		if warning.Path != "mixins[0]" || warning.Found != "event-publisher" || warning.Rule != "deprecated-alias" {
+			t.Errorf("want the warning at mixins[0] with the rule deprecated-alias, got %+v", warning)
+		}
+		// A person reads the same warning after the faults.
+		if prose := stegoIn(t, project, nil, "validate"); prose.code != 0 || !strings.Contains(prose.stdout, "1 warning(s)") || !strings.Contains(prose.stdout, "[deprecated-alias] mixins[0]") {
+			t.Errorf("the prose of stego validate gives no warning: exit %d\n%s", prose.code, prose.stdout)
+		}
+		// A declaration with no alias gets no warning.
+		if plain, _ := validateJSON(t, td02Project(t, td02)); plain.Warnings == nil || len(plain.Warnings) != 0 {
+			t.Errorf("want an empty list of warnings for ST-DECL-TD02, got %+v", plain.Warnings)
+		}
+	})
+
+	t.Run("ST-DECL-UC09-R03-T01 A controller with no lease TTL is refused, naming the controller and the field", func(t *testing.T) {
+		refusedNaming(t, td02+provisionerController("lease_ttl"), "controllers[0].lease_ttl", `"provisioner"`, "lease TTL")
+	})
+	t.Run("ST-DECL-UC09-R03-T02 A controller with no sources is refused, naming the controller and the field", func(t *testing.T) {
+		refusedNaming(t, td02+provisionerController("sources"), "controllers[0].sources", `"provisioner"`, "sources")
+	})
+	t.Run("ST-DECL-UC09-R03-T03 A controller with no resync is refused, naming the controller and the field", func(t *testing.T) {
+		refusedNaming(t, td02+provisionerController("resync"), "controllers[0].resync", `"provisioner"`, "resync")
+	})
+	t.Run("ST-DECL-UC09-R03-T04 A controller with no replicas is refused, naming the controller and the field", func(t *testing.T) {
+		refusedNaming(t, td02+provisionerController("replicas"), "controllers[0].replicas", `"provisioner"`, "replicas")
+	})
 
 	t.Run("ST-DECL-UC09-R04-T01 A declared invariant of each known kind with its fields is accepted", func(t *testing.T) {
 		service := td02WithTimes + `invariants:

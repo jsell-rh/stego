@@ -39,6 +39,26 @@ var invariantFieldForm = fieldNameForm
 // not of the form: in SQL it never matches, so the index or constraint would hold for no row.
 var whereTerm = regexp.MustCompile(`^([a-z][a-z0-9_]{0,62}) *(=|<>|!=) *(true|false|-?[0-9]{1,18}|'[A-Za-z0-9 _.:-]{0,255}')$`)
 
+// mixinEventPublisher is the deprecated alias of durable-events plus kafka-events (ST-SUP-INV17).
+const mixinEventPublisher = "event-publisher"
+
+// Warnings gives the notices that checking gives about the accepted parts of the declaration (decision on
+// ST-DECL-Q15): the mixin event-publisher is a deprecated alias of durable-events and kafka-events (ST-DECL-INV28).
+// A warning names only what the declaration holds and fixed text, so it holds no secret.
+func Warnings(service *types.ServiceDeclaration) []ValidationError {
+	if service == nil {
+		return nil
+	}
+	var warnings []ValidationError
+	for i, mixin := range service.Mixins {
+		if mixin == mixinEventPublisher {
+			warnings = append(warnings, ValidationError{Category: "mixin", Rule: "deprecated-alias", Path: fmt.Sprintf("mixins[%d]", i), Found: mixin, Allowed: []string{mixinDurableEvents, mixinKafkaEvents},
+				Message: fmt.Sprintf("the mixin %s is a deprecated alias of the mixins %s and %s; bind %s and %s instead", mixinEventPublisher, mixinDurableEvents, mixinKafkaEvents, mixinDurableEvents, mixinKafkaEvents)})
+		}
+	}
+	return warnings
+}
+
 // ModeUnknown is the specification ST-DECL-SP14: Modes names a mode other than api, worker or controller.
 func ModeUnknown(service *types.ServiceDeclaration) bool {
 	if service == nil {
