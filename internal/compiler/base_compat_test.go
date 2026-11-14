@@ -257,7 +257,7 @@ func TestBaseCompat(t *testing.T) {
 	t.Run("ST-GEN-INV33-T A head that adds pooled tenancy to a base with no tenancy, which adds the tenant column to 001_initial, is refused", func(t *testing.T) {
 		t.Parallel()
 		td01 := string(userManagementBase(t))
-		single := strings.Replace(td01, "tenancy:\n  kind: pooled\n  key: tenant_id\n  claim: tenant\n", "", 1)
+		single := strings.Replace(td01, "tenancy:\n  kind: pooled\n  key: tenant_id\n  claim: tenant\n  provisioning: {resource_type: service, provision: provision, retire: retire}\n", "", 1)
 		if single == td01 {
 			t.Fatal("the base still has its tenancy")
 		}
