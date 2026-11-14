@@ -74,8 +74,17 @@ func database(t *testing.T) *sql.DB {
 		if ownerDB != nil {
 			ownerDB.Close()
 		}
-		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		// DROP DATABASE waits for a checkpoint of the full server. The time of
+		// that checkpoint changes with the writes of all tests on the server: in
+		// run 43594001349 one checkpoint took 5.2 s, and a fixed limit of 5 s
+		// cancelled the drop. Thus the cleanup waits until each statement ends.
+		// Only the deadline of the test binary limits the wait.
+		cleanup := context.Background()
+		if deadline, ok := t.Deadline(); ok {
+			var cancel context.CancelFunc
+			cleanup, cancel = context.WithDeadline(cleanup, deadline)
+			defer cancel()
+		}
 		for _, query := range []string{"DROP DATABASE IF EXISTS " + name + " WITH (FORCE)", "DROP ROLE IF EXISTS " + user, "DROP ROLE IF EXISTS " + owner} {
 			if _, err := admin.ExecContext(cleanup, query); err != nil {
 				t.Error(err)
