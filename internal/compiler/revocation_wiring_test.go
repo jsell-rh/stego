@@ -14,9 +14,9 @@ import (
 // testdata/revocation_wiring/check runs in the module of the generated service: it starts a fake SpiceDB server and a
 // fake token key set in its own process, runs the migration job and the service binary, and drives the service over
 // HTTP. On the runtime data path a create is public with the owner from the caller, and a field subject does not
-// change after the create (ST-SUP-RC29-OC01, ST-SUP-Q118), so the tuple writes of the tests are the create's touch of
-// the owner and the delete's delete of the relation; share and unshare commands come with the typed relation helpers
-// of the command contract package (orchestrator, 2026-11-13).
+// change after the create (ST-SUP-RC29-OC01, ST-SUP-Q118), so viewers are added and removed by the declared commands
+// share-document and unshare-document, whose fills write the relation document#viewer through the typed relation
+// helpers of the command contract (ST-SUP-RC32-OC13; orchestrator, 2026-11-13).
 
 // revocationFixture is the folder of the check of the revocation wiring tests.
 const revocationFixture = "testdata/revocation_wiring"
@@ -40,8 +40,9 @@ definition service {
 `
 
 // revocationService is the declaration of the service: the entity Document with resource type document, a public
-// create whose owner is the caller, and the collection documents; idempotency on create; and the bounds of a wait
-// for a revocation: a cap of 3 s, at most 3 waits, and at most 2 of one tenant.
+// create whose owner is the caller, and the collection documents; the commands share-document and unshare-document,
+// which write the relation document#viewer; idempotency on create; and the bounds of a wait for a revocation: a cap
+// of 3 s, at most 3 waits, and at most 2 of one tenant.
 const revocationService = `kind: service
 name: docs-svc
 archetype: rest-crud
@@ -73,6 +74,9 @@ overrides:
   postgres-adapter:
     schema_generation: tables-v1
     writer_lease: "off"
+  command:
+    proto_files:
+      - {path: proto/docs.proto, import_path: docs/v1/docs.proto}
   spicedb-authz:
     wait_cap: 3s
     waiter_limit: 3
@@ -90,6 +94,23 @@ collections:
   documents:
     entity: Document
     operations: [create, read, update, delete, list]
+commands:
+  - name: share-document
+    writes: [Document]
+    resource_type: document
+    permission: edit
+    resource_member: documentId
+    route: POST /documents/{documentId}/viewers
+    fill: share-document
+    relationships_written: [document#viewer]
+  - name: unshare-document
+    writes: [Document]
+    resource_type: document
+    permission: edit
+    resource_member: documentId
+    route: POST /documents/{documentId}/unshare
+    fill: unshare-document
+    relationships_written: [document#viewer]
 `
 
 // TestRevocationWiring generates the service of revocationService with stego apply, builds it with the pinned Go,
@@ -106,11 +127,11 @@ func TestRevocationWiring(t *testing.T) {
 		t.Fatal("STEGO_TEST_POSTGRES_DSN is not set: this test needs a local PostgreSQL server")
 	}
 	p := newRegistryProject(t, stegoBinary(t), runtimeArchetype)
-	p.write("authz/schema.zed", revocationSchema)
-	p.write("service.yaml", revocationService)
-	if err := os.MkdirAll(filepath.Join(p.dir, "fills"), 0o755); err != nil {
+	if err := os.CopyFS(p.dir, os.DirFS(filepath.Join(revocationFixture, "project"))); err != nil {
 		t.Fatal(err)
 	}
+	p.write("authz/schema.zed", revocationSchema)
+	p.write("service.yaml", revocationService)
 	p.stego("apply")
 
 	t.Run("ST-SUP-RC29-OC18-T02 The status route comes from the operation table", func(t *testing.T) {
@@ -152,7 +173,7 @@ func TestRevocationWiring(t *testing.T) {
 			t.Fatalf("the check %s of the generated service did not run and pass (go test: %v):\n%s", strings.SplitN(name, "_", 2)[0], runErr, output)
 		}
 	}
-	t.Run("ST-SUP-RC29-OC16-T01 A create that writes a tuple answers pending, and its replay is byte for byte", passed)
+	t.Run("ST-SUP-RC29-OC16-T01 A revoking unshare answers pending, and its replay is byte for byte", passed)
 	t.Run("ST-SUP-RC29-OC16-T02 An operation that writes no tuple sends no revocation header", passed)
 	t.Run("ST-SUP-RC29-OC17-T01 The status route answers pending, then complete with no token", passed)
 	t.Run("ST-SUP-RC29-OC17-T03 The status route reports a parked revocation", passed)
@@ -162,4 +183,5 @@ func TestRevocationWiring(t *testing.T) {
 	t.Run("ST-SUP-RC29-OC19-T02 A waiting request holds no database connection", passed)
 	t.Run("ST-SUP-RC29-OC19-T03 A request over the waiter limit is answered at once", passed)
 	t.Run("ST-SUP-RC20-OC41-T01 A list that names the caller's write waits for it and shows it", passed)
+	t.Run("ST-SUP-RC32-OC13-T01 A fill shares and unshares a document through the typed relation helpers", passed)
 }

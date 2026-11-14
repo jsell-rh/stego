@@ -156,12 +156,22 @@ type command struct {
 	creates   bool
 	pattern   string
 	relations []string
-	effects   []string
+	// helpers are the typed relation helpers of the declared relations (ST-SUP-RC32-OC13).
+	helpers []relationHelper
+	effects []string
 	// effectNames are the declared effect names of each effect destination, which Stage holds the fill to
 	// (ST-SUP-RP10-LC07).
 	effectNames map[string][]string
 	retry       int
 	lock        string // a Go duration expression, or empty for the default
+}
+
+// relationHelper is the pair of typed helpers of one relation that a command declares in relationships_written: the
+// relation, and the written entity whose rows are the relation's resources.
+type relationHelper struct {
+	resourceType, relation string
+	entity                 *entity
+	relate, unrelate       string
 }
 
 // resource is the resource of a command's permission: its type and the table of the entity that has it.
@@ -314,6 +324,19 @@ func (m *model) planCommand(c gen.Command, byName map[string]types.Entity, plann
 			return nil, fmt.Errorf("command: the command %s writes the relation %q, which is not resource_type#relation", decl.Name, text)
 		}
 		cmd.relations = append(cmd.relations, text)
+		resourceType, relation, _ := strings.Cut(text, "#")
+		h := relationHelper{resourceType: resourceType, relation: relation,
+			relate: cmd.goName + "Relate" + mixedCase(relation), unrelate: cmd.goName + "Unrelate" + mixedCase(relation)}
+		for _, e := range cmd.writes {
+			if e.resourceType == resourceType {
+				h.entity = e
+				break
+			}
+		}
+		if h.entity == nil {
+			return nil, fmt.Errorf("command: the command %s writes the relation %s, but it writes no entity of the resource type %s, whose rows the relation's resources are", decl.Name, text, resourceType)
+		}
+		cmd.helpers = append(cmd.helpers, h)
 	}
 	seen, named := map[string]bool{}, map[string]bool{}
 	for _, effect := range decl.Effects {
@@ -457,6 +480,11 @@ func (m *model) takeNames() error {
 		}
 		for _, r := range c.refusals {
 			if err := take("the refusal "+r.name+" of "+c.decl.Name, r.goName); err != nil {
+				return err
+			}
+		}
+		for _, h := range c.helpers {
+			if err := take("the relation "+h.resourceType+"#"+h.relation+" of "+c.decl.Name, h.relate, h.unrelate); err != nil {
 				return err
 			}
 		}

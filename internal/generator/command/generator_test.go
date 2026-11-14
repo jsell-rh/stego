@@ -552,3 +552,26 @@ func newProject(t *testing.T, ctx gen.Context, extra map[string][]byte) *project
 	p.mustGo("mod", "tidy")
 	return p
 }
+
+func TestRelationHelpers(t *testing.T) {
+	t.Run("ST-SUP-RC32-OC13-T02 The contract gives typed helpers for each declared relation, and refuses a relation with no written entity of its type", func(t *testing.T) {
+		contract := string(generated(t, commandContext(t, declaration(t), commandSlot))["commands/commands.go"])
+		for _, want := range []string{
+			"func ReserveAndChargeRelateHolder(ctx context.Context, h *ReserveAndChargeHandle, on LoadedOrder, subjectType, subjectID string) error {",
+			"func ReserveAndChargeUnrelateHolder(ctx context.Context, h *ReserveAndChargeHandle, on LoadedOrder, subjectType, subjectID string) error {",
+			`authz.NewResource(h.Tenant(), "order", on.ID())`,
+			`h.Authz().Relate(ctx, on, authz.Tuple{Resource: resource, Relation: "holder",`,
+			`h.Authz().Unrelate(ctx, on, authz.Tuple{Resource: resource, Relation: "holder",`,
+			"\"github.com/jsell-rh/stego/registry/runtime/authz\"",
+		} {
+			if !strings.Contains(contract, want) {
+				t.Fatalf("the command contract does not hold %q", want)
+			}
+		}
+		svc := declaration(t)
+		svc.Commands[0].RelationshipsWritten = []string{"order#holder", "hold#creator", "folder#viewer"}
+		if _, _, err := new(Generator).Generate(commandContext(t, svc, commandSlot)); err == nil || !strings.Contains(err.Error(), "folder#viewer") {
+			t.Fatalf("a relation of a resource type that the command writes no entity of gave %v, want a refusal that names it", err)
+		}
+	})
+}

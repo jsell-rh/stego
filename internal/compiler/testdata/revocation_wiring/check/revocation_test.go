@@ -696,6 +696,24 @@ func (s *service) create(t *testing.T, c caller, key string) (string, reply) {
 	return created.ID, r
 }
 
+// viewer runs the command share-document, or unshare-document when remove is set, as c on the Document id for the
+// user, with the idempotency key of the name given, or a new key when the name is empty, and gives the answer.
+func (s *service) viewer(t *testing.T, c caller, id string, user caller, remove bool, key string) reply {
+	t.Helper()
+	path := basePath + "/documents/" + id + "/viewers"
+	if remove {
+		path = basePath + "/documents/" + id + "/unshare"
+	}
+	if key == "" {
+		key = "new-" + keyOf(path+user.subject+time.Now().String())
+	}
+	r := s.do(t, &c, http.MethodPost, path, `{"user_id":"`+user.subject+`"}`, "Idempotency-Key", keyOf(key))
+	if r.code != http.StatusOK && r.code != http.StatusCreated {
+		t.Fatalf("the command on %s answered %d, want 200 or 201: %s", path, r.code, r.body)
+	}
+	return r
+}
+
 // location is the Authz-Revocation-Location of a write that enqueued a tuple; it fails the test when the write does
 // not answer Authz-Revocation: pending with a location under /authz/revocations/.
 func location(t *testing.T, r reply) string {
@@ -757,16 +775,21 @@ func TestRevocationWiring(t *testing.T) {
 	alice, bob := s.as(t, "alice", "t1"), s.as(t, "bob", "t1")
 	aliceT2, carol := s.as(t, "alice", "t2"), s.as(t, "carol", "t2")
 
-	t.Run("ST-SUP-RC29-OC16-T01 A create that writes a tuple answers pending, and its replay is byte for byte", func(t *testing.T) {
-		id, first := s.create(t, alice, "k-oc16-1")
-		path := location(t, first)
+	t.Run("ST-SUP-RC29-OC16-T01 A revoking unshare answers pending, and its replay is byte for byte", func(t *testing.T) {
 		stop := s.startRelay(t)
+		id, created := s.create(t, alice, "k-oc16-1")
+		s.complete(t, alice, location(t, created))
+		s.complete(t, alice, location(t, s.viewer(t, alice, id, bob, false, "")))
+		stop()
+		first := s.viewer(t, alice, id, bob, true, "k-oc16-1u")
+		path := location(t, first)
+		stop = s.startRelay(t)
 		s.complete(t, alice, path)
 		stop()
-		replay := s.do(t, &alice, http.MethodPost, basePath+"/documents", `{"title":"document k-oc16-1"}`, "Idempotency-Key", keyOf("k-oc16-1"))
+		replay := s.viewer(t, alice, id, bob, true, "k-oc16-1u")
 		if replay.code != first.code || string(replay.body) != string(first.body) || replay.header.Get("Idempotent-Replayed") != "true" ||
 			replay.header.Get(authz.RevocationHeader) != "pending" || replay.header.Get(authz.RevocationLocationHeader) != path {
-			t.Fatalf("the replay of the create of %s answered %d %v %s, want the stored answer, still pending at %s", id, replay.code, replay.header, replay.body, path)
+			t.Fatalf("the replay of the unshare of %s answered %d %v %s, want the stored answer, still pending at %s", id, replay.code, replay.header, replay.body, path)
 		}
 	})
 
@@ -784,12 +807,17 @@ func TestRevocationWiring(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RC29-OC17-T01 The status route answers pending, then complete with no token", func(t *testing.T) {
-		_, created := s.create(t, alice, "k-oc17-1")
-		path := location(t, created)
+		stop := s.startRelay(t)
+		id, created := s.create(t, alice, "k-oc17-1")
+		s.complete(t, alice, location(t, created))
+		s.complete(t, alice, location(t, s.viewer(t, alice, id, bob, false, "")))
+		stop()
+		// The unshare revokes bob's viewer relation.
+		path := location(t, s.viewer(t, alice, id, bob, true, ""))
 		if r := s.do(t, &alice, http.MethodGet, path, ""); r.code != http.StatusOK || r.state(t) != "pending" {
 			t.Fatalf("the status before the delivery is %d %s, want 200 pending", r.code, r.body)
 		}
-		stop := s.startRelay(t)
+		stop = s.startRelay(t)
 		defer stop()
 		s.complete(t, alice, path)
 	})
@@ -906,6 +934,38 @@ func TestRevocationWiring(t *testing.T) {
 		}
 		if r := s.do(t, &bob, http.MethodGet, basePath+"/documents", "", authz.RevocationAfterHeader, "not-an-id"); r.code != http.StatusBadRequest {
 			t.Fatalf("a list with a bad %s answered %d, want 400", authz.RevocationAfterHeader, r.code)
+		}
+	})
+
+	t.Run("ST-SUP-RC32-OC13-T01 A fill shares and unshares a document through the typed relation helpers", func(t *testing.T) {
+		stop := s.startRelay(t)
+		defer stop()
+		id, created := s.create(t, alice, "k-oc13-1")
+		s.complete(t, alice, location(t, created))
+		read := func() int { return s.do(t, &bob, http.MethodGet, basePath+"/documents/"+id, "").code }
+		if code := read(); code != http.StatusNotFound {
+			t.Fatalf("bob read alice's document before the share: %d, want 404", code)
+		}
+		s.complete(t, alice, location(t, s.viewer(t, alice, id, bob, false, "")))
+		want := relationship{resourceType: "document", relation: "viewer", subjectType: "user", subjectID: bob.subject}
+		want.resourceID, _ = authz.ResourceID(alice.tenant, id)
+		if !s.fake.holds(want) {
+			t.Fatalf("the fake does not hold %s after the share", want)
+		}
+		if code := read(); code != http.StatusOK {
+			t.Fatalf("bob read the shared document: %d, want 200", code)
+		}
+		s.complete(t, alice, location(t, s.viewer(t, alice, id, bob, true, "")))
+		if s.fake.holds(want) {
+			t.Fatalf("the fake still holds %s after the unshare", want)
+		}
+		if code := read(); code != http.StatusNotFound {
+			t.Fatalf("bob read the document after the unshare: %d, want 404", code)
+		}
+		// Bob, a viewer only, may not share: the command decides edit on the row first.
+		r := s.do(t, &bob, http.MethodPost, basePath+"/documents/"+id+"/viewers", `{"user_id":"`+bob.subject+`"}`, "Idempotency-Key", keyOf("k-oc13-bob"))
+		if r.code != http.StatusNotFound {
+			t.Fatalf("bob shared alice's document: %d, want 404", r.code)
 		}
 	})
 
