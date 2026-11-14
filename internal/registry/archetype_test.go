@@ -117,8 +117,8 @@ func TestLiveRegistryLoadsAllArchetypeComponents(t *testing.T) {
 	if restAPI == nil {
 		t.Fatal("Component(rest-api) returned nil")
 	}
-	if restAPI.Version != "4.2.4" {
-		t.Errorf("rest-api Version = %q, want %q", restAPI.Version, "4.2.4")
+	if restAPI.Version != "4.3.0" {
+		t.Errorf("rest-api Version = %q, want %q", restAPI.Version, "4.3.0")
 	}
 
 	pg := reg.Component("postgres-adapter")

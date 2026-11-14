@@ -1,6 +1,9 @@
+# Version 1.1.0 holds the revocation status route in the operation-to-permission table, from which alone the router
+# registers it (ST-SUP-RC29-OC18), and the settings wait_cap, waiter_limit and tenant_waiter_limit of a wait for a
+# revocation (ST-SUP-RC29-OC19).
 kind: component
 name: spicedb-authz
-version: 1.0.0
+version: 1.1.0
 stage: ga
 output_namespace: internal/authz
 
@@ -11,6 +14,15 @@ config:
   watch_interval:
     type: string
     default: 1s
+  wait_cap:
+    type: string
+    default: 10s
+  waiter_limit:
+    type: int
+    default: 100
+  tenant_waiter_limit:
+    type: int
+    default: 10
 
 requires:
   - auth-provider
