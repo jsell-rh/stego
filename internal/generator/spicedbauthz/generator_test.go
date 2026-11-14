@@ -629,13 +629,13 @@ func TestWaitSettings(t *testing.T) {
 			ctx.ComponentConfig = config
 			return ctx
 		}
-		for _, cap := range []string{"1s", "10s", "30s"} {
+		for _, cap := range []string{"1s", "10s", "25s"} {
 			if !strings.Contains(emitted(t, generate(t, with(cap)), "authz.go"), "wait_cap: "+cap) {
 				t.Errorf("the wait cap %s is not in the emitted settings", cap)
 			}
 		}
-		for _, cap := range []string{"30.001s", "31s", "87600h", "2562047h"} {
-			refused(t, with(cap), "wait_cap", "more than 30s", "write timeout")
+		for _, cap := range []string{"25.001s", "30s", "31s", "87600h", "2562047h"} {
+			refused(t, with(cap), "wait_cap", "more than 25s", "write timeout")
 		}
 		for _, cap := range []string{"0s", "-1s", "ten"} {
 			refused(t, with(cap), "wait_cap", "not a positive duration")
