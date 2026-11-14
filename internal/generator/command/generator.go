@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 
+	authzschema "github.com/jsell-rh/stego/internal/declaration"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/types"
 )
@@ -335,6 +336,14 @@ func (m *model) planCommand(c gen.Command, byName map[string]types.Entity, plann
 		}
 		if h.entity == nil {
 			return nil, fmt.Errorf("command: the command %s writes the relation %s, but it writes no entity of the resource type %s, whose rows the relation's resources are", decl.Name, text, resourceType)
+		}
+		// The relation of a declared relationship or of a reference is the runtime's own: a helper for it would let a
+		// fill move an owner after create, or relate a row to a parent with no permission on the parent
+		// (ST-SUP-RC32-OC13, ST-SUP-Q118).
+		for _, e := range cmd.writes {
+			if why, ok := authzschema.RuntimeRelations(e.decl)[relation]; ok && e.resourceType == resourceType {
+				return nil, fmt.Errorf("command: the command %s writes the relation %s, which is %s; the runtime writes it alone, so a command may not relate or unrelate it", decl.Name, text, why)
+			}
 		}
 		cmd.helpers = append(cmd.helpers, h)
 	}

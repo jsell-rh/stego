@@ -80,6 +80,22 @@ func TestCommandAuthorization(t *testing.T) {
 	t.Run("ST-DECL-INV41-T A command that writes folder#viewer, of no entity the command writes, is refused", func(t *testing.T) {
 		expectNamed(t, checkOperations(t, relations("folder#viewer"), operationFacts()), "command-relations", "approve", "folder#viewer", "no entity the command writes")
 	})
+	// The runtime writes the relation of a declared relationship and of a reference alone: a command that could relate
+	// or unrelate it could move an owner after create, or relate a row to a parent with no permission on the parent
+	// (ST-SUP-Q118).
+	t.Run("ST-DECL-INV41-T A command that writes document#owner, the caller relationship of Todo, is refused", func(t *testing.T) {
+		expectNamed(t, checkOperations(t, relations("document#owner"), operationFacts()), "command-relations", "approve", "document#owner", "relationship owner of the entity Todo", "runtime writes it alone")
+	})
+	t.Run("ST-DECL-INV41-T A command that writes document#viewer, a field relationship of Todo, is refused", func(t *testing.T) {
+		service := change(t, relations("document#viewer"), "      - {relation: owner, subject_source: caller, subject_type: user}\n",
+			"      - {relation: owner, subject_source: caller, subject_type: user}\n      - {relation: viewer, subject_source: field, subject_field: owner_id, subject_type: user}\n")
+		expectNamed(t, checkOperations(t, service, operationFacts()), "command-relations", "approve", "document#viewer", "relationship viewer of the entity Todo, with the subject source field", "runtime writes it alone")
+	})
+	t.Run("ST-DECL-INV41-T A command that writes order#customer, the relation of a reference of Order, is refused", func(t *testing.T) {
+		decl := readTD03(t, referencesService+"commands:\n"+command("move", "writes: [Order]", "relationships_written: [order#customer, order#owner]"))
+		faults := validateCommandRelations(decl, compileTD03(t, referencesSchema))
+		expectNamed(t, faults, "command-relations", "move", "order#customer", "reference customer_id of the entity Order", "runtime writes it alone")
+	})
 }
 
 // td03Query is ST-DECL-TD03 with one query that reads Todo, bound to the fill open-reservations, with the lines

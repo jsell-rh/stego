@@ -569,9 +569,23 @@ func TestRelationHelpers(t *testing.T) {
 			}
 		}
 		svc := declaration(t)
-		svc.Commands[0].RelationshipsWritten = []string{"order#holder", "hold#creator", "folder#viewer"}
+		svc.Commands[0].RelationshipsWritten = []string{"order#holder", "folder#viewer"}
 		if _, _, err := new(Generator).Generate(commandContext(t, svc, commandSlot)); err == nil || !strings.Contains(err.Error(), "folder#viewer") {
 			t.Fatalf("a relation of a resource type that the command writes no entity of gave %v, want a refusal that names it", err)
+		}
+		// The relation of a declared relationship, of the subject source field or caller, and of a reference is the
+		// runtime's own: no helper may relate or unrelate it (ST-SUP-Q118).
+		for relation, why := range map[string]string{
+			"hold#owner":   "the relationship owner of the entity Hold, with the subject source field",
+			"hold#creator": "the relationship creator of the entity Hold, with the subject source caller",
+			"hold#order":   "the relation of the reference order_id of the entity Hold",
+		} {
+			svc := declaration(t)
+			svc.Commands[0].RelationshipsWritten = []string{"order#holder", relation}
+			_, _, err := new(Generator).Generate(commandContext(t, svc, commandSlot))
+			if err == nil || !strings.Contains(err.Error(), relation) || !strings.Contains(err.Error(), why) || !strings.Contains(err.Error(), "runtime writes it alone") {
+				t.Errorf("the relation %s gave %v, want a refusal that names it and says the runtime writes it alone", relation, err)
+			}
 		}
 	})
 }
