@@ -8,7 +8,7 @@ version: 3.99.1
 runtime:
   module: github.com/jsell-rh/stego/registry/runtime
   version: v0.91.0
-  sum: h1:TVXFHfHIJxNCrB6DK6Di61OyJ/bF6AJCrI6Js+sopk0=
+  sum: h1:fuAKmV2gzUJE+nUM8z6WZ0K+la5ZlRijirN09QM54cU=
 
 components:
   - rest-api
@@ -33,6 +33,8 @@ conventions:
 
 compatible_mixins:
   - event-publisher
+  - durable-events
+  - kafka-events
   - async-worker
 
 bindings:

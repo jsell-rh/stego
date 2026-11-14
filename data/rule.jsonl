@@ -86,6 +86,7 @@
 {"id":"ST-DECL-INV73-RL","title":"declaration.validateGRPCMethods","invariant_id":"ST-DECL-INV73","file":"internal/declaration/grpc.go"}
 {"id":"ST-DECL-INV74-RL","title":"declaration.validateWorkerLease","invariant_id":"ST-DECL-INV74","file":"internal/declaration/worker.go"}
 {"id":"ST-DECL-INV76-RL","title":"declaration.validateWorkerCycles","invariant_id":"ST-DECL-INV76","file":"internal/declaration/worker.go"}
+{"id":"ST-DECL-INV78-RL","title":"declaration.validateProvisioning","invariant_id":"ST-DECL-INV78","file":"internal/declaration/provisioning.go"}
 {"id":"ST-DECL-INV79-RL","title":"declaration.validateWorkerCount","invariant_id":"ST-DECL-INV79","file":"internal/declaration/worker.go"}
 {"id":"ST-DECL-INV80-RL","title":"declaration.validateCommandRetry","invariant_id":"ST-DECL-INV80","file":"internal/declaration/command.go"}
 {"id":"ST-DECL-INV82-RL","title":"declaration.validateIdempotencyValues","invariant_id":"ST-DECL-INV82","file":"internal/declaration/idempotency.go"}
@@ -131,3 +132,4 @@
 {"id":"ST-SUP-INV01-RL","title":"registry.LoadSources","invariant_id":"ST-SUP-INV01","file":"internal/registry/registry.go"}
 {"id":"ST-SUP-INV03-RL","title":"registry.checkExperimentPorts","invariant_id":"ST-SUP-INV03","file":"internal/registry/stage.go"}
 {"id":"ST-SUP-INV10-RL","title":"registry.checkRuntimePin","invariant_id":"ST-SUP-INV10","file":"internal/registry/runtime.go"}
+{"id":"ST-SUP-INV17-RL","title":"registry.Registry.checkAliases","invariant_id":"ST-SUP-INV17","file":"internal/registry/registry.go"}

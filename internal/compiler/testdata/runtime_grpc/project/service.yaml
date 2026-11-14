@@ -8,6 +8,7 @@ tenancy:
   kind: pooled
   key: tenant_id
   claim: tenant
+  provisioning: {resource_type: service, provision: provision, retire: retire}
 authorization:
   provider: spicedb
   schema_path: authz/schema.zed

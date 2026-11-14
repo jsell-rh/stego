@@ -381,7 +381,8 @@ func (e *entity) checkOrder(order []OrderBy) error {
 	return nil
 }
 
-// orderedStatement gives the statement of one chunk of a list in order, and its arguments after the tenant: the
+// orderedStatement gives the statement of one chunk of a list in order, or of the whole rest of it when size is 0,
+// and its arguments after the tenant: the
 // rows after the position values and key, or from the start when started is false, in the order of the fields and
 // then of the key, with NULL values last in either direction. A position value that is NULL has no row after it on
 // its field but the rows that are NULL there too.
@@ -430,8 +431,10 @@ func (e *entity) orderedStatement(order []OrderBy, started bool, values []any, k
 		searched, keyArgs = e.filterSQL(nil, keys, len(args)+2)
 		args = append(args, keyArgs...)
 	}
-	limit := param(size)
-	tail := " ORDER BY " + strings.Join(by, ", ") + " LIMIT " + limit
+	tail := " ORDER BY " + strings.Join(by, ", ")
+	if size > 0 {
+		tail += " LIMIT " + param(size)
+	}
 	if keys != nil {
 		// The rows of the searched keys are read by key alone first, at most MaxSearchKeys of them, and only then
 		// filtered and put in order, so the planner cannot walk an index of the order field or of a filter field and
@@ -546,6 +549,46 @@ func (r *Repository[T]) permission() string {
 	return r.entity.e.spec.ListPermission
 }
 
+// searchedCursorPrefix starts the name of the cursor of the transaction through which an ordered list of searched
+// keys reads its rows; the list closes it before it returns.
+const searchedCursorPrefix = "stego_searched_list_"
+
+// searchedCursors numbers the open cursors of each transaction. A list takes the lowest number that no open list of
+// its transaction holds, so two lists on one transaction, such as one that a decision of another starts, never share
+// a name (finding C1 of the security review of #261), and the names repeat from call to call: stego_searched_list_1,
+// and _2 only while a second list is open. Statement text that repeats keeps pg_stat_statements and the statement
+// cache of the driver small (finding L1 of the review of #277). The name holds only the prefix and a number, never a
+// value of the request.
+var searchedCursors = struct {
+	sync.Mutex
+	open map[*sql.Tx]map[int]bool
+}{open: map[*sql.Tx]map[int]bool{}}
+
+// takeCursor gives the name of a cursor for one list call on tx and the function that frees its number, which the
+// call runs when it closes the cursor, also on a panic.
+func takeCursor(tx *sql.Tx) (string, func()) {
+	searchedCursors.Lock()
+	defer searchedCursors.Unlock()
+	held := searchedCursors.open[tx]
+	if held == nil {
+		held = map[int]bool{}
+		searchedCursors.open[tx] = held
+	}
+	n := 1
+	for held[n] {
+		n++
+	}
+	held[n] = true
+	return searchedCursorPrefix + strconv.Itoa(n), func() {
+		searchedCursors.Lock()
+		defer searchedCursors.Unlock()
+		delete(held, n)
+		if len(held) == 0 {
+			delete(searchedCursors.open, tx)
+		}
+	}
+}
+
 // tablePage pages the table by its key, or in order and then by its key, and keeps the allowed rows of each page,
 // until it holds limit values or the table ends.
 func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, order []OrderBy, where []Equal, keys []string) (ListResult[T], error) {
@@ -591,11 +634,38 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 		_, err = list.Page(ctx, []authz.Row{{Resource: resource}})
 		return err
 	}
+	// An ordered list of searched keys reads the rows of the keys once in the call, through a cursor of the
+	// transaction from which each chunk is fetched, so the call does not read them again for each chunk.
+	// The cursor's plan follows the server's work_mem: with a very low work_mem the planner reads the whole table,
+	// which tells the size of the table but not which rows are hidden (C3 of the review of #261). The runtime keeps
+	// the server default and sets no work_mem of its own.
+	cursorOpen, cursor, free := false, "", func() {}
+	defer func() {
+		if cursorOpen {
+			_, _ = c.tx.ExecContext(context.WithoutCancel(ctx), "CLOSE "+cursor)
+		}
+		free()
+	}()
 	for {
 		size := min(chunk, ScanLimit-scanned)
 		var rows *sql.Rows
 		var err error
 		switch {
+		case len(order) > 0 && keys != nil:
+			if !cursorOpen {
+				at, err := decodePosition(values, len(order), started)
+				if err != nil {
+					return ListResult[T]{}, err
+				}
+				statement, args := e.orderedStatement(order, started, at, key, 0, where, keys)
+				cursor, free = takeCursor(c.tx)
+				if _, err := c.tx.ExecContext(ctx, "DECLARE "+cursor+" NO SCROLL CURSOR FOR "+statement,
+					append([]any{c.tenant.ID()}, args...)...); err != nil {
+					return ListResult[T]{}, fmt.Errorf("query: list %s: %w", e.spec.Name, err)
+				}
+				cursorOpen = true
+			}
+			rows, err = c.tx.QueryContext(ctx, "FETCH FORWARD "+strconv.Itoa(size)+" FROM "+cursor)
 		case len(order) > 0:
 			at, err := decodePosition(values, len(order), started)
 			if err != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/compiler"
+	"github.com/jsell-rh/stego/internal/declaration"
 	"github.com/jsell-rh/stego/internal/registry"
 )
 
@@ -180,6 +182,60 @@ func TestPastItsFailDateAPinFails(t *testing.T) {
 		s.write(t, "service.yaml", secondEntityDeclaration)
 		git(t, s.service, "commit", "-q", "-am", "add Tag")
 		refusedIn(t, s, []string{da1}, "apply")
+	})
+}
+
+// pinFaultsJSON runs stego validate --json in the service, expects it to fail with one JSON document on standard
+// output that is not accepted, and gives the pin-standing faults of the document.
+func pinFaultsJSON(t *testing.T, s *smallService) []declaration.ValidationError {
+	t.Helper()
+	stdout, stderr, err := s.stego(t, "validate", "--json")
+	if err == nil {
+		t.Fatalf("stego validate --json exits 0; want a refusal\n%s%s", stdout, stderr)
+	}
+	var document declaration.FaultsDocument
+	decoder := json.NewDecoder(strings.NewReader(stdout))
+	if err := decoder.Decode(&document); err != nil {
+		t.Fatalf("stego validate --json printed no JSON document: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if rest := strings.TrimSpace(stdout[decoder.InputOffset():]); rest != "" {
+		t.Fatalf("stego validate --json printed more than the JSON document on standard output; after it:\n%s", rest)
+	}
+	if document.Accepted {
+		t.Fatalf("stego validate --json fails and its document says accepted:\n%s", stdout)
+	}
+	var faults []declaration.ValidationError
+	for _, fault := range document.Faults {
+		if fault.Rule == "pin-standing" {
+			faults = append(faults, fault)
+		}
+	}
+	return faults
+}
+
+func TestStructuredValidateCarriesThePinStanding(t *testing.T) {
+	t.Parallel()
+	t.Run("ST-DIS-UC05-R03-T04 Past its fail date, validate --json is not accepted and names the pin as a fault", func(t *testing.T) {
+		s := newSmallService(t)
+		headRegistry(t, s)
+		da1, da2 := pinnedDigest(t, s, componentA), digestAt(t, s, s.r2, componentA)
+		supersede(t, s, "STEGO-2026-0001", da1, da2, -30, false)
+		faults := pinFaultsJSON(t, s)
+		if len(faults) != 1 || faults[0].Found != componentA+" "+da1 || !strings.Contains(faults[0].Message, "past its fail date") ||
+			!strings.Contains(faults[0].Message, da2) {
+			t.Fatalf("want one pin-standing fault for DA1 past its fail date, got %+v", faults)
+		}
+	})
+	t.Run("ST-DIS-UC05-R04-T03 When the lifecycle records cannot be read, validate --json is not accepted and names the cause", func(t *testing.T) {
+		s := newSmallService(t)
+		headRegistry(t, s)
+		writeFile(t, filepath.Join(s.registry, "lifecycle"), "STEGO-2026-0001.json", "{ not an advisory\n", 0o644)
+		commitHead(t, s, "the unreadable variant")
+		faults := pinFaultsJSON(t, s)
+		if len(faults) != 1 || !strings.Contains(faults[0].Message, "could not check the standing of the pins") ||
+			!strings.Contains(faults[0].Message, "STEGO-2026-0001.json") {
+			t.Fatalf("want one pin-standing fault that names the unread record, got %+v", faults)
+		}
 	})
 }
 

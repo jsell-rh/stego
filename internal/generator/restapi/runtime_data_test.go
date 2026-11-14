@@ -81,7 +81,7 @@ func crudContext() gen.Context {
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "quota", Permissions: map[types.Operation]string{types.OpRead: "view", types.OpList: "view", types.OpUpsert: "edit"},
 				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
 	)
-	return gen.Context{
+	return withSchema(gen.Context{
 		ModuleName:      crudModule,
 		OutDirName:      "out",
 		OutputNamespace: "api",
@@ -115,7 +115,7 @@ func crudContext() gen.Context {
 		Tenancy:        &gen.Tenancy{Key: "tenant_id"},
 		Idempotency:    &types.Idempotency{RequiredOn: []types.Operation{types.OpCreate, types.OpPatch}, Retention: "24h", Fingerprint: "body"},
 		PeerNamespaces: map[string]string{"idempotency": "idempotency", "postgres-adapter": "storage", gen.TenancyComponent: "tenancy", "command": "commands", "query": "queries"},
-	}
+	})
 }
 
 // crudFiles generates the rest-api files of ctx, by path.
@@ -511,6 +511,30 @@ func TestCrudService(t *testing.T) {
 	}
 }
 
+func TestFieldRelationship(t *testing.T) {
+	t.Run("ST-SUP-RC29-OC05-T06 A public create of an entity with a field-sourced relationship is refused, and a refused field value is 400 naming the field", func(t *testing.T) {
+		c := crudContext()
+		c.Entities[0].Fields = append(c.Entities[0].Fields, types.Field{Name: "owner_id", Type: types.FieldTypeString})
+		c.Entities[0].Relationships = []types.Relationship{{Relation: "owner", SubjectSource: types.SubjectSourceField, SubjectField: "owner_id", SubjectType: "user"}}
+		files, wiring, err := new(Generator).Generate(c)
+		if err == nil || files != nil || wiring != nil || !strings.Contains(err.Error(), "public create of Order") || !strings.Contains(err.Error(), "owner_id") {
+			t.Fatalf("a public create with a field relationship gave %d files and %v, want a refusal naming the entity and the field", len(files), err)
+		}
+		// A caller-sourced relationship is the caller's own: the public create is not refused for it.
+		c = crudContext()
+		c.Entities[0].Relationships = []types.Relationship{{Relation: "creator", SubjectSource: types.SubjectSourceCaller, SubjectType: "user"}}
+		if _, _, err := new(Generator).Generate(c); err != nil {
+			t.Fatalf("a public create with a caller relationship is refused: %v", err)
+		}
+		// The runtime is the guard of a field subject on every interface; the handlers answer its refusal with 400 and
+		// one validation entry that names the field.
+		answer := extractMethodBody(string(crudFiles(t, c)["api/runtime.go"]), "func (rt *Runtime) answerWrite(")
+		if !strings.Contains(answer, "case http.StatusBadRequest:") || !strings.Contains(answer, "Validation([]ValidationError{{Field: o.Field, Message: o.Reason}})") {
+			t.Fatalf("answerWrite does not answer a refused field value with 400 naming the field:\n%s", answer)
+		}
+	})
+}
+
 // crudCheckIDs are the checks of the generated service that this test runs, each with the ID of the test record it
 // proves.
 var crudCheckIDs = []string{
@@ -582,6 +606,167 @@ func TestBodyLimit(t *testing.T) {
 	}
 }
 `
+
+// everyFieldCheck is a test of the generated validation.go: a body with two bad members gets one entry for each.
+const everyFieldCheck = `package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func TestEveryField(t *testing.T) {
+	handler := NewValidationMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("an invalid body reached the handler")
+	}))
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/todos", strings.NewReader("{\"title\":7,\"done\":\"no\"}"))
+	r.Header.Set("Content-Type", "application/json")
+	answer := httptest.NewRecorder()
+	handler.ServeHTTP(answer, r)
+	var problem struct {
+		Errors []struct {
+			Field string \x60json:"field"\x60
+		} \x60json:"validation_errors"\x60
+	}
+	if err := json.Unmarshal(answer.Body.Bytes(), &problem); answer.Code != http.StatusBadRequest || err != nil {
+		t.Fatalf("got %d (%v): %s", answer.Code, err, answer.Body)
+	}
+	var fields []string
+	for _, e := range problem.Errors {
+		fields = append(fields, e.Field)
+	}
+	slices.Sort(fields)
+	if !slices.Equal(fields, []string{"done", "title"}) {
+		t.Fatalf("the problem lists %v, want one entry for done and one for title: %s", fields, answer.Body)
+	}
+}
+`
+
+func TestValidationEveryField(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC05-T04 A body with two bad members gets a validation problem with one entry for each", func(t *testing.T) {
+		ctx := crudContext()
+		ctx.Conventions.RequestValidation = "openapi-schema"
+		p := newCrudProject(t, ctx, crudFiles(t, ctx))
+		p.write("out/api/every_field_test.go", []byte(strings.ReplaceAll(everyFieldCheck, "\\x60", "`")))
+		if output, err := p.goCommand(nil, "test", "-count=1", "-run", "^TestEveryField$", "./out/api"); err != nil {
+			t.Fatalf("the check of every field failed: %v\n%s", err, output)
+		}
+	})
+}
+
+// validationCapCheck is a test of the generated validation.go: a failure of many members lists at most
+// MaxValidationErrors of them, and then one entry that counts the rest.
+const validationCapCheck = `package api
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/getkin/kin-openapi/openapi3"
+)
+
+func TestValidationCap(t *testing.T) {
+	for _, failures := range []int{MaxValidationErrors, MaxValidationErrors + 1, 120} {
+		var multi openapi3.MultiError
+		for i := 0; i < failures; i++ {
+			multi = append(multi, &openapi3.SchemaError{Reason: "value must be a string"})
+		}
+		// A nested MultiError counts against the same cap.
+		got := parseValidationErrors(openapi3.MultiError{multi[:failures/2], multi[failures/2:]})
+		want := failures
+		if failures > MaxValidationErrors {
+			want = MaxValidationErrors + 1
+		}
+		if len(got) != want {
+			t.Fatalf("%d failures give %d entries, want %d", failures, len(got), want)
+		}
+		last := got[len(got)-1].Message
+		if failures > MaxValidationErrors && last != fmt.Sprintf("%d more failures not listed", failures-MaxValidationErrors) {
+			t.Fatalf("%d failures end with %q, want the count of the failures not listed", failures, last)
+		}
+		if failures <= MaxValidationErrors && last != "value must be a string" {
+			t.Fatalf("%d failures end with %q, want no count entry", failures, last)
+		}
+	}
+	if MaxValidationErrors != 50 {
+		t.Fatalf("MaxValidationErrors is %d, want 50", MaxValidationErrors)
+	}
+}
+`
+
+// markedValueCheck is a test of the generated validation.go: no validation entry quotes a value of the request.
+const markedValueCheck = `package api
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/getkin/kin-openapi/openapi3filter"
+)
+
+func TestNoMarkedValue(t *testing.T) {
+	handler := NewValidationMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("an invalid body reached the handler")
+	}))
+	for _, body := range []string{
+		"{\"title\":7,\"done\":\"MARKED-VALUE-1\"}",
+		"{\"title\":{\"k\":\"MARKED-VALUE-2\"},\"done\":true}",
+		"{\"title\":[\"MARKED-VALUE-3\"]}",
+		"{\"title\":\"MARKED-VALUE-4",
+		"{\"title\": MARKED-VALUE-5}",
+		"MARKED-VALUE-6",
+	} {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/todos", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		answer := httptest.NewRecorder()
+		handler.ServeHTTP(answer, r)
+		if answer.Code != http.StatusBadRequest {
+			t.Fatalf("the body %s got %d: %s", body, answer.Code, answer.Body)
+		}
+		if strings.Contains(answer.Body.String(), "MARKED-VALUE") {
+			t.Fatalf("the problem for the body %s quotes the value: %s", body, answer.Body)
+		}
+	}
+	// The error forms that quote a value in their own text: a schema error with no reason and a parse error.
+	for _, err := range []error{
+		&openapi3.SchemaError{Value: "MARKED-VALUE-7"},
+		&openapi3filter.ParseError{Value: "MARKED-VALUE-8", Reason: "cannot decode the body"},
+		&openapi3filter.ParseError{Value: "MARKED-VALUE-9"},
+		&openapi3filter.RequestError{Err: &openapi3filter.ParseError{Value: "MARKED-VALUE-10"}},
+	} {
+		for _, entry := range parseValidationErrors(err) {
+			if strings.Contains(entry.Field+entry.Message, "MARKED-VALUE") {
+				t.Fatalf("the entry %+v quotes the value of %T", entry, err)
+			}
+		}
+	}
+}
+`
+
+func TestValidationBounds(t *testing.T) {
+	ctx := crudContext()
+	ctx.Conventions.RequestValidation = "openapi-schema"
+	p := newCrudProject(t, ctx, crudFiles(t, ctx))
+	p.write("out/api/cap_test.go", []byte(validationCapCheck))
+	p.write("out/api/marked_test.go", []byte(markedValueCheck))
+	t.Run("ST-SUP-RC20-OC05-T05 A validation problem lists at most 50 failed members and one entry that counts the rest", func(t *testing.T) {
+		if output, err := p.goCommand(nil, "test", "-count=1", "-run", "^TestValidationCap$", "./out/api"); err != nil {
+			t.Fatalf("the check of the cap failed: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC20-OC05-T06 No validation entry quotes a value of the request", func(t *testing.T) {
+		if output, err := p.goCommand(nil, "test", "-count=1", "-run", "^TestNoMarkedValue$", "./out/api"); err != nil {
+			t.Fatalf("the check of the marked values failed: %v\n%s", err, output)
+		}
+	})
+}
 
 func TestValidationBodyLimit(t *testing.T) {
 	t.Run("ST-SUP-RC20-OC21-T04 The emitted middleware reads at most MaxRequestBody bytes and answers a larger body with 413", func(t *testing.T) {

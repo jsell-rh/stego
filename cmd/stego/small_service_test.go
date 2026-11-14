@@ -45,7 +45,7 @@ const smallServiceDeclaration = `kind: service
 name: notes
 archetype: rest-crud
 language: go
-tenancy: {kind: pooled, key: tenant_id, claim: tenant}
+tenancy: {kind: pooled, key: tenant_id, claim: tenant, provisioning: {resource_type: service, provision: provision, retire: retire}}
 authorization: {provider: spicedb, schema_path: authz/schema.zed, subject_from_identity: user}
 audit: {level: change}
 overrides:
@@ -59,7 +59,6 @@ entities:
 collections:
   notes: {entity: Note, operations: [create, read, list]}
 `
-
 
 // secondEntityDeclaration adds a second entity, Tag, with its collection.
 var secondEntityDeclaration = strings.Replace(smallServiceDeclaration, "collections:\n", "  - name: Tag\n    resource_type: tag\n    permissions: {create: public, read: view, list: view}\n    public_reasons: {create: a new tag has no resource to decide on before it exists}\n    fields: [{name: label, type: string}]\ncollections:\n  tags: {entity: Tag, operations: [create, read]}\n", 1)

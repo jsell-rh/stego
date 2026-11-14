@@ -425,7 +425,7 @@ func runPlan(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := checkPinStanding(input, plan); err != nil {
+	if err := checkPinStanding(input, plan, os.Stdout); err != nil {
 		return err
 	}
 	if err := compiler.SavePlan(plan, input.ProjectDir); err != nil {
@@ -542,7 +542,7 @@ func applyPlanned(replaceHandEdits, savedPlan bool) (started bool, err error) {
 		return false, err
 	}
 
-	if err := checkPinStanding(input, plan); err != nil {
+	if err := checkPinStanding(input, plan, os.Stdout); err != nil {
 		return false, err
 	}
 	if savedPlan {
@@ -594,25 +594,49 @@ func runValidate(args []string) error {
 		return err
 	}
 
-	faults := declaration.NewFaultsReader(result)
-	if *structured {
-		document, err := faults.JSON()
+	if !*structured {
+		fmt.Print(declaration.NewFaultsReader(result).Prose())
+		if result.HasErrors() {
+			return fmt.Errorf("validation failed with %d error(s)", len(result.Errors))
+		}
+		input.CheckOnly = true
+		plan, err := compiler.Reconcile(input)
 		if err != nil {
 			return err
 		}
-		fmt.Println(string(document))
-	} else {
-		fmt.Print(faults.Prose())
+		return checkPinStanding(input, plan, os.Stdout)
+	}
+	// With --json, standard output holds only the one JSON document (ST-DECL-CLI02), so the pin standing goes to
+	// standard error. The document is printed after the pin standing is read, and a pin that does not stand is a
+	// fault in it, so the document never says accepted when validate fails.
+	var standingErr error
+	if !result.HasErrors() {
+		input.CheckOnly = true
+		plan, err := compiler.Reconcile(input)
+		if err != nil {
+			standingErr = err
+			result.Errors = append(result.Errors, declaration.ValidationError{Rule: "plan", Path: "service.yaml", Message: err.Error()})
+		} else {
+			report := readPinStanding(input, plan, time.Now())
+			report.write(os.Stderr)
+			if faults := report.faults(); len(faults) > 0 {
+				result.Errors = append(result.Errors, faults...)
+				standingErr = fmt.Errorf("a pin does not stand: %s", strings.Join(report.problems(), "; "))
+			}
+		}
+	}
+	document, err := declaration.NewFaultsReader(result).JSON()
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(document))
+	if standingErr != nil {
+		return standingErr
 	}
 	if result.HasErrors() {
 		return fmt.Errorf("validation failed with %d error(s)", len(result.Errors))
 	}
-	input.CheckOnly = true
-	plan, err := compiler.Reconcile(input)
-	if err != nil {
-		return err
-	}
-	return checkPinStanding(input, plan)
+	return nil
 }
 
 // runDrift implements `stego drift`.

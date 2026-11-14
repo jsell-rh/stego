@@ -463,6 +463,282 @@ func TestSmallListOrder(t *testing.T) {
 	})
 }
 
+func TestSearchedListOnce(t *testing.T) {
+	t.Run("ST-SUP-RP11-LC20-T11 An ordered list of searched keys reads the rows of the keys once in the call, over several chunks", func(t *testing.T) {
+		e := newEnv(t)
+		var keys []string
+		for i := range 3 * MinChunk {
+			id := fmt.Sprintf("o-%03d", i)
+			keys = append(keys, id)
+			e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) VALUES ('t1', $1, $2)", id, int64(i))
+		}
+		// Only the last rows of the order are allowed, so the call reads chunk after chunk.
+		allowed := map[string]bool{}
+		for i := 290; i < 300; i++ {
+			allowed[resourceIn(t, "t1", "order", fmt.Sprintf("o-%03d", i)).ID] = true
+		}
+		port := &fakeDecision{decide: func(r authz.EvaluationRequest) bool { return allowed[r.Resource.ID] },
+			search: func(r authz.SearchRequest) authz.SearchResult {
+				from := 0
+				if cursor, _, ok := r.Page.Token.CursorFor("fake"); ok {
+					fmt.Sscan(cursor, &from)
+				}
+				to := min(from+r.Page.Limit, len(keys))
+				var result authz.SearchResult
+				for _, id := range keys[from:to] {
+					result.Resources = append(result.Resources, resourceIn(t, "t1", "order", id))
+				}
+				if to < len(keys) {
+					result.Next = authz.NewPageToken("fake", fmt.Sprint(to), authz.Fresh())
+				}
+				return result
+			}}
+		rt := e.servedRuntime(t, port)
+		searched := orderEntity(t, true)
+		q := mustListQuery(t, "list-searched-orders", searched, "view")
+		tn, p := mustTenant(t, "t1"), mustPrincipal(t, "user:u-7")
+		rec := &statements{}
+		tx, err := tenant.Begin(context.Background(), e.traced(t, rec), tn, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		h, err := bind(context.Background(), rt, tx, tn, p, q, noProbe{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		repo, err := Repo(h, searched)
+		if err != nil {
+			t.Fatal(err)
+		}
+		page, err := repo.List(context.Background(), ListRequest{Limit: 5, Order: []OrderBy{{Field: "total"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, item := range page.Items {
+			got = append(got, item.ID())
+		}
+		if want := []string{"o-290", "o-291", "o-292", "o-293", "o-294"}; !slices.Equal(got, want) {
+			t.Fatalf("the list gave %v, want %v", got, want)
+		}
+		reads, fetches, closes := 0, 0, 0
+		for _, s := range rec.all() {
+			switch {
+			case strings.Contains(s.sql, "WITH v AS MATERIALIZED"):
+				reads++
+			case strings.HasPrefix(s.sql, "FETCH FORWARD"):
+				fetches++
+			case strings.HasPrefix(s.sql, "CLOSE "):
+				closes++
+			}
+		}
+		if reads != 1 || fetches < 3 || closes != 1 {
+			t.Fatalf("the call read the rows of the keys %d times over %d fetches with %d closes, want once over at least 3 fetches and one close", reads, fetches, closes)
+		}
+		// The cursor is closed, so a second list in the same transaction declares its own, and since the first is
+		// closed it takes the same name: the statement text repeats from call to call.
+		if _, err := repo.List(context.Background(), ListRequest{Limit: 5, Order: []OrderBy{{Field: "total"}}}); err != nil {
+			t.Fatalf("a second list in the transaction: %v", err)
+		}
+		var names []string
+		for _, s := range rec.all() {
+			if name, ok := strings.CutPrefix(s.sql, "DECLARE "); ok {
+				name, _, _ = strings.Cut(name, " ")
+				names = append(names, name)
+			}
+		}
+		if !slices.Equal(names, []string{"stego_searched_list_1", "stego_searched_list_1"}) {
+			t.Fatalf("the two lists, one after the other, declared %v, want stego_searched_list_1 twice", names)
+		}
+	})
+	t.Run("ST-SUP-RP11-LC20-T12 Two ordered lists of searched keys on one transaction, one inside the other, each read through a cursor of its own", func(t *testing.T) {
+		e := newEnv(t)
+		var keys []string
+		for i := range 3 * MinChunk {
+			id := fmt.Sprintf("o-%03d", i)
+			keys = append(keys, id)
+			e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) VALUES ('t1', $1, $2)", id, int64(i))
+		}
+		allowed := map[string]bool{}
+		for i := 290; i < 300; i++ {
+			allowed[resourceIn(t, "t1", "order", fmt.Sprintf("o-%03d", i)).ID] = true
+		}
+		// inner runs list B once, from inside a decision of list A, while the cursor of list A is open.
+		var inner func() error
+		innerErr, ran := error(nil), false
+		port := &fakeDecision{decide: func(r authz.EvaluationRequest) bool {
+			if !ran && inner != nil {
+				ran = true
+				innerErr = inner()
+			}
+			return allowed[r.Resource.ID]
+		},
+			search: func(r authz.SearchRequest) authz.SearchResult {
+				from := 0
+				if cursor, _, ok := r.Page.Token.CursorFor("fake"); ok {
+					fmt.Sscan(cursor, &from)
+				}
+				to := min(from+r.Page.Limit, len(keys))
+				var result authz.SearchResult
+				for _, id := range keys[from:to] {
+					result.Resources = append(result.Resources, resourceIn(t, "t1", "order", id))
+				}
+				if to < len(keys) {
+					result.Next = authz.NewPageToken("fake", fmt.Sprint(to), authz.Fresh())
+				}
+				return result
+			}}
+		rt := e.servedRuntime(t, port)
+		searched := orderEntity(t, true)
+		q := mustListQuery(t, "list-searched-orders", searched, "view")
+		tn, p := mustTenant(t, "t1"), mustPrincipal(t, "user:u-7")
+		rec := &statements{}
+		tx, err := tenant.Begin(context.Background(), e.traced(t, rec), tn, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		repoOn := func() *Repository[Order] {
+			t.Helper()
+			h, err := bind(context.Background(), rt, tx, tn, p, q, noProbe{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			repo, err := Repo(h, searched)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return repo
+		}
+		outer, second := repoOn(), repoOn()
+		order := ListRequest{Limit: 5, Order: []OrderBy{{Field: "total"}}}
+		var innerIDs []string
+		inner = func() error {
+			page, err := second.List(context.Background(), order)
+			for _, item := range page.Items {
+				innerIDs = append(innerIDs, item.ID())
+			}
+			return err
+		}
+		page, err := outer.List(context.Background(), order)
+		if err != nil {
+			t.Fatalf("list A: %v", err)
+		}
+		if !ran || innerErr != nil {
+			t.Fatalf("list B inside a decision of list A ran %v and failed: %v", ran, innerErr)
+		}
+		var outerIDs []string
+		for _, item := range page.Items {
+			outerIDs = append(outerIDs, item.ID())
+		}
+		want := []string{"o-290", "o-291", "o-292", "o-293", "o-294"}
+		if !slices.Equal(outerIDs, want) || !slices.Equal(innerIDs, want) {
+			t.Fatalf("list A gave %v and list B %v, want %v in both", outerIDs, innerIDs, want)
+		}
+		declared := map[string]bool{}
+		for _, s := range rec.all() {
+			if name, ok := strings.CutPrefix(s.sql, "DECLARE "); ok {
+				name, _, _ = strings.Cut(name, " ")
+				if declared[name] || !strings.HasPrefix(name, "stego_searched_list_") {
+					t.Fatalf("a list declared the cursor %s, which another list declared or which is not a cursor of a list", name)
+				}
+				declared[name] = true
+			}
+		}
+		if len(declared) != 2 || !declared["stego_searched_list_1"] || !declared["stego_searched_list_2"] {
+			t.Fatalf("the two lists declared the cursors %v, want stego_searched_list_1 and _2", declared)
+		}
+	})
+	t.Run("ST-SUP-RP11-LC20-T13 A list whose decision panics leaves no open cursor on its transaction", func(t *testing.T) {
+		e := newEnv(t)
+		var keys []string
+		for i := range 3 * MinChunk {
+			id := fmt.Sprintf("o-%03d", i)
+			keys = append(keys, id)
+			e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) VALUES ('t1', $1, $2)", id, int64(i))
+		}
+		panics := true
+		port := &fakeDecision{decide: func(authz.EvaluationRequest) bool {
+			if panics {
+				panic("the decision port fails")
+			}
+			return true
+		},
+			search: func(r authz.SearchRequest) authz.SearchResult {
+				from := 0
+				if cursor, _, ok := r.Page.Token.CursorFor("fake"); ok {
+					fmt.Sscan(cursor, &from)
+				}
+				to := min(from+r.Page.Limit, len(keys))
+				var result authz.SearchResult
+				for _, id := range keys[from:to] {
+					result.Resources = append(result.Resources, resourceIn(t, "t1", "order", id))
+				}
+				if to < len(keys) {
+					result.Next = authz.NewPageToken("fake", fmt.Sprint(to), authz.Fresh())
+				}
+				return result
+			}}
+		rt := e.servedRuntime(t, port)
+		searched := orderEntity(t, true)
+		q := mustListQuery(t, "list-searched-orders", searched, "view")
+		tn, p := mustTenant(t, "t1"), mustPrincipal(t, "user:u-7")
+		rec := &statements{}
+		tx, err := tenant.Begin(context.Background(), e.traced(t, rec), tn, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		h, err := bind(context.Background(), rt, tx, tn, p, q, noProbe{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		repo, err := Repo(h, searched)
+		if err != nil {
+			t.Fatal(err)
+		}
+		order := ListRequest{Limit: 5, Order: []OrderBy{{Field: "total"}}}
+		recovered := func() (value any) {
+			defer func() { value = recover() }()
+			_, _ = repo.List(context.Background(), order)
+			return nil
+		}()
+		if recovered == nil {
+			t.Fatal("the decision did not panic through the list")
+		}
+		declared := false
+		for _, s := range rec.all() {
+			declared = declared || strings.HasPrefix(s.sql, "DECLARE ")
+		}
+		if !declared {
+			t.Fatal("the list declared no cursor before its decision, so the test shows nothing")
+		}
+		var open int
+		if err := tx.QueryRowContext(context.Background(), "SELECT count(*) FROM pg_cursors WHERE name LIKE 'stego_searched_list_%'").Scan(&open); err != nil {
+			t.Fatal(err)
+		}
+		if open != 0 {
+			t.Fatalf("after the panic the transaction holds %d open cursors, want none", open)
+		}
+		// pg_cursors also lists the portal of the count query itself, so only the cursors of a list are counted.
+		// The number is free again: the next list on the transaction takes stego_searched_list_1.
+		panics = false
+		if _, err := repo.List(context.Background(), order); err != nil {
+			t.Fatalf("a list after the panic: %v", err)
+		}
+		last := ""
+		for _, s := range rec.all() {
+			if name, ok := strings.CutPrefix(s.sql, "DECLARE "); ok {
+				last, _, _ = strings.Cut(name, " ")
+			}
+		}
+		if last != "stego_searched_list_1" {
+			t.Fatalf("the list after the panic declared %s, want stego_searched_list_1", last)
+		}
+	})
+}
+
 func TestSmallListOrderWork(t *testing.T) {
 	e := newEnv(t)
 	// An index of the order field, which the planner walks when it may test the keys row by row.
@@ -568,6 +844,11 @@ func TestSmallListOrderWork(t *testing.T) {
 		for _, s := range rec.all() {
 			if !strings.Contains(s.sql, "app.orders") || !strings.Contains(s.sql, "ORDER BY") {
 				continue
+			}
+			// An ordered list of searched keys reads its rows through a cursor, so the plan explained here is the
+			// plan of that cursor: EXPLAIN takes the DECLARE itself, with the cursor's planner options.
+			if len(request.Order) > 0 && !strings.HasPrefix(s.sql, "DECLARE ") {
+				t.Fatalf("the ordered list read its rows with %q, not through the cursor of the list", s.sql)
 			}
 			var plan []struct {
 				Plan struct {

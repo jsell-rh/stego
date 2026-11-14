@@ -73,7 +73,7 @@ func responseContext() gen.Context {
 	}
 	return gen.Context{
 		ModuleName: "example.com/dispatch", OutDirName: "out", OutputNamespace: "application",
-		AuthPackage: "example.com/dispatch/out/auth",
+		AuthPackage:     "example.com/dispatch/out/auth",
 		PeerNamespaces:  map[string]string{"jwt-auth": "auth"},
 		ComponentConfig: map[string]any{"factory_package": "domain", "document": "api.yaml", "response_mappings": []any{map[string]any{"name": "Shipment", "provider": "custom-store", "model": "record", "schema": "Shipment", "fields": fields}}},
 		Inputs:          map[string][]byte{"api.yaml": []byte(responseFixture)},

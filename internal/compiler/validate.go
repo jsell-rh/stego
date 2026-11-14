@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -42,9 +43,36 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	result, err := validateSource(input, source)
 	if result != nil {
 		result.Settings = declaration.ResolvedSettings(source.Service)
-		result.Warnings = declaration.Warnings(source.Service)
+		result.Warnings = aliasNotices(source.Registry, source.Service, declaration.Warnings(source.Service))
 	}
 	return result, err
+}
+
+// aliasNotices gives, for each deprecated alias that the declaration binds, one notice that names the mixins of the
+// alias and the sunset date that the registry states for it (ST-SUP-INV17, decision on ST-SUP-Q117 (b)). The notice
+// takes the place of the notice of the declaration at the same path, which cannot know the date.
+func aliasNotices(reg *registry.Registry, service *types.ServiceDeclaration, warnings []ValidationError) []ValidationError {
+	if reg == nil || service == nil {
+		return warnings
+	}
+	for i, name := range service.Mixins {
+		alias := reg.Mixin(name)
+		if alias == nil || len(alias.AliasOf) == 0 {
+			continue
+		}
+		notice := ValidationError{Category: "mixin", Rule: "deprecated-alias", Path: fmt.Sprintf("mixins[%d]", i), Found: name, Allowed: slices.Clone(alias.AliasOf),
+			Message: fmt.Sprintf("the mixin %s is a deprecated alias of the mixins %s, and the registry removes it at its sunset on %s; bind %s instead", name, strings.Join(alias.AliasOf, " and "), alias.Sunset, strings.Join(alias.AliasOf, " and "))}
+		replaced := false
+		for j := range warnings {
+			if warnings[j].Rule == notice.Rule && warnings[j].Path == notice.Path {
+				warnings[j], replaced = notice, true
+			}
+		}
+		if !replaced {
+			warnings = append(warnings, notice)
+		}
+	}
+	return warnings
 }
 
 // validateSource is the common semantic gate for validate, plan, and apply.
@@ -115,7 +143,8 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 		// mixin itself, not by any component, so they must be added to the
 		// available set separately.
 		var mixinSlots []registry.SlotDefinition
-		for _, mixinName := range svcDecl.Mixins {
+		mixins, _ := boundMixins(reg, svcDecl.Mixins)
+		for _, mixinName := range mixins {
 			mixin := reg.Mixin(mixinName)
 			if mixin != nil {
 				mixinSlots = append(mixinSlots, mixin.AddsSlots...)
@@ -461,7 +490,8 @@ func fillCheck(input ReconcilerInput, svcDecl *types.ServiceDeclaration, reg *re
 			})
 		}
 	}
-	for _, mixinName := range svcDecl.Mixins {
+	mixins, _ := boundMixins(reg, svcDecl.Mixins)
+	for _, mixinName := range mixins {
 		mixin := reg.Mixin(mixinName)
 		if mixin == nil {
 			continue
@@ -471,6 +501,24 @@ func fillCheck(input ReconcilerInput, svcDecl *types.ServiceDeclaration, reg *re
 				Ref:      types.SlotRef{Component: mixin.Name, Slot: sd.Name},
 				Contract: "mixins/" + mixin.Name + "/slots/" + sd.Name + ".proto",
 			})
+		}
+	}
+	// A fill may name a slot of a mixin that an alias names by the alias, such as event-publisher.on_entity_changed:
+	// its contract is the one that the alias keeps in its own folder, so the digest of the fill's evidence holds.
+	for _, aliasName := range svcDecl.Mixins {
+		alias := reg.Mixin(aliasName)
+		if alias == nil || len(alias.AliasOf) == 0 {
+			continue
+		}
+		for _, target := range alias.AliasOf {
+			if mixin := reg.Mixin(target); mixin != nil {
+				for _, sd := range mixin.AddsSlots {
+					check.Slots = append(check.Slots, FillSlot{
+						Ref:      types.SlotRef{Component: alias.Name, Slot: sd.Name},
+						Contract: "mixins/" + alias.Name + "/slots/" + sd.Name + ".proto",
+					})
+				}
+			}
 		}
 	}
 	for _, c := range svcDecl.Collections {
@@ -686,6 +734,11 @@ func checkAuthorization(service *types.ServiceDeclaration, projectDir string) ([
 // authorizationComponent is the registry component whose generator emits the authorization checks of a declaration
 // that binds authorization (ST-SUP-RC29).
 const authorizationComponent = "spicedb-authz"
+
+// schemaReader names the components that get the declaration's authorization schema among their inputs: the
+// authorization component, and the command and rest-api components, which read the relations of each resource type
+// (ST-SUP-Q118).
+var schemaReader = map[string]bool{authorizationComponent: true, commandComponent: true, restAPIComponent: true}
 
 // authorizationGeneratorMissing refuses generation of a declaration that binds authorization while the registry
 // holds no authorization component with a generator, so that STEGO never generates a service without the checks

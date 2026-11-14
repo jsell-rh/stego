@@ -149,6 +149,42 @@ type ReconcilerInput struct {
 	CheckOnly bool
 }
 
+// boundMixins gives the mixins that a declaration binds, with each alias replaced by the mixins it names, each once
+// and in the order of the declaration (ST-SUP-INV17). The registry holds no alias of an alias. It refuses a mixin
+// that the registry does not hold, and a bound mixin whose required mixin is not bound too (ST-SUP-INV16).
+func boundMixins(reg *registry.Registry, declared []string) ([]string, error) {
+	var mixins []string
+	add := func(name string) {
+		if !slices.Contains(mixins, name) {
+			mixins = append(mixins, name)
+		}
+	}
+	for _, name := range declared {
+		mixin := reg.Mixin(name)
+		if mixin == nil {
+			return nil, fmt.Errorf("mixin %q not found in registry", name)
+		}
+		if len(mixin.AliasOf) == 0 {
+			add(name)
+			continue
+		}
+		for _, target := range mixin.AliasOf {
+			if resolved := reg.Mixin(target); resolved == nil || len(resolved.AliasOf) > 0 {
+				return nil, fmt.Errorf("mixin %q is an alias of %q, which is no mixin of the registry", name, target)
+			}
+			add(target)
+		}
+	}
+	for _, name := range mixins {
+		for _, required := range reg.Mixin(name).RequiresMixins {
+			if !slices.Contains(mixins, required) {
+				return nil, fmt.Errorf("mixin %q requires the mixin %q, which the declaration does not bind", name, required)
+			}
+		}
+	}
+	return mixins, nil
+}
+
 // FillSlot is one slot of the active component set, or of a mixin of the
 // declaration, with the path of its contract in the registry.
 type FillSlot struct {
@@ -281,6 +317,10 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 			return nil, err
 		}
 		if err := unbuiltSchemaChanges(source.Service); err != nil {
+			return nil, err
+		}
+		// Checking accepts a declared invariant; generation refuses it until a generator emits it.
+		if err := unemittedInvariants(source.Service.Invariants); err != nil {
 			return nil, err
 		}
 	}
@@ -605,19 +645,24 @@ func collectComponentNames(archetype *registry.Archetype, svcDecl *types.Service
 	// Validate declared mixins against archetype's compatible_mixins constraint.
 	// Distinguish nil (no field declared — any mixin accepted) from empty
 	// (compatible_mixins: [] — no mixins are compatible).
-	if archetype.CompatibleMixins != nil && len(svcDecl.Mixins) > 0 {
+	// An alias is expanded first, so each mixin it names must be compatible with the archetype too.
+	mixins, err := boundMixins(reg, svcDecl.Mixins)
+	if err != nil {
+		return nil, err
+	}
+	if archetype.CompatibleMixins != nil && len(mixins) > 0 {
 		compatible := make(map[string]bool, len(archetype.CompatibleMixins))
 		for _, m := range archetype.CompatibleMixins {
 			compatible[m] = true
 		}
-		for _, mixinName := range svcDecl.Mixins {
+		for _, mixinName := range mixins {
 			if !compatible[mixinName] {
 				return nil, fmt.Errorf("mixin %q is not compatible with archetype %q (compatible mixins: %v)", mixinName, archetype.Name, archetype.CompatibleMixins)
 			}
 		}
 	}
 
-	for _, mixinName := range svcDecl.Mixins {
+	for _, mixinName := range mixins {
 		mixin := reg.Mixin(mixinName)
 		if mixin == nil {
 			return nil, fmt.Errorf("mixin %q not found in registry", mixinName)
@@ -685,7 +730,8 @@ func generateSlotFiles(slotsPackage string, components map[string]*registry.Comp
 			slotNames[sd.Name] = true
 		}
 	}
-	for _, mixinName := range svcDecl.Mixins {
+	mixins, _ := boundMixins(reg, svcDecl.Mixins)
+	for _, mixinName := range mixins {
 		if mixin := reg.Mixin(mixinName); mixin != nil {
 			for _, sd := range mixin.AddsSlots {
 				slotNames[sd.Name] = true
@@ -712,7 +758,7 @@ func generateSlotFiles(slotsPackage string, components map[string]*registry.Comp
 		}
 	}
 	// Also search mixin adds_slots for slot definitions not found in components.
-	for _, mixinName := range svcDecl.Mixins {
+	for _, mixinName := range mixins {
 		mixin := reg.Mixin(mixinName)
 		if mixin == nil {
 			continue
