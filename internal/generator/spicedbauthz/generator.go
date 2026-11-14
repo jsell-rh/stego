@@ -162,7 +162,7 @@ func read(ctx gen.Context) (plan, error) {
 		return plan{}, err
 	}
 	if p.WaitCap > MaxWaitCap {
-		return plan{}, fmt.Errorf("spicedb-authz: the component setting wait_cap %s is more than %s; a wait must end before the server's write timeout ends the response, or it holds a waiter place for an answer that cannot be written", p.WaitCap, MaxWaitCap)
+		return plan{}, fmt.Errorf("spicedb-authz: the component setting wait_cap %s is more than %s; a wait must end in time to answer before the server's write timeout of 30s ends the response, or it holds a waiter place for an answer that cannot be written", p.WaitCap, MaxWaitCap)
 	}
 	if p.Waiters, err = count(ctx.ComponentConfig, "waiter_limit"); err != nil {
 		return plan{}, err
@@ -255,8 +255,9 @@ func withMarker(schema string) string {
 	return schema + "\n" + MarkerDefinition
 }
 
-// MaxWaitCap is the largest wait_cap: the write timeout of the generated HTTP server, 30 s (ST-SUP-RC29-OC19).
-const MaxWaitCap = 30 * time.Second
+// MaxWaitCap is the largest wait_cap, 25 s: below the write timeout of the generated HTTP server, 30 s, so a full
+// wait leaves time to write its answer (ST-SUP-RC29-OC19).
+const MaxWaitCap = 25 * time.Second
 
 // duration reads a component setting that is a positive Go duration, such as 5s.
 func duration(config map[string]any, name string) (time.Duration, error) {

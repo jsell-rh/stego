@@ -965,6 +965,31 @@ func TestRevocationWiring(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RC20-OC42-T01 A read that names the caller's write waits for it and shows it", func(t *testing.T) {
+		id, created := s.create(t, bob, "k-oc42-1")
+		path := location(t, created)
+		item := basePath + "/documents/" + id
+		// With no header the read waits for nothing and does not see the create before the relay delivers it.
+		plain := s.do(t, &bob, http.MethodGet, item, "", "Prefer", "wait=5")
+		if plain.code != http.StatusNotFound || plain.took > time.Second || len(plain.header.Values(authz.RevocationHeader)) != 0 {
+			t.Fatalf("a read before the delivery with no %s answered %d %v after %s, want 404 at once with no %s", authz.RevocationAfterHeader, plain.code, plain.header, plain.took, authz.RevocationHeader)
+		}
+		stopped := make(chan func(), 1)
+		go func() { time.Sleep(300 * time.Millisecond); stopped <- s.startRelay(t) }()
+		r := s.do(t, &bob, http.MethodGet, item, "", authz.RevocationAfterHeader, path, "Prefer", "wait=5")
+		defer (<-stopped)()
+		if r.code != http.StatusOK || r.header.Get(authz.RevocationHeader) != "complete" || !strings.Contains(string(r.body), id) {
+			t.Fatalf("a read with %s answered %d %v %s, want 200 complete with the document", authz.RevocationAfterHeader, r.code, r.header, r.body)
+		}
+		// A revocation that is not the caller's is unknown, and a value that is no identity is a bad request.
+		if r := s.do(t, &bob, http.MethodGet, item, "", authz.RevocationAfterHeader, paths["t1/"+alice.subject]); r.code != http.StatusOK || r.header.Get(authz.RevocationHeader) != "unknown" {
+			t.Fatalf("a read with alice's revocation answered %d %v, want 200 unknown", r.code, r.header)
+		}
+		if r := s.do(t, &bob, http.MethodGet, item, "", authz.RevocationAfterHeader, "not-an-id"); r.code != http.StatusBadRequest {
+			t.Fatalf("a read with a bad %s answered %d, want 400", authz.RevocationAfterHeader, r.code)
+		}
+	})
+
 	t.Run("ST-SUP-RC32-OC13-T01 A fill shares and unshares a document through the typed relation helpers", func(t *testing.T) {
 		stop := s.startRelay(t)
 		defer stop()

@@ -7,10 +7,12 @@
 # the rest, and no entry quotes a value of the request. Version 4.2.3 refuses a body of more than 10000 JSON values
 # and member names before the schema check (ST-SUP-RC20-OC21). Version 4.2.4 reads each number of the count as text
 # and refuses a body that is not JSON, so no error of the count lets a body pass. Version 4.3.0 makes a list that
-# names the caller's write in Authz-Revocation-After wait for it before it reads (ST-SUP-RC20-OC41).
+# names the caller's write in Authz-Revocation-After wait for it before it reads (ST-SUP-RC20-OC41). Version 4.4.0
+# makes a read wait the same way (ST-SUP-RC20-OC42), and its OpenAPI document describes the revocation headers and
+# the revocation status route (ST-SUP-RC20-OC43).
 kind: component
 name: rest-api
-version: 4.3.0
+version: 4.4.0
 stage: ga
 output_namespace: internal/api
 
