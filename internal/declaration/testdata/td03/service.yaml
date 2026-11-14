@@ -22,9 +22,10 @@ entities:
       - {name: done, type: bool, default: false}
       - {name: owner_id, type: string}
     resource_type: document
-    permissions: {create: edit, read: view, update: edit, delete: edit, list: view}
+    public_reasons: {create: a new todo has no resource to decide on before it exists}
+    permissions: {create: public, read: view, update: edit, delete: edit, list: view}
     relationships:
-      - {relation: owner, subject_source: field, subject_field: owner_id, subject_type: user}
+      - {relation: owner, subject_source: caller, subject_type: user}
 collections:
   todos:
     entity: Todo

@@ -13,7 +13,12 @@ import (
 )
 
 const SchemaGeneration = "tables-v1"
-const SchemaDefinition = "389aee52eeb822e1af503d129e715128852729c979954674879c9b50c8c0b982"
+
+// SchemaDefinition is the digest of the stored shape of the baseline, which the marker of a database that this
+// release made holds; schemaDefinitionBefore is the digest of the entities and the collections of the same baseline,
+// which a release before ST-SUP-RC01-OC42 wrote, and the marker check accepts it too.
+const SchemaDefinition = "60298df1f733ae69acd1bf786e117d0450c7c6107268605e4fb2c29cb71ab97e"
+const schemaDefinitionBefore = "389aee52eeb822e1af503d129e715128852729c979954674879c9b50c8c0b982"
 
 var ErrSchemaGeneration = errors.New("database schema generation is not supported")
 
@@ -125,7 +130,7 @@ func BootstrapSchema(ctx context.Context, db Database, initialize func(context.C
    REVOKE ALL ON TABLE stego_schema.identity FROM PUBLIC;
    CREATE SEQUENCE stego_schema.epoch_seq AS bigint MAXVALUE 9223372036854775807;
    REVOKE ALL ON SEQUENCE stego_schema.epoch_seq FROM PUBLIC;
-   CREATE TABLE stego_schema.migrations(version text PRIMARY KEY,digest text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now());
+   CREATE TABLE stego_schema.migrations(version text PRIMARY KEY,digest text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now(),compatible_with pg_catalog.text[]);
    REVOKE ALL ON TABLE stego_schema.migrations FROM PUBLIC`); err != nil {
 			return ErrSchemaGeneration
 		}
@@ -186,7 +191,10 @@ func readSchemaGeneration(ctx context.Context, tx *sql.Tx) (bool, error) {
 
 	// A migration ledger is required; a database without one cannot check
 	// applied schema changes and fails closed. Its only permitted non-owner
-	// grants are SELECT and INSERT: the runner records, never edits.
+	// grants are SELECT and INSERT: the runner records, never edits. It has
+	// the columns version, digest and applied_at, and the nullable text array
+	// compatible_with once a migration job of this release added it
+	// (ST-SUP-RC01-OC29); a release before it has no such column.
 	var ledgerShape bool
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
   SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
@@ -195,7 +203,9 @@ func readSchemaGeneration(ctx context.Context, tx *sql.Tx) (bool, error) {
   AND c.relowner=n.nspowner
   AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_inherits i WHERE i.inhparent=c.oid OR i.inhrelid=c.oid)
   AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))) a WHERE a.grantee<>c.relowner AND a.privilege_type<>'SELECT' AND a.privilege_type<>'INSERT')
-  AND (SELECT count(*) FROM pg_catalog.pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped)=3
+  AND (SELECT count(*) FROM pg_catalog.pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped)
+   =3+(SELECT count(*) FROM pg_catalog.pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped AND NOT a.attnotnull
+    AND a.attname='compatible_with' AND a.atttypid='pg_catalog._text'::pg_catalog.regtype AND a.atthasdef=false AND a.attgenerated='')
   AND (SELECT count(*) FROM pg_catalog.pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped AND a.attnotnull
    AND ((a.attname='version' AND a.atttypid='pg_catalog.text'::pg_catalog.regtype)
     OR (a.attname='digest' AND a.atttypid='pg_catalog.text'::pg_catalog.regtype)
@@ -232,7 +242,7 @@ func readSchemaGeneration(ctx context.Context, tx *sql.Tx) (bool, error) {
 	for rows.Next() {
 		var singleton bool
 		var generation, definition string
-		if rows.Scan(&singleton, &generation, &definition) != nil || !singleton || generation != SchemaGeneration || definition != SchemaDefinition {
+		if rows.Scan(&singleton, &generation, &definition) != nil || !singleton || generation != SchemaGeneration || (definition != SchemaDefinition && definition != schemaDefinitionBefore) {
 			return false, ErrSchemaGeneration
 		}
 		marked++

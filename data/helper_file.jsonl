@@ -11,6 +11,7 @@
 {"record_id":"ST-EXT-INV05-RL","file":"internal/fill/closure.go"}
 {"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/apply_hook.go"}
 {"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/filesystem.go"}
+{"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/schema_steps.go"}
 {"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/sync_other.go"}
 {"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/sync_unix.go"}
 {"record_id":"ST-GEN-DS03-SV","file":"internal/compiler/constructor_references.go"}

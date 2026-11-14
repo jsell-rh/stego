@@ -139,6 +139,7 @@ func TestRecoverCompletesInterruptedApply(t *testing.T) {
 	t.Parallel()
 	t.Run("ST-GEN-UC06-R01-T01 Recover completes an interrupted apply, so the files and the record match the record apply was writing", func(t *testing.T) {
 		s := newSmallService(t)
+		s.unreleased(t)
 		committed := tree(t, s.service)
 		wanted, wantedFiles := s.appliedResult(t)
 		deleted := 0
@@ -178,6 +179,7 @@ func TestRecoverRefusesConflict(t *testing.T) {
 	t.Parallel()
 	t.Run("ST-GEN-UC06-R02-T01 Recover refuses, and changes nothing, when a journaled file matches neither of its states", func(t *testing.T) {
 		s := newSmallService(t)
+		s.unreleased(t)
 		s.write(t, "service.yaml", tagDeclaration)
 		s.stopApply(t, "after_operation_0")
 		operations := s.journal(t)
@@ -204,6 +206,7 @@ func TestPendingJournalStopsEveryRun(t *testing.T) {
 	t.Parallel()
 	t.Run("ST-GEN-UC06-R03-T01 Plan, apply and drift each refuse while a journal is pending, change nothing and name recover", func(t *testing.T) {
 		s := newSmallService(t)
+		s.unreleased(t)
 		s.write(t, "service.yaml", tagDeclaration)
 		s.stopApply(t, "after_operation_0")
 		before := tree(t, s.service)
@@ -223,6 +226,7 @@ func TestInterruptedApplyFlow(t *testing.T) {
 	t.Parallel()
 	t.Run("ST-GEN-UC06-FL-T After an interrupted apply, drift names recover, and recover makes the files and the record agree", func(t *testing.T) {
 		s := newSmallService(t)
+		s.unreleased(t)
 		s.write(t, "service.yaml", tagDeclaration)
 		s.stopApply(t, "after_operation_0")
 		if stdout, stderr, err := s.stego(t, "drift"); err == nil || !strings.Contains(stdout+stderr, "stego recover") {
@@ -250,6 +254,7 @@ func TestRecordFlow(t *testing.T) {
 	t.Parallel()
 	t.Run("ST-GEN-UC01-FL-T An apply writes the code and its record together, and one commit holds both", func(t *testing.T) {
 		s := newSmallService(t)
+		s.unreleased(t)
 		s.write(t, "service.yaml", secondEntityDeclaration)
 		s.must(t, "apply")
 		s.matchesRecord(t)
@@ -294,6 +299,7 @@ func TestApplySavesWholeOrNothing(t *testing.T) {
 	t.Parallel()
 	t.Run("ST-GEN-A1-SR01-T01 A crash at any point of apply leaves the old record with the old files, or the new record with the new files after the next run", func(t *testing.T) {
 		s := newSmallService(t)
+		s.unreleased(t)
 		oldRecord, oldFiles := s.read(t, ".stego/state.yaml"), tree(t, s.service)
 		newRecord, _ := s.appliedResult(t)
 		s.write(t, "service.yaml", tagDeclaration)
@@ -332,6 +338,7 @@ func TestApplySavesWholeOrNothing(t *testing.T) {
 
 	t.Run("ST-GEN-A1-SR01-T02 Apply saves the record after every generated file", func(t *testing.T) {
 		s := newSmallService(t)
+		s.unreleased(t)
 		s.write(t, "service.yaml", tagDeclaration)
 		s.stopApply(t, "prepared")
 		operations := s.journal(t)

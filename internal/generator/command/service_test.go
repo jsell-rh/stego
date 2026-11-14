@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -171,7 +172,7 @@ func runCheck(t *testing.T, p *project, run *checkRun, endpoint, key, id string)
 		output, err := cmd.CombinedOutput()
 		run.output, run.err = string(output), err
 	})
-	if !strings.Contains(run.output, "--- PASS: TestCommand/"+id+"_") {
+	if !ownPass(run.output, "TestCommand", id) {
 		t.Fatalf("the check %s of the generated service did not run and pass (go test: %v):\n%s", id, run.err, run.output)
 	}
 }
@@ -198,4 +199,25 @@ func TestCommandService(t *testing.T) {
 	t.Run("ST-SUP-RC32-OC09-T01 A command fill's error text reaches no response, audit row or completion log", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC09-T01") })
 	t.Run("ST-SUP-RC32-OC10-T01 A command that loses a conflict gets 409 conflict, an audit row, and runs again on a retry with the same key", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC10-T01") })
 	t.Run("ST-SUP-RC32-OC11-T01 HTTP and gRPC take one request message", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC11-T01") })
+}
+
+// ownPass tells whether output, the text of go test -v, holds the pass line of the subtest of id itself, directly
+// under a test whose name matches parent, a regular expression. A subtest one level down has the same name prefix,
+// but go test indents its line four more spaces, so its pass never counts as the pass of its parent
+// (ST-STD-CODE-R07).
+func ownPass(output, parent, id string) bool {
+	return regexp.MustCompile(`(?m)^    --- PASS: ` + parent + `/` + regexp.QuoteMeta(id) + `_`).MatchString(output)
+}
+
+func TestOwnPass(t *testing.T) {
+	t.Run("ST-STD-CODE-R07-T01 In the command wrapper, a pass of a subtest under the subtest of a record is not its pass", func(t *testing.T) {
+		output := "=== RUN   TestCommand/ST-X-T01_a\n        --- PASS: TestCommand/ST-X-T01_a/child (0.00s)\n    --- FAIL: TestCommand/ST-X-T01_a (0.00s)\n" +
+			"    --- PASS: TestCommand/ST-X-T02_b (0.00s)\n        --- FAIL: TestCommand/ST-X-T02_b/child (0.00s)\n    --- PASS: TestCommand/ST-X-T03_c/d (0.00s)\n"
+		if ownPass(output, "TestCommand", "ST-X-T01") {
+			t.Fatal("a failed subtest counts as passed because a subtest under it passed")
+		}
+		if !ownPass(output, "TestCommand", "ST-X-T02") || !ownPass(output, "TestCommand", "ST-X-T03") {
+			t.Fatal("a passed subtest, also one whose title holds a slash, does not count as passed")
+		}
+	})
 }

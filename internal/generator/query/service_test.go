@@ -134,7 +134,7 @@ func shopProject(t *testing.T) string {
 	}
 	write("go.sum", sums)
 	write("go.mod", []byte("module "+shopModule+"\n\ngo "+new(Generator).MinimumGoVersion()+
-		"\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.89.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeFolder+"\n"))
+		"\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.91.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeFolder+"\n"))
 	goCommand(t, project, nil, "mod", "tidy")
 	goCommand(t, project, nil, "vet", "./...")
 	goCommand(t, project, nil, "build", "./...")
@@ -218,10 +218,12 @@ func TestService(t *testing.T) {
 		"ST-SUP-RP11-LC15-T01", "ST-SUP-RC33-OC06-T01", "ST-SUP-RC33-OC06-T02", "ST-SUP-RP11-LC13-T01",
 	} {
 		t.Run(id+" passes in the generated service", func(t *testing.T) {
-			for name, ok := range passed {
-				if ok && strings.HasPrefix(name, "TestService/"+id+"_") {
-					return
-				}
+			ran := map[string]bool{}
+			for name := range log {
+				ran[name] = true
+			}
+			if own := ownSubtest(ran, func(name string) bool { return strings.HasPrefix(name, "TestService/"+id+"_") }); own != "" && passed[own] {
+				return
 			}
 			var all strings.Builder
 			for name, b := range log {
@@ -315,4 +317,36 @@ func checkSlotTypes(t *testing.T, project string) {
 			}
 		}
 	}
+}
+
+// ownSubtest gives the name of the subtest of id among ran, the names of the tests that ran, as match finds it: the
+// shortest name that matches, because each subtest under it has its name and more. So a pass of a subtest under it
+// is never taken for its own pass (ST-STD-CODE-R07). It gives "" when no name matches.
+func ownSubtest(ran map[string]bool, match func(string) bool) string {
+	own := ""
+	for name := range ran {
+		if match(name) && (own == "" || len(name) < len(own)) {
+			own = name
+		}
+	}
+	return own
+}
+
+func TestOwnSubtest(t *testing.T) {
+	t.Run("ST-STD-CODE-R07-T05 In the query wrapper, a pass of a subtest under the subtest of a record is not its pass", func(t *testing.T) {
+		ran := map[string]bool{"TestService/ST-X-T01_a": true, "TestService/ST-X-T01_a/child": true, "TestService/ST-X-T02_b/c": true, "TestService/ST-X-T02_b/c/d": true}
+		passed := map[string]bool{"TestService/ST-X-T01_a/child": true, "TestService/ST-X-T02_b/c": true}
+		match := func(id string) func(string) bool {
+			return func(name string) bool { return strings.HasPrefix(name, "TestService/"+id+"_") }
+		}
+		if own := ownSubtest(ran, match("ST-X-T01")); own != "TestService/ST-X-T01_a" || passed[own] {
+			t.Fatalf("the own subtest of T01 is %q, want the failed parent and not its child", own)
+		}
+		if own := ownSubtest(ran, match("ST-X-T02")); own != "TestService/ST-X-T02_b/c" || !passed[own] {
+			t.Fatalf("the own subtest of T02, whose title holds a slash, is %q, want the passed one", own)
+		}
+		if own := ownSubtest(ran, match("ST-X-T09")); own != "" {
+			t.Fatalf("a record with no subtest gave %q", own)
+		}
+	})
 }

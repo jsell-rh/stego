@@ -196,7 +196,14 @@ func Manifest(relayRole, runtimeRole, workerRole string) (manifest.Manifest, err
 			Returns: relayResults[name], Volatility: volatility})
 	}
 	return manifest.Manifest{Functions: functions, Tables: []manifest.Table{{Schema: "stego_outbox", Name: "messages", Columns: columns,
-		Constraints: constraints, Indexes: []manifest.Index{{Name: "messages_pkey", Columns: []string{"id"}}, {Name: "messages_sequence_key", Columns: []string{"sequence"}}},
+		Constraints: constraints, Indexes: []manifest.Index{{Name: "messages_pkey", Columns: []string{"id"}}, {Name: "messages_sequence_key", Columns: []string{"sequence"}},
+			// The partial lookup indexes of the relay: on a table with row-level security, each index with a predicate
+			// is the manifest's.
+			{Name: "messages_open_order", Columns: []string{"tenant_id", "destination", "resource_key", "sequence"}, Lookup: true,
+				Predicate: "(state <> ALL (ARRAY['done'::text, 'discarded'::text]))"},
+			{Name: "messages_due", Columns: []string{"available_at", "sequence"}, Lookup: true,
+				Predicate: "(state = ANY (ARRAY['pending'::text, 'dispatching'::text, 'outcome_unknown'::text, 'reconciling'::text]))"},
+			{Name: "messages_done", Columns: []string{"done_at"}, Lookup: true, Predicate: "(state = 'done'::text)"}},
 		RowSecurity: true, Policies: policies, CheckGrants: true, Grants: grants}},
 		// The schema is the outbox's whole, so no other function, such as an overload of a relay function, is in it; and
 		// the relay role owns the relay functions only, since each SECURITY DEFINER function of it spans tenants.
