@@ -131,15 +131,16 @@ jobs:
       - run: npm ci --prefix internal/generator/browsertelemetry/testdata --ignore-scripts --no-audit --no-fund
       # The code standard's own-tree tests (ST-STD-CODE-R01-T01 to R06-T01) refuse a fault that the base's list of
       # known faults does not hold. ASSURE_RATCHET_BASE names that base: on a pull request, the merge base of the
-      # pull request's base and its head, not main's tip, so a branch behind main is not failed for lines main has
-      # since removed. On a push to main it is unset, and the tests take HEAD^1.
+      # first parent of the run's merge commit, which the gate also takes as the base, and the head, not main's tip,
+      # so a branch behind main is not failed for lines main has since removed. On a push to main it is unset, and
+      # the tests take HEAD^1.
       - name: Name the ratchet base of the code standard
         if: github.event_name == 'pull_request'
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE: ${{ github.sha }}
         run: |
-          git fetch --no-tags origin "$BASE"
-          merge_base="$(git merge-base "$BASE" HEAD)"
+          git fetch --no-tags origin "$MERGE"
+          merge_base="$(git merge-base "$MERGE^1" HEAD)"
           echo "ASSURE_RATCHET_BASE=$merge_base" >> "$GITHUB_ENV"
       # The build tests of Building run a real stego build, which accepts only the pinned official Go SDK archive,
       # not the toolchain setup-go installs. Without it they skip, and a skipped test is no proof.
@@ -207,7 +208,8 @@ jobs:
           if-no-files-found: error
 
   # The suites job records the proof run from the five parts. It runs no code of the change: it builds assure record
-  # from the pull request's base commit (on a push, the commit pushed), with a Go setup that restores no cache, and
+  # from the first parent of the run's commit (on a pull request, the base of the merge commit; on a push, the commit
+  # before the one pushed), with a Go setup that restores no cache, and
   # runs it in a checkout of the commit on the outputs of the parts, the root module's parts first, then Assuring's
   # modules, as one run. A part whose output is missing fails the job, so nothing is attested.
   suites:
@@ -233,9 +235,12 @@ jobs:
           path: stego
           fetch-depth: 0
           persist-credentials: false
+      # The base is the first parent of the run's commit: on a pull request, of the merge commit, the base that the
+      # gate takes; on a push, the commit before the one pushed.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.event.pull_request.base.sha || env.COMMIT }}
+          ref: ${{ github.sha }}
+          fetch-depth: 2
           path: base
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -247,6 +252,7 @@ jobs:
         env:
           GOWORK: 'off'
         run: |
+          git checkout -q --detach HEAD^1
           mkdir -p "$RUNNER_TEMP/record"
           go build -mod=readonly -trimpath -o "$RUNNER_TEMP/record/assure" .
           chmod -R a-w "$RUNNER_TEMP/record"
@@ -317,6 +323,17 @@ jobs:
       # assure record gives outcomes only to tests whose names carry a test record ID. Every other failure fails the
       # job here, after the proof run is recorded and kept: a Go test or subtest of any name, a parent test, a
       # package (TestMain, a race outside a test, a build fault), and a Python test of any name.
+      # A PostgreSQL check whose cleanup failed logs "pgtest: cleanup failed:" and leaks its test database. The
+      # line shows only in the go test output, so the job names each one as a warning (#284 review).
+      - name: Warn on a leaked test database
+        shell: bash
+        run: |
+          jq -r 'select(.Action == "output" and (.Output | contains("pgtest: cleanup failed:"))) | "\(.Package) \(.Test // "(package)"): \(.Output | rtrimstr("\n"))"' \
+            "$RUNNER_TEMP/go-test.json" | while IFS= read -r line; do
+            if [ -n "$line" ]; then
+              echo "::warning::A test database leaked: $line"
+            fi
+          done
       - name: Fail on any failed test
         shell: bash
         run: |
@@ -324,6 +341,16 @@ jobs:
           go_failed="$(jq -r 'select(.Action == "fail") | "\(.Package) \(.Test // "(package)")"' "$RUNNER_TEMP/go-test.json")"
           python_failed="$(jq -r '.tests[] | select(.result == "failed") | .test' "$parts/tests-assure/python-tests.json")"
           if [ -n "$go_failed$python_failed" ]; then
+            # The output of each failed Go test, at most its last 60 lines, so the cause is in the run log (#212). The
+            # output is the change's text, so workflow commands in it are stopped with a token that it cannot know.
+            token="$(openssl rand -hex 16)"
+            echo "::stop-commands::$token"
+            jq -r -s 'map(select(.Action == "fail" and .Test != null) | {Package, Test}) as $failed
+              | map(select(.Test != null)) | group_by([.Package, .Test])[]
+              | select(.[0] as $e | any($failed[]; . == {Package: $e.Package, Test: $e.Test}))
+              | "--- output of \(.[0].Package) \(.[0].Test)", (map(select(.Action == "output") | .Output) | .[-60:] | join(""))' \
+              "$RUNNER_TEMP/go-test.json" || true
+            echo "::$token::"
             printf '%s\n' $'Failed Go tests and packages:' "$go_failed" $'Failed Python tests:' "$python_failed"
             echo "::error::A test or package failed (listed above). The proof run is recorded and kept, but the suites job fails."
             exit 1
@@ -406,15 +433,25 @@ jobs:
           MERGE: ${{ github.sha }}
           EVENT_BASE: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
         run: |
+          if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+            echo "::error::The gate did not run: the base branch $BASE_REF is not the default branch $DEFAULT_BRANCH. This is no decision on the change."
+            exit 1
+          fi
           git fetch --no-tags origin "$MERGE" "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
           base="$(git rev-parse --verify "$MERGE^1^{commit}")"
+          if git rev-parse --verify -q "$MERGE^3^{commit}" > /dev/null; then
+            echo "::error::The gate did not run: the merge commit $MERGE of this run has more than two parents. This is no decision on the change."
+            exit 1
+          fi
           if [ "$(git rev-parse --verify "$MERGE^2^{commit}")" != "$COMMIT" ]; then
-            echo "::error::The gate did not run: the merge commit $MERGE of this run does not merge the head $COMMIT. Re-run the checks. This is no decision on the change."
+            echo "::error::The gate did not run: the merge commit $MERGE of this run does not merge the head $COMMIT. Push a commit or update the branch. This is no decision on the change."
             exit 1
           fi
           if ! git merge-base --is-ancestor "$EVENT_BASE" "$base" || ! git merge-base --is-ancestor "$base" "refs/remotes/origin/$BASE_REF"; then
-            echo "::error::The gate did not run: the base $base of the merge commit is not on $BASE_REF at or after $EVENT_BASE. Re-run the checks. This is no decision on the change."
+            echo "::error::The gate did not run: the base $base of the merge commit is not on $BASE_REF at or after $EVENT_BASE. Push a commit or update the branch. This is no decision on the change."
             exit 1
           fi
           echo "sha=$base" >> "$GITHUB_OUTPUT"
