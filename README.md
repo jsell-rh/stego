@@ -382,7 +382,7 @@ hand; see [Specification checks](#specification-checks).
 | `stego apply` | `stego apply [--saved-plan] [--replace-hand-edits] [--base <ref>]` |
 | `stego assets` | `stego assets --directory <folder> --output <zip>` |
 | `stego build` | `stego build --source <repo> --revision <commit> [--module <path>] --target <path> --go <sdk>/bin/go --work <folder> --output <folder> --module-cache <folder>` |
-| `stego build download` | `stego build download --source <repo> --revision <commit> [--module <path>] --target <path> --go <sdk>/bin/go --output <folder>` |
+| `stego build download` | `stego build download --source <repo> --revision <commit> [--module <path>] --target <path> --go <sdk>/bin/go --output <folder> [--runtime-folder <stego checkout>/registry/runtime]` |
 | `stego build verify` | `stego build verify --record <file> --record-sha256 <digest> --artifact <file>` |
 | `stego build verify-source` | `stego build verify-source --record <file> --record-sha256 <digest> --source <folder>` |
 | `stego compat` | `stego compat --base <ref> [--json]` |
