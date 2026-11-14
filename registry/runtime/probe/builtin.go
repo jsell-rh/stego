@@ -3,6 +3,7 @@ package probe
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -26,6 +27,10 @@ var (
 	serviceStopping  = builtin("service.stopping", Event, Info, serviceClass)
 	serviceFailed    = builtin("service.failed", Event, Error, serviceClass)
 	httpDiagnostic   = builtin("http.server.diagnostic", Event, Warn, serviceClass)
+	// schemaMismatch is the alert of a start whose database does not satisfy the schema manifest, one for each class
+	// of the faults: the service starts, and the migration job refuses the database (decision on finding F10 of the
+	// schema-change research, owner, 2026-11-13).
+	schemaMismatch = builtin("schema.manifest.mismatch", Event, Error, serviceClass, "class")
 
 	workerRunFailed       = builtin("worker.run.failed", Event, Error, workerClass, "worker", "outcome")
 	workerTickSkipped     = builtin("worker.tick.skipped", Counter, Warn, workerClass, "worker")
@@ -40,7 +45,7 @@ var (
 )
 
 // builtinObservations are the built-in observations, whose names no declared observation may take.
-var builtinObservations = []*Observation{telemetryStarted, telemetryStopped, serviceReady, serviceStopping, serviceFailed, httpDiagnostic, workerRunFailed, workerTickSkipped, workerTenantUnreached, backfillRows, backfillFailedRows, backfillDuplicates, backfillCompleted, backfillStalled, backfillThrottled}
+var builtinObservations = []*Observation{telemetryStarted, telemetryStopped, serviceReady, serviceStopping, serviceFailed, httpDiagnostic, schemaMismatch, workerRunFailed, workerTickSkipped, workerTenantUnreached, backfillRows, backfillFailedRows, backfillDuplicates, backfillCompleted, backfillStalled, backfillThrottled}
 
 // builtinName tells whether name is the name of a built-in observation.
 func builtinName(name string) bool {
@@ -80,6 +85,22 @@ func (e ServiceEvent) observation() *Observation {
 		return httpDiagnostic
 	}
 	return nil
+}
+
+// SchemaFaultClasses are the values of the field class of schema.manifest.mismatch: the classes of the faults of
+// the schema manifest check (manifest.FaultClass), so that an operator can page on the classes that touch the
+// tenant wall and the grants only.
+var SchemaFaultClasses = []string{"rls", "policy", "grant", "owner", "trigger", "function", "rule", "column", "other"}
+
+// SchemaMismatch sends schema.manifest.mismatch, an Error, with the class of the faults. A class that is not one of
+// SchemaFaultClasses is dropped and counted.
+func (r *Runtime) SchemaMismatch(ctx context.Context, class string) {
+	r.core.builtin(ctx, schemaMismatch, 1, class)
+}
+
+// SchemaMismatch records schema.manifest.mismatch.
+func (r *Recorder) SchemaMismatch(ctx context.Context, class string) {
+	r.core.builtin(ctx, schemaMismatch, 1, class)
 }
 
 // WorkerOutcome is the fixed outcome of a worker run that did not commit (ST-SUP-RC35-OC09).
@@ -154,6 +175,8 @@ func (c *core) builtin(ctx context.Context, o *Observation, count int64, values 
 			ok = c.builtins.workers[v]
 		case "change":
 			ok = c.builtins.open[v]
+		case "class":
+			ok = slices.Contains(SchemaFaultClasses, v)
 		case "outcome":
 			outcome := WorkerOutcome(v)
 			ok = outcome == WorkerRolledBack || outcome == WorkerFenced || outcome == WorkerPanicked

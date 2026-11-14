@@ -53,8 +53,8 @@ func TestRuntimeExample(t *testing.T) {
 			t.Fatalf("the check of the example did not run and pass (go test: %v):\n%s", runErr, output)
 		}
 	})
-	t.Run("ST-SUP-RC01-OC12-T08 Startup fails closed when the database does not satisfy the schema manifest", func(t *testing.T) {
-		name := "ST-SUP-RC01-OC12-T08_Startup_fails_closed_when_the_database_does_not_satisfy_the_schema_manifest"
+	t.Run("ST-SUP-RC01-OC12-T08 A start on a database that does not satisfy the schema manifest alerts, and the migration job refuses it", func(t *testing.T) {
+		name := "ST-SUP-RC01-OC12-T08_A_start_on_a_database_that_does_not_satisfy_the_schema_manifest_alerts,_and_the_migration_job_refuses_it"
 		if !strings.Contains(string(output), "--- PASS: TestSchemaManifest/"+name+" ") {
 			t.Fatalf("the schema manifest check of the example did not run and pass (go test: %v):\n%s", runErr, output)
 		}

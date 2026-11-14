@@ -1,9 +1,16 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -97,6 +104,32 @@ func parts(entities []command.Declared, calls *int) Parts {
 		// The anchor period of the audit DDL of the migration job of the fixture.
 		Workers: WorkerParts{AnchorPeriod: time.Hour, RetentionMonths: 12},
 	}
+}
+
+// startCaptured runs start with the default logger writing JSON into a buffer and standard output, which the
+// console sink of the probe writes, into a pipe, and gives both texts.
+func startCaptured(t *testing.T, start func()) (string, string) {
+	t.Helper()
+	var logs bytes.Buffer
+	before := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	defer slog.SetDefault(before)
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	os.Stdout = write
+	console := make(chan string, 1)
+	go func() {
+		text, _ := io.ReadAll(read)
+		console <- string(text)
+	}()
+	func() {
+		defer func() { os.Stdout = stdout; _ = write.Close() }()
+		start()
+	}()
+	return logs.String(), <-console
 }
 
 // relate writes a relationship of the tenant t1 to SpiceDB: the subject holds relation on the resource key.
@@ -281,7 +314,7 @@ func TestNew(t *testing.T) {
 			}
 		})
 
-		t.Run("ST-SUP-RP14-LC06-T01 New refuses a database that does not hold the schema manifest before it opens anything else", func(t *testing.T) {
+		t.Run("ST-SUP-RP14-LC06-T01 New starts on a database that does not hold the schema manifest, and logs and alerts each fault with its class and no row value", func(t *testing.T) {
 			orders := manifest.Table{Schema: "public", Name: "orders", RowSecurity: true,
 				Indexes: []manifest.Index{{Name: "orders_pkey", Columns: []string{"tenant_id", "id"}}},
 				Columns: []manifest.Column{{Name: "tenant_id", Type: "text", NotNull: true}, {Name: "status", Type: "text", NotNull: true},
@@ -290,13 +323,22 @@ func TestNew(t *testing.T) {
 					WithCheck: "(tenant_id = current_setting('app.tenant'::text, true))"}}}
 			declared := parts(nil, nil)
 			declared.Schema = manifest.Manifest{Tables: []manifest.Table{orders}}
+			// A row whose value no log line and no observation may hold.
+			const rowValue = "row-value-f10-secret"
+			if _, err := f.admin.Exec(`INSERT INTO public.orders (tenant_id, id, status) VALUES ('t1', 'o-f10', '` + rowValue + `')`); err != nil {
+				t.Fatal(err)
+			}
 			// The database of the migration job holds the manifest, so New starts.
 			svc, err := New(context.Background(), settings, declared)
 			if err != nil {
 				t.Fatalf("New refused the database that the migration job made: %v", err)
 			}
 			_ = svc.Close()
-			refused := func(change, restore, fault string) {
+			// alerted makes the change, starts the service with the console of the probe and the log captured, and
+			// expects it to start, with a log line that names the fault and its class and the observation
+			// schema.manifest.mismatch of that class, neither with the row value (decision on finding F10, owner,
+			// 2026-11-13).
+			alerted := func(change, restore, fault, class string) {
 				t.Helper()
 				if _, err := f.admin.Exec(change); err != nil {
 					t.Fatal(err)
@@ -306,59 +348,87 @@ func TestNew(t *testing.T) {
 						t.Fatal(err)
 					}
 				}()
-				var outbox, audit int64
-				if err := f.admin.QueryRow(`SELECT (SELECT count(*) FROM stego_outbox.messages), (SELECT count(*) FROM public.audit_event)`).Scan(&outbox, &audit); err != nil {
-					t.Fatal(err)
+				logs, console := startCaptured(t, func() {
+					svc, err := New(context.Background(), settings, declared)
+					if err != nil {
+						t.Fatalf("New after %q gave %v, want a start with an alert", change, err)
+					}
+					if err := svc.Close(); err != nil {
+						t.Fatal(err)
+					}
+				})
+				logged := false
+				for _, line := range strings.Split(logs, "\n") {
+					var record map[string]any
+					if json.Unmarshal([]byte(line), &record) == nil && record["level"] == "ERROR" && record["class"] == class &&
+						strings.Contains(fmt.Sprint(record["fault"]), fault) {
+						logged = true
+					}
 				}
-				// SpiceDB cannot be reached: a refusal that names the manifest comes before New connects to it.
-				_, err := New(context.Background(), unreachable, declared)
-				if !errors.Is(err, manifest.ErrNotSatisfied) || !strings.Contains(err.Error(), fault) || strings.Contains(err.Error(), "SpiceDB") {
-					t.Fatalf("New after %q gave %v, want a refusal that names %q", change, err, fault)
+				if !logged {
+					t.Fatalf("after %q the log holds no error line with the class %s and the fault %q:\n%s", change, class, fault, logs)
 				}
-				// The failure record names the stage of the manifest check.
-				if stage := StartStage(err); stage != "service.start.schema_manifest" {
-					t.Fatalf("StartStage of the refusal after %q is %q, want service.start.schema_manifest", change, stage)
+				alert := false
+				for _, line := range strings.Split(console, "\n") {
+					var record map[string]any
+					if json.Unmarshal([]byte(line), &record) != nil || record["event.name"] != "schema.manifest.mismatch" {
+						continue
+					}
+					fields, _ := record["fields"].(map[string]any)
+					if record["severity"] == "ERROR" && fields["class"] == class {
+						alert = true
+					}
 				}
-				var outboxAfter, auditAfter int64
-				if err := f.admin.QueryRow(`SELECT (SELECT count(*) FROM stego_outbox.messages), (SELECT count(*) FROM public.audit_event)`).Scan(&outboxAfter, &auditAfter); err != nil {
-					t.Fatal(err)
+				if !alert {
+					t.Fatalf("after %q the console holds no ERROR schema.manifest.mismatch of the class %s:\n%s", change, class, console)
 				}
-				if outboxAfter != outbox || auditAfter != audit {
-					t.Fatalf("the refused start wrote: outbox %d then %d, audit %d then %d", outbox, outboxAfter, audit, auditAfter)
+				if strings.Contains(logs, rowValue) || strings.Contains(console, rowValue) {
+					t.Fatalf("after %q the log or the console holds the row value:\n%s\n%s", change, logs, console)
 				}
 			}
-			refused("ALTER TABLE public.orders ALTER COLUMN status TYPE character varying(20)", "ALTER TABLE public.orders ALTER COLUMN status TYPE text",
-				"table public.orders: column status has the type character varying(20)")
-			refused("ALTER TABLE public.orders NO FORCE ROW LEVEL SECURITY", "ALTER TABLE public.orders FORCE ROW LEVEL SECURITY",
-				"table public.orders: row-level security is not enabled and forced")
+			alerted("ALTER TABLE public.orders ALTER COLUMN status TYPE character varying(20)", "ALTER TABLE public.orders ALTER COLUMN status TYPE text",
+				"table public.orders: column status has the type character varying(20)", "column")
+			alerted("ALTER TABLE public.orders NO FORCE ROW LEVEL SECURITY", "ALTER TABLE public.orders FORCE ROW LEVEL SECURITY",
+				"table public.orders: row-level security is not enabled and forced", "rls")
 			// Each table of the manifest belongs to the owner role of the service.
-			refused("ALTER TABLE public.orders OWNER TO "+f.relay, "ALTER TABLE public.orders OWNER TO "+f.owner,
-				"table public.orders: the table belongs to the role "+f.relay+", and the manifest needs "+f.owner)
+			alerted("ALTER TABLE public.orders OWNER TO "+f.relay, "ALTER TABLE public.orders OWNER TO "+f.owner,
+				"table public.orders: the table belongs to the role "+f.relay+", and the manifest needs "+f.owner, "owner")
 			// The audit record is in the manifest of every service, with the triggers that make it append-only.
-			refused("DROP TRIGGER audit_event_reject_row ON public.audit_event",
+			alerted("DROP TRIGGER audit_event_reject_row ON public.audit_event",
 				"CREATE TRIGGER audit_event_reject_row BEFORE UPDATE OR DELETE ON public.audit_event FOR EACH ROW EXECUTE FUNCTION public.audit_reject_change()",
-				"table public.audit_event: trigger audit_event_reject_row is missing")
+				"table public.audit_event: trigger audit_event_reject_row is missing", "trigger")
 			// audit_maintain, the SECURITY DEFINER function of the audit partitions, is in the manifest too, with the
 			// source of the declared retention (#218 L5).
-			refused("ALTER FUNCTION public.audit_maintain() SECURITY INVOKER", "ALTER FUNCTION public.audit_maintain() SECURITY DEFINER",
-				"function public.audit_maintain is not the function of the manifest")
+			alerted("ALTER FUNCTION public.audit_maintain() SECURITY INVOKER", "ALTER FUNCTION public.audit_maintain() SECURITY DEFINER",
+				"function public.audit_maintain is not the function of the manifest", "function")
 			// The outbox is in the manifest too, with the exact grants of its table.
-			refused("GRANT SELECT ON stego_outbox.messages TO PUBLIC", "REVOKE SELECT ON stego_outbox.messages FROM PUBLIC",
-				"table stego_outbox.messages: the privilege SELECT to PUBLIC is granted, and the manifest does not grant it")
+			alerted("GRANT SELECT ON stego_outbox.messages TO PUBLIC", "REVOKE SELECT ON stego_outbox.messages FROM PUBLIC",
+				"table stego_outbox.messages: the privilege SELECT to PUBLIC is granted, and the manifest does not grant it", "grant")
 			// A schema named after the runtime role comes first on its default search path "$user", public, so a
 			// table there of the name of a table of the manifest, which has no row-level security, would stand in
 			// for it for a name with no schema (#243 S1).
-			refused("CREATE SCHEMA "+f.runtime+"; GRANT USAGE ON SCHEMA "+f.runtime+" TO "+f.runtime+"; CREATE TABLE "+f.runtime+".orders (tenant_id text, id uuid)", "DROP SCHEMA "+f.runtime+" CASCADE",
-				"the relation "+f.runtime+".orders comes before public.orders on the search path of the session")
+			alerted("CREATE SCHEMA "+f.runtime+"; GRANT USAGE ON SCHEMA "+f.runtime+" TO "+f.runtime+"; CREATE TABLE "+f.runtime+".orders (tenant_id text, id uuid)", "DROP SCHEMA "+f.runtime+" CASCADE",
+				"the relation "+f.runtime+".orders comes before public.orders on the search path of the session", "owner")
 			// A default that the manifest does not state is refused: an INSERT that leaves the column out takes it.
-			refused("ALTER TABLE public.orders ALTER COLUMN status SET DEFAULT 'paid'", "ALTER TABLE public.orders ALTER COLUMN status DROP DEFAULT",
-				"table public.orders: column status has a default that the manifest does not state")
+			alerted("ALTER TABLE public.orders ALTER COLUMN status SET DEFAULT 'paid'", "ALTER TABLE public.orders ALTER COLUMN status DROP DEFAULT",
+				"table public.orders: column status has a default that the manifest does not state", "column")
 			// The key table is in the manifest too: the runtime role may not delete a key row of another tenant's key.
-			refused("GRANT DELETE ON public.idempotency_keys TO "+f.runtime, "REVOKE DELETE ON public.idempotency_keys FROM "+f.runtime,
-				"table public.idempotency_keys: the privilege DELETE to "+f.runtime+" is granted, and the manifest does not grant it")
+			alerted("GRANT DELETE ON public.idempotency_keys TO "+f.runtime, "REVOKE DELETE ON public.idempotency_keys FROM "+f.runtime,
+				"table public.idempotency_keys: the privilege DELETE to "+f.runtime+" is granted, and the manifest does not grant it", "grant")
 			// Only the runtime role may run it: EXECUTE for PUBLIC is refused (#239 L2).
-			refused("GRANT EXECUTE ON FUNCTION public.audit_maintain() TO PUBLIC", "REVOKE EXECUTE ON FUNCTION public.audit_maintain() FROM PUBLIC",
-				"function public.audit_maintain may be run by roles that the manifest does not name")
+			alerted("GRANT EXECUTE ON FUNCTION public.audit_maintain() TO PUBLIC", "REVOKE EXECUTE ON FUNCTION public.audit_maintain() FROM PUBLIC",
+				"function public.audit_maintain may be run by roles that the manifest does not name", "grant")
+			// A policy that is not the policy of the manifest alerts with the class policy.
+			alerted("ALTER POLICY orders_tenant ON public.orders USING (true)",
+				"ALTER POLICY orders_tenant ON public.orders USING (tenant_id = current_setting('app.tenant', true))",
+				"table public.orders: policy orders_tenant is not the policy of the manifest", "policy")
+			// A check that cannot run is still a refusal: parts with no anchor period give no manifest of the audit
+			// record.
+			broken := declared
+			broken.Workers.AnchorPeriod = 0
+			if _, err := New(context.Background(), unreachable, broken); err == nil || !strings.Contains(err.Error(), "the manifest of the audit record") || strings.Contains(err.Error(), "SpiceDB") {
+				t.Fatalf("New with parts that give no manifest gave %v, want a refusal of the manifest check before SpiceDB", err)
+			}
 			// A function of the name of a relay function in public, a schema of the path that the relay function's own
 			// schema stego_outbox is not on, stands in for no call, as each call names stego_outbox (#245 Q3).
 			if _, err := f.admin.Exec("CREATE FUNCTION public.claim() RETURNS integer LANGUAGE sql AS 'SELECT 1'"); err != nil {
@@ -371,6 +441,80 @@ func TestNew(t *testing.T) {
 			}
 			if _, err := f.admin.Exec("DROP FUNCTION public.claim()"); err != nil {
 				t.Fatal(err)
+			}
+		})
+
+		t.Run("ST-SUP-RP14-LC06-T02 The start check gives the class of a fault of a partition and of a member of a confined role, and logs at most 50 faults", func(t *testing.T) {
+			declared := parts(nil, nil)
+			declared.Schema = manifest.Manifest{Tables: []manifest.Table{{Schema: "public", Name: "orders", RowSecurity: true,
+				Indexes: []manifest.Index{{Name: "orders_pkey", Columns: []string{"tenant_id", "id"}}},
+				Columns: []manifest.Column{{Name: "tenant_id", Type: "text", NotNull: true}, {Name: "status", Type: "text", NotNull: true},
+					{Name: "version", Type: "bigint", Default: "1"}, {Name: "authz_token", Type: "text", Default: "''::text"}},
+				Policies: []manifest.Policy{{Name: "orders_tenant", Command: "*", Using: "(tenant_id = current_setting('app.tenant'::text, true))",
+					WithCheck: "(tenant_id = current_setting('app.tenant'::text, true))"}}}}}
+			rt, err := sql.Open("pgx", f.runtimeURL())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rt.Close()
+			var partition string
+			if err := f.admin.QueryRow("SELECT inhrelid::regclass::text FROM pg_inherits WHERE inhparent = 'public.audit_event'::regclass ORDER BY 1 LIMIT 1").Scan(&partition); err != nil {
+				t.Fatal(err)
+			}
+			// classes makes the change, runs the start check with the log captured, and gives the classes and the error
+			// lines of the log.
+			classes := func(change, restore string) ([]string, []map[string]any) {
+				t.Helper()
+				if _, err := f.admin.Exec(change); err != nil {
+					t.Fatal(err)
+				}
+				defer func() {
+					if _, err := f.admin.Exec(restore); err != nil {
+						t.Fatal(err)
+					}
+				}()
+				var got []string
+				logs, _ := startCaptured(t, func() {
+					if got, err = checkSchema(context.Background(), rt, declared); err != nil {
+						t.Fatalf("the check after %q gave %v, want an alert", change, err)
+					}
+				})
+				var lines []map[string]any
+				for _, line := range strings.Split(logs, "\n") {
+					var record map[string]any
+					if json.Unmarshal([]byte(line), &record) == nil && record["level"] == "ERROR" {
+						lines = append(lines, record)
+					}
+				}
+				return got, lines
+			}
+			// Review of PR #305, M3: each of these faults had the class other, which an operator does not page on.
+			for _, c := range []struct{ what, change, restore, class string }{
+				{"a trigger on an audit partition",
+					"CREATE FUNCTION public.lc06t02() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END$$; ALTER FUNCTION public.lc06t02() OWNER TO " + f.owner +
+						"; CREATE TRIGGER lc06t02 BEFORE INSERT ON " + partition + " FOR EACH ROW EXECUTE FUNCTION public.lc06t02()",
+					"DROP TRIGGER lc06t02 ON " + partition + "; DROP FUNCTION public.lc06t02()", "trigger"},
+				{"a grant on an audit partition", "GRANT UPDATE ON " + partition + " TO " + f.runtime, "REVOKE UPDATE ON " + partition + " FROM " + f.runtime, "grant"},
+				{"a rule on an audit partition", "CREATE RULE lc06t02 AS ON UPDATE TO " + partition + " DO INSTEAD NOTHING", "DROP RULE lc06t02 ON " + partition, "rule"},
+				{"the runtime role a member of the outbox relay role", "GRANT " + f.outboxRelay + " TO " + f.runtime, "REVOKE " + f.outboxRelay + " FROM " + f.runtime, "owner"},
+			} {
+				got, lines := classes(c.change, c.restore)
+				if !slices.Equal(got, []string{c.class}) || len(lines) != 1 || lines[0]["class"] != c.class {
+					t.Errorf("%s: the classes %v and the log %v, want the class %s once", c.what, got, lines, c.class)
+				}
+			}
+			// Review of PR #305, L2: 2000 extra policies gave 2000 log lines at each start.
+			var flood, unflood strings.Builder
+			for i := range MaxLoggedFaults + 10 {
+				fmt.Fprintf(&flood, "CREATE POLICY lc06t02_%03d ON public.orders AS RESTRICTIVE USING (true);", i)
+				fmt.Fprintf(&unflood, "DROP POLICY lc06t02_%03d ON public.orders;", i)
+			}
+			got, lines := classes(flood.String(), unflood.String())
+			if !slices.Equal(got, []string{"policy"}) || len(lines) != MaxLoggedFaults+1 {
+				t.Fatalf("%d faults gave the classes %v and %d error lines, want the class policy and %d lines", MaxLoggedFaults+10, got, len(lines), MaxLoggedFaults+1)
+			}
+			if last := lines[MaxLoggedFaults]; fmt.Sprint(last["faults"]) != "10" || last["fault"] != nil {
+				t.Fatalf("the last line is %v, want the count of the 10 faults that are not logged", last)
 			}
 		})
 	})

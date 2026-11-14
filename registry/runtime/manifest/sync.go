@@ -335,6 +335,15 @@ type stepState struct {
 	schema, owner    string
 	entities, shared map[uint32]bool
 	accepted         map[uint32]bool
+	// open, when it is not nil, names the completeness CHECKs that may be NOT VALID, by "schema.table\x1fname": the
+	// CHECKs of the open changes of the migration job before its backfills (Job.BeforeBackfill).
+	open map[string]bool
+}
+
+// openCheck tells that the optional constraint n of the table t is the completeness CHECK of an open change that the
+// migration job checks before its backfills, which may still be NOT VALID (review of PR #305, M1).
+func (s *stepState) openCheck(t Table, n string) bool {
+	return s.open[t.Schema+"."+t.Name+"\x1f"+n]
 }
 
 // builtinTypeSQL tells, for the row of pg_catalog.pg_type ty, that the type is a base type that initdb made in
