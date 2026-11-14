@@ -750,80 +750,161 @@ func (s *AuthzSchema) reachesWildcard(typeName, name string) bool {
 // a relation that admits a wildcard; a relation that admits a userset whose relation reaches one; or a permission
 // whose expression reaches one through its relations and arrows. A union reaches one when any part does, an
 // intersection when every part does, and an exclusion when its base does. Each rule is monotone, so the answer is
-// the least fixed point: every node starts at no wildcard, and each pass over the schema sets the nodes that now
-// reach one, until a pass sets none. A cycle with no wildcard stays at no wildcard. Each pass is linear in the
-// size of the schema, and there are at most as many passes as nodes, so no schema makes checking slow.
+// the least fixed point: every node starts at no wildcard, and a node is set when its rule holds by the nodes set so
+// far. A cycle with no wildcard stays at no wildcard.
+//
+// It is computed on an AND/OR graph (security reviews of PR 253, L3 and L4, and of PR 294, M1): each relation and
+// permission, each expression and each arrow is a gate, its inputs are the gates its rule reads, once each, and each
+// gate counts its inputs that are not set yet. An OR gate is set by its first set input, an AND gate by its last.
+// Each edge is followed once, so the work grows with the size of the schema, also on a wide intersection whose parts
+// repeat, and no schema makes checking slow.
 func (s *AuthzSchema) wildcardReach() map[string]bool {
-	reach := map[string]bool{}
-	for changed := true; changed; {
-		changed = false
-		for typeName, definition := range s.definitions {
-			for name := range definition.subjects {
-				if !reach[typeName+"#"+name] && s.relationReaches(definition.subjects[name], reach) {
-					reach[typeName+"#"+name], changed = true, true
-				}
-			}
-			for name, rewrite := range definition.rewrites {
-				if !reach[typeName+"#"+name] && s.rewriteReaches(typeName, rewrite, reach) {
-					reach[typeName+"#"+name], changed = true, true
+	g := &reachGraph{named: map[string]int{}, arrows: map[string]int{}, edges: map[[2]int]bool{}}
+	for typeName, definition := range s.definitions {
+		for name, subjects := range definition.subjects {
+			node := g.name(typeName + "#" + name)
+			for _, subject := range subjects {
+				switch {
+				case subject.wildcard:
+					g.wildcard(node)
+				case subject.relation != "" && subject.relation != "...":
+					g.input(node, g.name(subject.namespace+"#"+subject.relation))
 				}
 			}
 		}
-	}
-	return reach
-}
-
-// relationReaches tells whether a relation with the subjects given reaches a wildcard, by the nodes found so far.
-func (s *AuthzSchema) relationReaches(subjects []schemaSubject, reach map[string]bool) bool {
-	for _, subject := range subjects {
-		if subject.wildcard || subject.relation != "" && subject.relation != "..." && reach[subject.namespace+"#"+subject.relation] {
-			return true
+		for name, rewrite := range definition.rewrites {
+			g.input(g.name(typeName+"#"+name), s.rewriteGate(g, typeName, rewrite))
 		}
 	}
-	return false
+	return g.run()
 }
 
-// rewriteReaches tells whether a permission expression of the type reaches a wildcard, by the nodes found so far.
-func (s *AuthzSchema) rewriteReaches(typeName string, rewrite *core.UsersetRewrite, reach map[string]bool) bool {
-	child := func(c *core.SetOperation_Child) bool {
+// rewriteGate gives the gate of a permission expression of the type: an OR gate for a union, an AND gate for an
+// intersection, and for an exclusion an OR gate whose only input is its base, which alone decides it.
+func (s *AuthzSchema) rewriteGate(g *reachGraph, typeName string, rewrite *core.UsersetRewrite) int {
+	var children []*core.SetOperation_Child
+	gate := g.gate(false)
+	switch {
+	case rewrite.GetUnion() != nil:
+		children = rewrite.GetUnion().GetChild()
+	case rewrite.GetIntersection() != nil:
+		children = rewrite.GetIntersection().GetChild()
+		gate = g.gate(true)
+	case rewrite.GetExclusion() != nil:
+		children = rewrite.GetExclusion().GetChild()
+		if len(children) > 1 {
+			children = children[:1]
+		}
+	}
+	for _, c := range children {
 		switch {
 		case c.GetComputedUserset() != nil:
-			return reach[typeName+"#"+c.GetComputedUserset().GetRelation()]
+			g.input(gate, g.name(typeName+"#"+c.GetComputedUserset().GetRelation()))
 		case c.GetTupleToUserset() != nil || c.GetFunctionedTupleToUserset() != nil:
 			tupleset, computed := c.GetTupleToUserset().GetTupleset().GetRelation(), c.GetTupleToUserset().GetComputedUserset().GetRelation()
 			if f := c.GetFunctionedTupleToUserset(); f != nil {
 				tupleset, computed = f.GetTupleset().GetRelation(), f.GetComputedUserset().GetRelation()
 			}
-			for _, subject := range s.definitions[typeName].subjects[tupleset] {
-				if subject.wildcard || reach[subject.namespace+"#"+computed] {
-					return true
-				}
-			}
-			return false
+			g.input(gate, s.arrowGate(g, typeName, tupleset, computed))
 		case c.GetUsersetRewrite() != nil:
-			return s.rewriteReaches(typeName, c.GetUsersetRewrite(), reach)
+			g.input(gate, s.rewriteGate(g, typeName, c.GetUsersetRewrite()))
+		default:
+			g.input(gate, g.gate(false)) // a part that never reaches a wildcard, such as nil
 		}
-		return false
 	}
-	switch {
-	case rewrite.GetUnion() != nil:
-		for _, c := range rewrite.GetUnion().GetChild() {
-			if child(c) {
-				return true
+	return gate
+}
+
+// arrowGate gives the OR gate of the arrow tupleset->computed of the type, one for each arrow: it is set when a
+// subject type of the tupleset is a wildcard, or when the computed relation of a subject type reaches one.
+func (s *AuthzSchema) arrowGate(g *reachGraph, typeName, tupleset, computed string) int {
+	key := typeName + "#" + tupleset + "->" + computed
+	if gate, ok := g.arrows[key]; ok {
+		return gate
+	}
+	gate := g.gate(false)
+	g.arrows[key] = gate
+	for _, subject := range s.definitions[typeName].subjects[tupleset] {
+		if subject.wildcard {
+			g.wildcard(gate)
+		} else {
+			g.input(gate, g.name(subject.namespace+"#"+computed))
+		}
+	}
+	return gate
+}
+
+// reachGraph is the AND/OR graph of wildcardReach.
+type reachGraph struct {
+	and     []bool         // whether each gate is an AND gate
+	unset   []int          // the inputs of each gate that are not set yet
+	outputs [][]int        // the gates that read each gate
+	set     []bool         // whether each gate is set
+	wild    []int          // the gates that a wildcard sets at the start
+	named   map[string]int // the gate of each relation and permission, by type#name
+	arrows  map[string]int // the gate of each arrow, by type#tupleset->computed
+	edges   map[[2]int]bool
+}
+
+func (g *reachGraph) gate(and bool) int {
+	g.and, g.unset, g.outputs, g.set = append(g.and, and), append(g.unset, 0), append(g.outputs, nil), append(g.set, false)
+	return len(g.and) - 1
+}
+
+// name gives the gate of a relation or permission. A name the schema does not define gets an OR gate with no input,
+// which is never set.
+func (g *reachGraph) name(node string) int {
+	if gate, ok := g.named[node]; ok {
+		return gate
+	}
+	gate := g.gate(false)
+	g.named[node] = gate
+	return gate
+}
+
+// input adds from as an input of the gate, once: a part that an expression repeats is one input.
+func (g *reachGraph) input(gate, from int) {
+	if g.edges[[2]int{from, gate}] {
+		return
+	}
+	g.edges[[2]int{from, gate}] = true
+	g.unset[gate]++
+	g.outputs[from] = append(g.outputs[from], gate)
+}
+
+func (g *reachGraph) wildcard(gate int) { g.wild = append(g.wild, gate) }
+
+// run sets the gates that a wildcard sets, and then each gate whose rule holds, following each edge once. An OR
+// gate is set by one set input, and an AND gate when it has inputs and all of them are set. It gives the relations
+// and permissions that are set.
+func (g *reachGraph) run() map[string]bool {
+	var work []int
+	mark := func(gate int) {
+		if !g.set[gate] {
+			g.set[gate] = true
+			work = append(work, gate)
+		}
+	}
+	for _, gate := range g.wild {
+		if !g.and[gate] {
+			mark(gate)
+		}
+	}
+	for len(work) > 0 {
+		gate := work[len(work)-1]
+		work = work[:len(work)-1]
+		for _, out := range g.outputs[gate] {
+			g.unset[out]--
+			if !g.and[out] || g.unset[out] == 0 {
+				mark(out)
 			}
 		}
-		return false
-	case rewrite.GetIntersection() != nil:
-		children := rewrite.GetIntersection().GetChild()
-		for _, c := range children {
-			if !child(c) {
-				return false
-			}
-		}
-		return len(children) > 0
-	case rewrite.GetExclusion() != nil:
-		children := rewrite.GetExclusion().GetChild()
-		return len(children) > 0 && child(children[0])
 	}
-	return false
+	reach := map[string]bool{}
+	for node, gate := range g.named {
+		if g.set[gate] {
+			reach[node] = true
+		}
+	}
+	return reach
 }
