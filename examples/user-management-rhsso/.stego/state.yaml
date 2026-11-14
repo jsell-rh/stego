@@ -23,25 +23,25 @@ last_applied:
                 mode: 420
             go.sum:
                 exists: true
-                sha256: 4cded8659d80f6ad481492cb8d9b76589c765d9a386dd3bea1a1e322e1da1d91
+                sha256: b202f715f9a19fbb99d9beb5d9a471b3143555fe9a37f3db73b773671aa648ca
                 mode: 420
             service.yaml:
                 exists: true
                 sha256: 59eb019ac9584302b5674f2fe6b6da7392c364b74e7d578e3e55c98f7eb227ca
                 mode: 420
-        sha256: 521b9d1fe1758f4a4f236697e45b38ad81e30cbc3edc8f75dfb8e4441e01621b
+        sha256: 6f0b152d15399fb4350bda55e2fc104c4c1e49340aacb4934624a0d03d2c9512
     compiler_build:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261114123918-e89749b0ca8d
+        module_version: v0.0.0-20261114124806-d654f1dd5ffd
         vcs: git
-        revision: e89749b0ca8d70963b66cc1cc7b2bd55285338e3
+        revision: d654f1dd5ffde9e54ec58ebed5a144db09210b57
         source_state: clean
     service_name: user-management
     service_hash: 59eb019ac9584302b5674f2fe6b6da7392c364b74e7d578e3e55c98f7eb227ca
     registry_sha: env-override
-    registry_content_sha256: 2a2b583440e42da874048b799d23d0a202ee99edbcfb6f4b97b2c259146ec96a
+    registry_content_sha256: f9f09d89d5ba173b62de1bc955ca8c516403ab13d81b8f6198e6c6c74fde7abe
     components:
         audit-log:
             version: 1.1.1
@@ -194,9 +194,9 @@ last_applied:
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160
     archetype:
         name: rest-crud
-        version: 3.106.2
+        version: 3.106.3
         runtime:
             module: github.com/jsell-rh/stego/registry/runtime
             version: v0.98.0
-            sum: h1:8BDlwCB0U9f8FnaCZDJasiLfBCqJ8g720+D7a/J/hFs=
+            sum: h1:1nd9+PSwZWUNhdweTrVOZK5vqop8vIO6bjLzdSF/11o=
         imports_runtime: true
