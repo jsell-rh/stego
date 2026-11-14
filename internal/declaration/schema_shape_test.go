@@ -38,6 +38,11 @@ func TestSchemaShape(t *testing.T) {
 			"256 terms over three lines":      shapeSchema("", joined("own", " +\n\t\t", MaxPermissionTerms)),
 			"operators in comments and a CEL": shapeSchema("// "+joined("own", " + ", 400)+"\n/* "+joined("own", " & ", 400)+" */\ncaveat cav(n int) {\n\t"+"["+joined("n - 1", ", ", 300)+"].size() > 0 && {'k': '}'}.size() > 0\n}\n", "own"),
 			"4096 relations and permissions":  "definition user {}\ndefinition doc {\n" + relations(MaxSchemaMembers) + "}\n",
+			// The legal worst cases of the review of PR #302 that compile in well under a second.
+			"a triple-quoted string with a brace in a caveat body": tripleQuoted + shapeSchema("", joined("own", " + ", MaxPermissionTerms)),
+			"64 parentheses open":                  shapeSchema("", nested(MaxSchemaNesting)),
+			"64 parentheses open in a caveat body": "caveat cav(n int) {\n\t" + strings.Repeat("(", MaxSchemaNesting) + "n > 0" + strings.Repeat(")", MaxSchemaNesting) + "\n}\n" + shapeSchema("", "own"),
+			"exclusions nested 64 deep":            shapeSchema("", exclusions(MaxSchemaNesting/2)),
 		}
 		for name, source := range accepted {
 			t.Run(name, func(t *testing.T) {
@@ -57,9 +62,12 @@ func TestSchemaShape(t *testing.T) {
 		// Text that is no comment and no caveat body hides no operator: a stray quote, a brace before the
 		// definition, and a definition named caveat.
 		hiding := map[string]string{
-			"after a stray quote":          shapeSchema("", "own ' "+joined("own", " & ", MaxPermissionTerms+1)+" '"),
-			"after a brace before it":      "}\n" + shapeSchema("", joined("own", " & ", MaxPermissionTerms+1)),
-			"in a definition named caveat": "definition caveat {\n\trelation own: caveat\n\tpermission wide = " + joined("own", " & ", MaxPermissionTerms+1) + "\n}\n",
+			"after a string": shapeSchema("", "own ' & ' & "+joined("own", " & ", MaxPermissionTerms+1)),
+			"after a relation of type caveat and a brace": "definition caveat {}\ndefinition doc {\n\trelation own: caveat\n}\ndefinition other {\n\trelation own: user\n\tpermission wide = " + joined("own", " & ", MaxPermissionTerms+1) + "\n}\n",
+			// Review of PR #302, M1: a triple-quoted CEL string that holds a brace ends where the lexer ends it.
+			"after a triple-quoted string with a brace in a caveat body": tripleQuoted + shapeSchema("", joined("own", " + ", 20000)),
+			"after a brace before it":                                    "}\n" + shapeSchema("", joined("own", " & ", MaxPermissionTerms+1)),
+			"in a definition named caveat":                               "definition caveat {\n\trelation own: caveat\n\tpermission wide = " + joined("own", " & ", MaxPermissionTerms+1) + "\n}\n",
 		}
 		for name, source := range hiding {
 			t.Run(name, func(t *testing.T) {
@@ -70,6 +78,29 @@ func TestSchemaShape(t *testing.T) {
 				}
 			})
 		}
+		t.Run("4097 relations and permissions after a triple-quoted string with a brace in a caveat body", func(t *testing.T) {
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(tripleQuoted+"definition user {}\ndefinition doc {\n"+relations(6000)+"}\n"))
+			expectShapeFault(t, err, 5+2+MaxSchemaMembers+1, MaxSchemaMembers)
+		})
+		// Review of PR #302, M2: the parser recurses once for each parenthesis, and about 524000 of them end the
+		// process with a stack overflow.
+		t.Run("65 parentheses open", func(t *testing.T) {
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(shapeSchema("", nested(MaxSchemaNesting+1))))
+			expectShapeFault(t, err, 6, MaxSchemaNesting)
+		})
+		t.Run("65 parentheses open in a caveat body", func(t *testing.T) {
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte("caveat cav(n int) {\n\t"+strings.Repeat("(", MaxSchemaNesting+1)+"n > 0"+strings.Repeat(")", MaxSchemaNesting+1)+"\n}\n"+shapeSchema("", "own")))
+			expectShapeFault(t, err, 2, MaxSchemaNesting)
+		})
+		t.Run("parentheses of 1 MiB", func(t *testing.T) {
+			depth := (MaxSchemaBytes - 200) / 2
+			start := time.Now()
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(shapeSchema("", strings.Repeat("(", depth)+"own"+strings.Repeat(")", depth))))
+			expectShapeFault(t, err, 6, MaxSchemaNesting)
+			if elapsed := time.Since(start); elapsed > time.Second/4 {
+				t.Fatalf("the refusal took %v, want well under 1 s", elapsed)
+			}
+		})
 		t.Run("4097 relations and permissions", func(t *testing.T) {
 			_, err := CompileAuthzSchema("authz/schema.zed", []byte("definition user {}\ndefinition doc {\n"+relations(MaxSchemaMembers+1)+"}\n"))
 			expectShapeFault(t, err, 2+MaxSchemaMembers+1, MaxSchemaMembers)
@@ -89,6 +120,29 @@ func TestSchemaShape(t *testing.T) {
 			}
 			t.Logf("refused in %v", elapsed)
 		})
+		// The legal worst cases of the review of PR #302 at about 1 MiB pass the shape check at once; the compiler
+		// then takes seconds on them, within the time of a check.
+		t.Run("legal worst cases of 1 MiB pass the shape check", func(t *testing.T) {
+			for name, member := range map[string]string{
+				"permissions of 256 terms of +": joined("own", "+", MaxPermissionTerms),
+				"permissions of 256 terms of &": joined("own", "&", MaxPermissionTerms),
+				"exclusions nested 64 deep":     exclusions(MaxSchemaNesting / 2),
+			} {
+				var b strings.Builder
+				b.WriteString("definition user {}\ndefinition doc {\n\trelation own: user\n")
+				for i := 0; b.Len() < MaxSchemaBytes-2000 && i < MaxSchemaMembers-1; i++ {
+					fmt.Fprintf(&b, "\tpermission p%d = %s\n", i, member)
+				}
+				b.WriteString("}\n")
+				start := time.Now()
+				if err := checkSchemaShape("authz/schema.zed", []byte(b.String())); err != nil {
+					t.Fatalf("%s: the shape check refuses %d bytes: %v", name, b.Len(), err)
+				}
+				if elapsed := time.Since(start); elapsed > time.Second/2 {
+					t.Fatalf("%s: the shape check took %v, want well under 1 s", name, elapsed)
+				}
+			}
+		})
 		t.Run("through checking", func(t *testing.T) {
 			service, schema := td03Files(t)
 			wide := change(t, schema, "\tpermission edit = owner\n", "\tpermission edit = owner\n\tpermission wide = "+joined("owner", " & ", MaxPermissionTerms+1)+"\n")
@@ -98,6 +152,24 @@ func TestSchemaShape(t *testing.T) {
 			}
 		})
 	})
+}
+
+// tripleQuoted is a caveat whose body is a CEL comparison with a triple-quoted string over three lines that holds
+// an open brace (review of PR #302, M1).
+const tripleQuoted = "caveat c(s string) {\n\ts == \"\"\"\n{\n\"\"\"\n}\n"
+
+// nested gives the relation own in depth parentheses.
+func nested(depth int) string {
+	return strings.Repeat("(", depth) + "own" + strings.Repeat(")", depth)
+}
+
+// exclusions gives n exclusions nested in pairs of parentheses, 2n deep: (own - (own - (... own))).
+func exclusions(n int) string {
+	expr := "own"
+	for range n {
+		expr = "(own - (" + expr + "))"
+	}
+	return expr
 }
 
 // relations gives n members of a definition, relations and permissions in turn, one a line.

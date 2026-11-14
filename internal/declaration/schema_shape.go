@@ -1,116 +1,121 @@
 package declaration
 
-import "fmt"
+import (
+	"bytes"
+	"fmt"
+
+	"github.com/authzed/spicedb/pkg/schemadsl/input"
+	"github.com/authzed/spicedb/pkg/schemadsl/lexer"
+)
 
 // The shape bounds of a .zed schema (ST-DECL-INV88). The SpiceDB schema compiler takes seconds on a wide permission
-// expression of some hundred kilobytes and minutes near MaxSchemaBytes, so checking reads the shape of the source
-// first, in one pass, and refuses a schema beyond a bound before it compiles it (orchestrator decision of
-// 2026-11-14 under the Product owner's delegation).
+// expression of some hundred kilobytes and minutes near MaxSchemaBytes, and its parser recurses once for each
+// parenthesis, so a deep nesting ends the process with a stack overflow. Checking reads the shape of the source
+// first, in one pass of the lexer of the compiler, and refuses a schema beyond a bound before it compiles it
+// (orchestrator decisions of 2026-11-14 under the Product owner's delegation).
 const (
 	// MaxPermissionTerms is the most terms that one permission expression may have, where a term is a relation, an
 	// arrow such as parent->view, a function such as parent.any(view), or nil.
 	MaxPermissionTerms = 256
 	// MaxSchemaMembers is the most relations and permissions that a schema may have in all its definitions.
 	MaxSchemaMembers = 4096
+	// MaxSchemaNesting is the most parentheses that may be open at one place of a schema.
+	MaxSchemaNesting = 64
 )
 
-// checkSchemaShape reads the source of a .zed schema once, without compiling it, and refuses it with a *SchemaError
-// that names the limit when a permission expression has more than MaxPermissionTerms terms or the schema has more
-// than MaxSchemaMembers relations and permissions. It counts the terms of an expression as its operators (+, & and
-// -) and one. Every operator outside a comment and a caveat body counts toward the statement it follows, at any
-// depth, so no text that the compiler reads can hide one; a caveat body, a CEL expression that the caveat compiler
-// bounds, is not counted. A source that is no schema, such as one with a syntax error, it leaves to the compiler.
+// checkSchemaShape reads the source of a .zed schema once with the lexer of the SpiceDB schema compiler, without
+// compiling it, and refuses it with a *SchemaError that names the limit when a permission expression has more than
+// MaxPermissionTerms terms, the schema has more than MaxSchemaMembers relations and permissions, or more than
+// MaxSchemaNesting parentheses are open at one place. Because it reads the tokens that the parser reads, a string or
+// a comment is one token and hides no operator, and the end of a caveat body is the brace that the parser finds. It
+// counts the terms of an expression as its operators (+, & and -) and one; every operator outside a caveat body
+// counts toward the statement it follows, at any depth. A caveat body, a CEL expression that the caveat compiler
+// bounds, is not counted for terms. At a lexer error it stops: the compiler reads no further than that token.
 func checkSchemaShape(schemaPath string, source []byte) error {
+	lx := lexer.NewFlaggableLexer(lexer.Lex(input.Source(schemaPath), string(source)))
+	defer lx.Close()
 	var (
-		line, members, terms int
-		statement            string // the relation or permission whose statement is read, or empty
-		statementLine        int
-		expectName           bool
-		caveat               bool // a caveat statement is read: its body is the next brace at its depth
-		body                 int  // the brace depth inside a caveat body, or 0
-		previous             string
+		line, members, terms, nesting int
+		seen                          int    // the byte offset up to which line counts the newlines
+		statement                     string // the relation or permission whose statement is read, or empty
+		statementLine                 int
+		expectName                    bool
+		caveat                        bool // a top-level caveat statement is read: its body is the next brace
+		depth                         int  // the brace depth outside a caveat body
+		body                          int  // the brace depth inside a caveat body, or 0
+		previous                      lexer.Lexeme
 	)
 	line = 1
-	for i := 0; i < len(source); {
-		c := source[i]
-		switch {
-		case c == '\n':
-			line++
-			i++
-		case c == '/' && i+1 < len(source) && source[i+1] == '/':
-			for i < len(source) && source[i] != '\n' {
-				i++
+	fault := func(at int, format string, args ...any) error {
+		return &SchemaError{Path: schemaPath, Line: at, Message: fmt.Sprintf(format, args...)}
+	}
+	for {
+		token := lx.NextToken()
+		switch token.Kind {
+		case lexer.TokenTypeEOF, lexer.TokenTypeError:
+			return nil
+		case lexer.TokenTypeWhitespace, lexer.TokenTypeNewline, lexer.TokenTypeSyntheticSemicolon,
+			lexer.TokenTypeSinglelineComment, lexer.TokenTypeMultilineComment:
+			continue
+		}
+		if at := int(token.Position); at > seen && at <= len(source) {
+			line += bytes.Count(source[seen:at], []byte{'\n'})
+			seen = at
+		}
+		switch token.Kind {
+		case lexer.TokenTypeLeftParen:
+			if nesting++; nesting > MaxSchemaNesting {
+				return fault(line, "the schema has more than %d parentheses open at one place, the most that checking compiles", MaxSchemaNesting)
 			}
-		case c == '/' && i+1 < len(source) && source[i+1] == '*':
-			for i += 2; i < len(source) && (source[i] != '*' || i+1 >= len(source) || source[i+1] != '/'); i++ {
-				if source[i] == '\n' {
-					line++
-				}
-			}
-			i += 2
-		case body > 0:
-			// A caveat body: CEL, whose strings may hold a brace.
-			switch c {
-			case '"', '\'':
-				for i++; i < len(source) && source[i] != c && source[i] != '\n'; i++ {
-					if source[i] == '\\' {
-						i++
-					}
-				}
-			case '{':
+		case lexer.TokenTypeRightParen:
+			nesting--
+		}
+		if body > 0 {
+			switch token.Kind {
+			case lexer.TokenTypeLeftBrace:
 				body++
-			case '}':
+			case lexer.TokenTypeRightBrace:
 				body--
 			}
-			i++
-		case isNameByte(c):
-			start := i
-			for i < len(source) && (isNameByte(source[i]) || source[i] == '/') {
-				i++
+			previous = token
+			continue
+		}
+		switch token.Kind {
+		case lexer.TokenTypeLeftBrace:
+			if caveat {
+				caveat, body = false, 1
+			} else {
+				depth++
 			}
-			word := string(source[start:i])
+		case lexer.TokenTypeRightBrace:
+			depth--
+		case lexer.TokenTypeIdentifier, lexer.TokenTypeKeyword:
+			word := token.Value
 			switch {
 			case expectName:
 				expectName = false
 				statement = word
-			case word == "relation" || word == "permission":
+			case token.Kind == lexer.TokenTypeKeyword && (word == "relation" || word == "permission"):
 				members++
 				if members > MaxSchemaMembers {
-					return &SchemaError{Path: schemaPath, Line: line, Message: fmt.Sprintf("the schema has more than %d relations and permissions, the most that checking compiles", MaxSchemaMembers)}
+					return fault(line, "the schema has more than %d relations and permissions, the most that checking compiles", MaxSchemaMembers)
 				}
 				statement, statementLine, terms, expectName = word, line, 1, true
-			case word == "caveat" && previous != "definition":
+			case token.Kind == lexer.TokenTypeKeyword && word == "caveat" && depth == 0 &&
+				!(previous.Kind == lexer.TokenTypeKeyword && previous.Value == "definition"):
 				caveat, statement, terms = true, "", 1
-			case word == "definition" || word == "use":
+			case token.Kind == lexer.TokenTypeKeyword && word == "definition", word == "use":
 				statement, terms = "", 1
 			}
-			previous = word
-		default:
-			i++
-			switch c {
-			case '{':
-				if caveat {
-					caveat, body = false, 1
+		case lexer.TokenTypePlus, lexer.TokenTypeAnd, lexer.TokenTypeMinus:
+			if terms++; terms > MaxPermissionTerms {
+				name := "expression"
+				if statement != "" {
+					name = statement
 				}
-			case '+', '&', '-':
-				if c == '-' && i < len(source) && source[i] == '>' {
-					i++
-					continue
-				}
-				if terms++; terms > MaxPermissionTerms {
-					name := "expression"
-					if statement != "" {
-						name = statement
-					}
-					return &SchemaError{Path: schemaPath, Line: statementLine, Message: fmt.Sprintf("the permission %s has more than %d terms in its expression, the most that checking compiles", name, MaxPermissionTerms)}
-				}
+				return fault(statementLine, "the permission %s has more than %d terms in its expression, the most that checking compiles", name, MaxPermissionTerms)
 			}
 		}
+		previous = token
 	}
-	return nil
-}
-
-// isNameByte tells whether c can be in a name of the schema language.
-func isNameByte(c byte) bool {
-	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
