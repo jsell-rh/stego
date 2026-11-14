@@ -52,8 +52,15 @@ const fenceStatement = `SELECT token, holder FROM public.leases WHERE name=$1 FO
 // expire, but a holder whose process stops, such as a frozen container or a paused virtual machine, runs no timer,
 // and its transaction would keep the lease row locked FOR SHARE, so no other holder could take the lease after it
 // expires (ST-SUP-RP09-LC04). With the timeout, the server ends the session of a holder that waits in the
-// transaction for longer than the lease has left, and the lock goes with it.
-const stallStatement = `SELECT pg_catalog.set_config('idle_in_transaction_session_timeout', $1, true)`
+// transaction for longer than the lease has left, and the lock goes with it. The idle timeout counts only the time
+// that the session waits for its client, so a holder that runs a statement and then stops keeps the lock for the
+// time of that statement too; on PostgreSQL 17 and later the statement also sets transaction_timeout of the
+// transaction to the same time, which ends the session whether it is idle or runs a statement (review of PR #309,
+// L1, orchestrator under the owner's delegation, 2026-11-14). An older server has no transaction_timeout, and the
+// CASE does not set it there.
+const stallStatement = `SELECT pg_catalog.set_config('idle_in_transaction_session_timeout', $1, true),
+	CASE WHEN pg_catalog.current_setting('server_version_num')::integer >= 170000
+		THEN pg_catalog.set_config('transaction_timeout', $1, true) END`
 
 var (
 	// ErrTaken is the error of Acquire when another holder has an unexpired lease.
@@ -309,8 +316,9 @@ func (h *Held) Release(ctx context.Context) error {
 // take the lease while it runs, and returns the holder's token for the caller's writes to carry. When the row
 // holds another holder or token, the holder stops and Fence returns ErrFenced (ST-SUP-RP09-LC03). A renew of this
 // holder that committed but has not returned yet gives the row the next token; Fence takes that token. Before the
-// lock, Fence sets the idle-in-transaction timeout of tx to the time the lease has left, so the server ends a
-// transaction whose process stopped and cannot end it (ST-SUP-RP09-LC04). Every lock of the lease row in a
+// lock, Fence sets the idle-in-transaction timeout of tx, and on PostgreSQL 17 and later its transaction timeout, to
+// the time the lease has left, so the server ends a transaction whose process stopped and cannot end it, also in the
+// middle of a statement (ST-SUP-RP09-LC04). Every lock of the lease row in a
 // transaction goes through Fence: the fenced checkpoint function of the backfill runs in the transaction of
 // Backfill.inTx after it, and Acquire, Renew and Release are single statements.
 func (h *Held) Fence(ctx context.Context, tx *sql.Tx) (int64, error) {
