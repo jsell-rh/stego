@@ -167,7 +167,7 @@ func fixtureTrust(t *testing.T, version string) runtimeTrust {
 }
 
 func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
-	const version = "v0.99.0"
+	const version = "v0.100.0"
 	pin := &moduleVersion{RuntimeModule, version}
 	trust := fixtureTrust(t, version)
 	t.Run("ST-BLD-UC02-R05-T05 A runtime folder that hashes to the pin is staged in the proxy layout, and no folder or no pin stages nothing", func(t *testing.T) {
