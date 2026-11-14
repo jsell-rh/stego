@@ -646,7 +646,7 @@ func TestGateChange(t *testing.T) {
 		if len(gate.Permissions) != 1 || gate.Permissions["contents"] != "read" {
 			t.Fatalf("the gate job's permissions are %v, want only contents: read", gate.Permissions)
 		}
-		var checkout, baseCheckout, build, run *gateStep
+		var checkout, find, baseCheckout, build, run *gateStep
 		for i, step := range gate.Steps {
 			if action, pin, ok := strings.Cut(step.Uses, "@"); step.Uses != "" && (!ok || len(pin) != 40 || action == "") {
 				t.Fatalf("step %q uses %s, which is not pinned to a commit", step.Name, step.Uses)
@@ -654,7 +654,10 @@ func TestGateChange(t *testing.T) {
 			if strings.HasPrefix(step.Uses, "actions/checkout@") && step.With["path"] == "stego" {
 				checkout = &gate.Steps[i]
 			}
-			if strings.HasPrefix(step.Uses, "actions/checkout@") && step.With["ref"] == baseSHA {
+			if step.ID == "base" && find == nil && baseCheckout == nil {
+				find = &gate.Steps[i]
+			}
+			if strings.HasPrefix(step.Uses, "actions/checkout@") && step.With["ref"] == foundBase {
 				baseCheckout = &gate.Steps[i]
 			}
 			if goCommand.MatchString(step.Run) {
@@ -670,14 +673,17 @@ func TestGateChange(t *testing.T) {
 		if checkout == nil || checkout.With["ref"] != "${{ env.COMMIT }}" || checkout.With["fetch-depth"] != "0" {
 			t.Fatalf("the gate job does not check out the change's commit with its full history: %+v", checkout)
 		}
+		if find == nil || !sameFindBase(*find) {
+			t.Fatalf("the gate job does not find its base as the merge commit's first parent, checked to descend from the payload base and lie on the base branch, before it checks out the base: %+v", find)
+		}
 		if baseCheckout == nil || build == nil || !strings.HasPrefix(build.WorkingDirectory, baseCheckout.With["path"]+"/") ||
 			!strings.Contains(build.Run, `go build -mod=readonly -trimpath -o "$RUNNER_TEMP/gate/assure" .`) {
-			t.Fatalf("the gate job does not build assure from the pull request's base commit: %+v, %+v", baseCheckout, build)
+			t.Fatalf("the gate job does not build assure from the base that it found: %+v, %+v", baseCheckout, build)
 		}
 		if run == nil || !strings.Contains(run.Run, `"$RUNNER_TEMP/gate/assure" gate change --commit "$COMMIT" --base "$BASE"`) ||
-			run.Env["BASE"] != baseSHA || run.WorkingDirectory != "stego" ||
+			run.Env["BASE"] != foundBase || run.WorkingDirectory != "stego" ||
 			!strings.Contains(run.Run, `--lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"`) {
-			t.Fatalf("the gate job does not gate the change's commit against the pull request's base: %+v", run)
+			t.Fatalf("the gate job does not gate the change's commit against the base that it found: %+v", run)
 		}
 		// When the gate cannot run, the job fails with a line that says so, never one that reads as a decision.
 		var saysNotRun bool
@@ -716,8 +722,39 @@ func TestGateChange(t *testing.T) {
 	})
 }
 
-// baseSHA is the expression of the pull request's base commit in the workflow.
-const baseSHA = "${{ github.event.pull_request.base.sha }}"
+// foundBase is the expression of the base that the gate job finds: the first parent of the run's merge commit.
+const foundBase = "${{ steps.base.outputs.sha }}"
+
+// findBaseEnv is the environment of the step that finds the base: the run's merge commit, the base in the event
+// payload, and the base branch.
+var findBaseEnv = map[string]string{
+	"MERGE":      "${{ github.sha }}",
+	"EVENT_BASE": "${{ github.event.pull_request.base.sha }}",
+	"BASE_REF":   "${{ github.event.pull_request.base.ref }}",
+}
+
+// findBaseRun is the script of the step that finds the base. The base is the merge commit's first parent, and the
+// step checks that the second parent is the change's head, that the base descends from the payload base, and that
+// it lies on the base branch. Without each check, a stale, an older or a foreign commit could build the gate.
+const findBaseRun = `git fetch --no-tags origin "$MERGE" "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+base="$(git rev-parse --verify "$MERGE^1^{commit}")"
+if [ "$(git rev-parse --verify "$MERGE^2^{commit}")" != "$COMMIT" ]; then
+  echo "::error::The gate did not run: the merge commit $MERGE of this run does not merge the head $COMMIT. Re-run the checks. This is no decision on the change."
+  exit 1
+fi
+if ! git merge-base --is-ancestor "$EVENT_BASE" "$base" || ! git merge-base --is-ancestor "$base" "refs/remotes/origin/$BASE_REF"; then
+  echo "::error::The gate did not run: the base $base of the merge commit is not on $BASE_REF at or after $EVENT_BASE. Re-run the checks. This is no decision on the change."
+  exit 1
+fi
+echo "sha=$base" >> "$GITHUB_OUTPUT"
+`
+
+// sameFindBase tells whether the step finds the base exactly as findBaseRun does, in the change's checkout, with
+// only findBaseEnv, and with no action, condition or other input.
+func sameFindBase(step gateStep) bool {
+	return step.ID == "base" && step.Uses == "" && step.If == "" && len(step.With) == 0 &&
+		step.WorkingDirectory == "stego" && reflect.DeepEqual(step.Env, findBaseEnv) && step.Run == findBaseRun
+}
 
 // goCommand matches a go command that builds, runs, tests, installs or changes code or modules.
 var goCommand = regexp.MustCompile(`(^|[^\w./-])go\s+(build|run|test|install|generate|vet|mod|get|tool|work|env\s+-w)\b`)
@@ -740,9 +777,28 @@ steps:
       fetch-depth: 0
       path: stego
       persist-credentials: false
+  - name: Find the base of the merge commit
+    id: base
+    working-directory: stego
+    env:
+      MERGE: ${{ github.sha }}
+      EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+    run: |
+      git fetch --no-tags origin "$MERGE" "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+      base="$(git rev-parse --verify "$MERGE^1^{commit}")"
+      if [ "$(git rev-parse --verify "$MERGE^2^{commit}")" != "$COMMIT" ]; then
+        echo "::error::The gate did not run: the merge commit $MERGE of this run does not merge the head $COMMIT. Re-run the checks. This is no decision on the change."
+        exit 1
+      fi
+      if ! git merge-base --is-ancestor "$EVENT_BASE" "$base" || ! git merge-base --is-ancestor "$base" "refs/remotes/origin/$BASE_REF"; then
+        echo "::error::The gate did not run: the base $base of the merge commit is not on $BASE_REF at or after $EVENT_BASE. Re-run the checks. This is no decision on the change."
+        exit 1
+      fi
+      echo "sha=$base" >> "$GITHUB_OUTPUT"
   - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     with:
-      ref: ${{ github.event.pull_request.base.sha }}
+      ref: ${{ steps.base.outputs.sha }}
       path: base
       persist-credentials: false
   - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -783,7 +839,7 @@ steps:
     id: gate
     working-directory: stego
     env:
-      BASE: ${{ github.event.pull_request.base.sha }}
+      BASE: ${{ steps.base.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
     run: >-
       "$RUNNER_TEMP/gate/assure" gate change --commit "$COMMIT" --base "$BASE"
@@ -951,7 +1007,7 @@ func TestGateBuiltFromBase(t *testing.T) {
 		}
 
 		step := func(i int) string { return fmt.Sprintf("step %d (%s)", i, gate.Steps[i].Name) }
-		head, base, lathe, latheBuild, build, readOnly, run := -1, -1, -1, -1, -1, -1, -1
+		head, find, base, lathe, latheBuild, build, readOnly, run := -1, -1, -1, -1, -1, -1, -1, -1
 		checkouts := 0
 		for i, s := range gate.Steps {
 			onlyKeys(t, step(i), raw.Jobs["gate"].Steps[i], "id", "name", "if", "uses", "run", "with", "env", "working-directory")
@@ -964,11 +1020,19 @@ func TestGateBuiltFromBase(t *testing.T) {
 				switch s.With["ref"] {
 				case "${{ env.COMMIT }}":
 					head = i
-				case baseSHA:
+				case foundBase:
 					base = i
 				case "${{ env.LATHE_REF }}":
 					lathe = i
+				default:
+					t.Fatalf("%s checks out %q: the gate job checks out only the change's commit, the base that it found and LATHE_REF", step(i), s.With["ref"])
 				}
+			}
+			if s.ID == "base" {
+				if find != -1 {
+					t.Fatalf("%s and %s both have the id base", step(find), step(i))
+				}
+				find = i
 			}
 			if strings.HasPrefix(s.Uses, "actions/setup-") {
 				onlyKeys(t, step(i)+"'s inputs", s.With, "go-version", "node-version", "cache")
@@ -995,9 +1059,18 @@ func TestGateBuiltFromBase(t *testing.T) {
 				run = i
 			}
 		}
-		if checkouts != 3 || head == -1 || base == -1 || lathe == -1 || latheBuild == -1 || build == -1 || readOnly == -1 || run == -1 {
-			t.Fatalf("the gate job does not have exactly its steps: %d checkouts, the change's %d, the base's %d, Lathe's %d, Lathe's build %d, assure's build %d, read-only %d, the gate %d",
-				checkouts, head, base, lathe, latheBuild, build, readOnly, run)
+		if checkouts != 3 || head == -1 || find == -1 || base == -1 || lathe == -1 || latheBuild == -1 || build == -1 || readOnly == -1 || run == -1 {
+			t.Fatalf("the gate job does not have exactly its steps: %d checkouts, the change's %d, the base's finding %d, the base's %d, Lathe's %d, Lathe's build %d, assure's build %d, read-only %d, the gate %d",
+				checkouts, head, find, base, lathe, latheBuild, build, readOnly, run)
+		}
+
+		// The base is the merge commit's first parent, found after the change's checkout, which has the history,
+		// and before the base's checkout. The step checks that the second parent is the change's head, that the
+		// base descends from the payload base and that it lies on the base branch, so the base can be only the
+		// payload base or a newer commit of the base branch: never the head, the merge commit, an older commit or a
+		// foreign one.
+		if !sameFindBase(gate.Steps[find]) || find < head || find > base {
+			t.Fatalf("%s does not find the base as the merge commit's first parent, checked to descend from the payload base and lie on the base branch, between the change's checkout and the base's: %+v", step(find), gate.Steps[find])
 		}
 
 		// The base commit is checked out into a folder of its own, and nothing else is checked out there.
@@ -1013,10 +1086,13 @@ func TestGateBuiltFromBase(t *testing.T) {
 		// The environment of each step: only what the step needs, by its exact value.
 		allowedEnv := map[string]string{
 			"GOWORK":       "off",
-			"BASE":         baseSHA,
+			"BASE":         foundBase,
 			"GITHUB_TOKEN": "${{ github.token }}",
 		}
 		for i, s := range gate.Steps {
+			if i == find {
+				continue // sameFindBase holds its environment to findBaseEnv.
+			}
 			for key, value := range s.Env {
 				if want, ok := allowedEnv[key]; !ok || value != want ||
 					(key == "GOWORK") != (i == build && key == "GOWORK") || ((key == "BASE" || key == "GITHUB_TOKEN") && i != run) {
@@ -1028,10 +1104,11 @@ func TestGateBuiltFromBase(t *testing.T) {
 			t.Fatalf("%s does not turn off workspace mode, so a go.work could change what it builds", step(build))
 		}
 
-		// No step but the gate runs in the change's checkout or names it, and no step runs git, a package manager,
-		// an interpreter or a script outside Lathe's folder.
+		// No step but the gate and the step that finds the base runs in the change's checkout or names it, and no
+		// other step runs git, a package manager, an interpreter or a script outside Lathe's folder. The step that
+		// finds the base runs only git, to read the history, and its script is exactly findBaseRun.
 		for i, s := range gate.Steps {
-			if i == run {
+			if i == run || i == find {
 				continue
 			}
 			if dir := s.WorkingDirectory; dir == headPath || strings.HasPrefix(dir, headPath+"/") || strings.Contains(dir, "..") {
@@ -1071,7 +1148,7 @@ func TestGateBuiltFromBase(t *testing.T) {
 		}
 
 		// The binary runs in the change's checkout, with the Lathe built from LATHE_REF, for the change's commit
-		// against the pull request's base, and with nothing else.
+		// against the base that the job found, and with nothing else.
 		r := gate.Steps[run]
 		want := `"$RUNNER_TEMP/gate/assure" gate change --commit "$COMMIT" --base "$BASE" --lathe "$GITHUB_WORKSPACE/` + lathePath + `/lathe/dist/bin/lathe.js"`
 		if got := strings.Join(strings.Fields(r.Run), " "); got != want {
