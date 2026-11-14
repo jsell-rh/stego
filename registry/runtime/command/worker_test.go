@@ -57,16 +57,36 @@ func updateOrder(ctx context.Context, h *Handle[testProbe], e *Entity[order], id
 }
 
 // testClock is the injected clock of the outbox in the consumer tests: the system clock, which the test moves on
-// with add.
+// with add. While the test holds it, it stands still and moves only with add, so a message that waits on the clock
+// is not dispatched again until the test moves it.
 type testClock struct {
 	mu     sync.Mutex
 	offset time.Duration
+	held   bool
+	at     time.Time
 }
 
 func (c *testClock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.held {
+		return c.at.Add(c.offset)
+	}
 	return time.Now().Add(c.offset)
+}
+
+// hold stops the clock at its time now. The function it gives lets the clock run on from the time it shows.
+func (c *testClock) hold() (release func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.held, c.at = true, time.Now()
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.held {
+			c.held, c.offset = false, c.at.Add(c.offset).Sub(time.Now())
+		}
+	}
 }
 
 func (c *testClock) add(d time.Duration) {
@@ -603,6 +623,10 @@ func TestConsumers(t *testing.T) {
 
 	t.Run("ST-SUP-RP10-LC26-T01 A worker conflict runs the tenant in the next tick, and a consumer conflict is dispatched again and is not an attempt", func(t *testing.T) {
 		e.exec(`DELETE FROM stego_outbox.messages WHERE destination = 'billing'`)
+		// A conflict makes the message wait 100 ms on the clock. On the system clock, a slow test sees the message
+		// done, or a dispatch again in progress that counts an attempt until its conflict is recorded. The held clock
+		// moves only when the test moves it, so each read below sees the message as it waits.
+		defer clock.hold()()
 		calls.Store(0)
 		mode.Store("conflict-once")
 		m := e.stage("t1", "o-1", map[string]string{"order": "o-1", "n": "4"})
@@ -668,6 +692,9 @@ func TestConsumers(t *testing.T) {
 		// until its lock timeout, and the outbox dispatches the message again with a conflict, not an attempt.
 		calls.Store(0)
 		a := e.session()
+		// The key row that the session holds blocks each delivery of the message, so it ends also when a check
+		// fails, and the later subtests that stage for o-3 do not wait behind the message.
+		defer func() { _ = a.tx.Rollback() }()
 		var held uuid.UUID
 		stager := e.runtime(nil)
 		stager.beforeCommit = func(ctx context.Context, tx *sql.Tx) error {

@@ -103,11 +103,12 @@ func writeFile(t *testing.T, name string, data []byte) string {
 	return path
 }
 
-// received is one request that the stand-in took.
+// received is one request that the stand-in took, and whether its answer accepted every record.
 type received struct {
-	header  http.Header
-	client  string
-	request *collogs.ExportLogsServiceRequest
+	header   http.Header
+	client   string
+	request  *collogs.ExportLogsServiceRequest
+	accepted bool
 }
 
 // standIn is a local OTLP/HTTP logs endpoint over TLS with its own certificate authority (ST-STD-LOCAL). It decodes
@@ -149,11 +150,13 @@ func startStandIn(t *testing.T, clients *authority, mode tls.ClientAuthType) *st
 		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
 			client = r.TLS.PeerCertificates[0].Subject.CommonName
 		}
+		// The answer is chosen in the same lock as the request is recorded, so a test that changes the answer sees each
+		// request with the answer that it got.
 		s.mu.Lock()
-		s.got = append(s.got, received{header: r.Header.Clone(), client: client, request: &req})
-		answer := s.answer
+		status, body := s.answer()
+		s.got = append(s.got, received{header: r.Header.Clone(), client: client, request: &req,
+			accepted: status == http.StatusOK && body.GetPartialSuccess().GetRejectedLogRecords() == 0})
 		s.mu.Unlock()
-		status, body := answer()
 		out, _ := proto.Marshal(body)
 		w.Header().Set("Content-Type", "application/x-protobuf")
 		w.WriteHeader(status)
@@ -426,29 +429,38 @@ func TestHTTPSSink(t *testing.T) {
 		}
 		queued := e.record(t, "t2", "r2", nil)
 		pending := "SELECT count(*) FROM stego_outbox.messages WHERE id = $1::uuid AND state <> 'done'"
+		// sends counts the requests that carry the queued entry, by the answer that each got. The outbox also holds the
+		// entry of t1 from the start of the test, and the worker sends both, so a count of all requests says nothing
+		// about the queued entry.
+		sends := func() (rejected, accepted int) {
+			for _, r := range s.requests() {
+				for _, rec := range records(r.request) {
+					if attributes(rec)[AttributeEntryID] != queued.ID.String() {
+						continue
+					}
+					if r.accepted {
+						accepted++
+					} else {
+						rejected++
+					}
+				}
+			}
+			return rejected, accepted
+		}
 		stop := e.startWorker(t, sink)
-		retried := waitFor(func() bool { return len(s.requests()) >= 3 })
+		retried := waitFor(func() bool { rejected, _ := sends(); return rejected >= 2 })
 		if !retried || e.count(t, pending, queued.ID.String()) != 1 {
 			stop()
-			t.Fatalf("the rejected entry was not sent again and kept in the outbox (%d requests)", len(s.requests()))
+			rejected, _ := sends()
+			t.Fatalf("the rejected entry was not sent again and kept in the outbox (%d rejected sends)", rejected)
 		}
 		s.setAnswer(rejecting(0))
 		landed := waitFor(func() bool { return e.count(t, pending, queued.ID.String()) == 0 })
 		stop()
-		if !landed {
-			t.Fatalf("the entry did not leave the outbox once the endpoint accepted it")
-		}
-		// The entry was sent while the endpoint rejected it and again when it accepted it.
-		sends := 0
-		for _, r := range s.requests() {
-			for _, rec := range records(r.request) {
-				if attributes(rec)[AttributeEntryID] == queued.ID.String() {
-					sends++
-				}
-			}
-		}
-		if sends < 2 {
-			t.Fatalf("the queued entry was sent %d times, want a rejected send and an accepted send", sends)
+		// The entry left the outbox only after a send that the endpoint accepted.
+		if rejected, accepted := sends(); !landed || accepted < 1 || rejected < 2 {
+			t.Fatalf("the queued entry left the outbox %t after %d rejected and %d accepted sends, want it to leave after an accepted send",
+				landed, rejected, accepted)
 		}
 	})
 }
