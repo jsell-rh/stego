@@ -701,6 +701,32 @@ func TestBuildDownloadChecksTargetAndSDKFirst(t *testing.T) {
 	})
 }
 
+func TestBuildSourceRefusalHidesUserInfo(t *testing.T) {
+	t.Run("ST-BLD-UC02-R04-T03 A refused --source URL is quoted with its user info replaced, so no token is shown", func(t *testing.T) {
+		root := t.TempDir()
+		revision := strings.Repeat("a", 40)
+		for _, source := range []string{
+			"https://someone:SECRET-TOKEN@example.com/service.git",
+			"https://SECRET-TOKEN@example.com/service.git",
+			"ssh://SECRET-TOKEN@example.com:22/service.git",
+			"file://SECRET-TOKEN@host/service",
+			"https://a@b:SECRET-TOKEN@example.com/service.git",
+		} {
+			_, err := capture(t, runBuild, "download", "--source", source, "--revision", revision, "--target", "cmd/tiny", "--go", filepath.Join(root, "sdk", "bin", "go"),
+				"--output", filepath.Join(root, "cache"))
+			if err == nil {
+				t.Fatalf("the download from %s was not refused", source)
+			}
+			if strings.Contains(err.Error(), "SECRET-TOKEN") || strings.Contains(err.Error(), "someone") {
+				t.Fatalf("the refusal of %s shows its user info: %v", source, err)
+			}
+			if !strings.Contains(err.Error(), "--source") || !strings.Contains(err.Error(), "xxxxx@") {
+				t.Fatalf("the refusal of %s does not name the flag and the value with its user info replaced: %v", source, err)
+			}
+		}
+	})
+}
+
 // buildGenerator writes one generated program that needs the small module.
 type buildGenerator struct{ files []gen.File }
 
