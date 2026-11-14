@@ -161,6 +161,9 @@ func validateSchemaChangeEntity(service *types.ServiceDeclaration) []ValidationE
 			if !hasField {
 				fault(".field", fmt.Sprintf("the entity does not declare the field, which a %s names by its name after the change", change.Kind))
 			}
+			if field, _ := findField(entity, change.Field); change.Kind == "retype" && hasField && change.From == string(field.Type) {
+				fault(".from", fmt.Sprintf("the retype is from %s, the type that the field has now; a retype changes the type, so name the type before the change", change.From))
+			}
 			if _, hasFrom := findField(entity, change.From); change.Kind == "rename" && change.From != "" && hasFrom {
 				fault(".from", fmt.Sprintf("the entity still declares %q, the name before the rename; remove it", change.From))
 			}
