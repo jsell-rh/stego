@@ -74,7 +74,10 @@ func NewValidationMiddleware() func(http.Handler) http.Handler {
 			r.Body.Close()
 			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
-			if !withinTokenLimit(bodyBytes) {
+			if within, err := withinTokenLimit(bodyBytes); err != nil {
+				handleError(w, r, BadRequest("the request body is not valid JSON"))
+				return
+			} else if !within {
 				handleError(w, r, Validation([]ValidationError{{Message: fmt.Sprintf("the request body holds more than %d JSON values and member names", MaxBodyTokens)}}))
 				return
 			}
@@ -108,21 +111,32 @@ func NewValidationMiddleware() func(http.Handler) http.Handler {
 const MaxBodyTokens = 10000
 
 // withinTokenLimit reports whether body holds at most MaxBodyTokens JSON values
-// and member names. A body that is not JSON is within the limit: the schema check
-// refuses it.
-func withinTokenLimit(body []byte) bool {
+// and member names, and gives an error when body is not JSON, so no error passes
+// the limit. Numbers are read as text, so a number out of the range of float64,
+// such as 1e400, is a token and not an error. An empty body holds no token.
+func withinTokenLimit(body []byte) (bool, error) {
 	decoder := json.NewDecoder(bytes.NewReader(body))
-	count := 0
+	decoder.UseNumber()
+	count, depth := 0, 0
 	for {
 		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) && depth == 0 {
+			return true, nil
+		}
+		if errors.Is(err, io.EOF) {
+			return false, io.ErrUnexpectedEOF
+		}
 		if err != nil {
-			return true
+			return false, err
 		}
 		if delim, ok := token.(json.Delim); ok && (delim == ']' || delim == '}') {
+			depth--
 			continue
+		} else if ok {
+			depth++
 		}
 		if count++; count > MaxBodyTokens {
-			return false
+			return false, nil
 		}
 	}
 }
