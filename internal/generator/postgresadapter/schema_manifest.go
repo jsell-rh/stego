@@ -23,6 +23,7 @@ const (
 	schemaManifestFile     = "schema_manifest.go"
 	schemaManifestVariable = "SchemaManifest"
 	manifestImport         = "github.com/jsell-rh/stego/registry/runtime/manifest"
+	leaseImport            = "github.com/jsell-rh/stego/registry/runtime/lease"
 )
 
 // StepSchema is the held schema of the sync functions of the schema steps (ST-SUP-RP15-LC02): the manifest names it,
@@ -179,7 +180,7 @@ func deparsedList(columns []string) string {
 // writes them, its primary key and unique indexes, and on an
 // owned table of a pooled service the row-level security and the tenant policy. The search indexes are left out:
 // a list that has no search index is slower, not wrong.
-func manifestSource(models []tableModel, key string) string {
+func manifestSource(models []tableModel, key string, optional map[string][]syncTrigger) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "manifest.Manifest{Schemas: []manifest.Schema{{Name: %q, Steps: true}},\nTables: []manifest.Table{\n", StepSchema)
 	for _, table := range models {
@@ -208,6 +209,14 @@ func manifestSource(models []tableModel, key string) string {
 			fmt.Fprintf(&b, "{Name: %q, Columns: %#v},\n", uniqueName(table.name, columns), append(append([]string{}, table.lead...), columns...))
 		}
 		b.WriteString("},\n")
+		if triggers := optional[table.name]; len(triggers) > 0 {
+			b.WriteString("OptionalTriggers: []manifest.Trigger{\n")
+			for _, trigger := range triggers {
+				fmt.Fprintf(&b, "{Name: %q, Timing: \"BEFORE\", Row: true, Events: []string{\"INSERT\", \"UPDATE\"},\nFunction: manifest.Function{Name: %q, Language: \"plpgsql\", Source: %q, Config: []string{%q}}},\n",
+					trigger.name, StepSchema+"."+trigger.name, trigger.source, syncConfig)
+			}
+			b.WriteString("},\n")
+		}
 		if table.owned {
 			expression := tenantPolicyExpression(key)
 			fmt.Fprintf(&b, "RowSecurity: true,\nPolicies: []manifest.Policy{{Name: %q, Command: \"*\", Using: %q, WithCheck: %q}},\n",
@@ -219,6 +228,81 @@ func manifestSource(models []tableModel, key string) string {
 	return b.String()
 }
 
+// syncConfig is the one setting of a sync function, as pg_proc.proconfig holds it (registry/runtime/manifest.SyncConfig).
+const syncConfig = "search_path=pg_catalog, pg_temp"
+
+// syncTrigger is the sync trigger of an open rename: its name, which is also the name of its function, and the
+// source of its function.
+type syncTrigger struct{ name, source string }
+
+// openRenames gives, for each table, the sync trigger of each rename whose last step in the declaration is expand,
+// and makes the new column of each such rename nullable with no default in the models (ST-SUP-RC01-OC12): the
+// backfill has not set it in every row yet, and the release reads only the new column, so the manifest leaves out
+// the old column, its CHECK and its indexes, which the head's models do not hold, and names the sync trigger as
+// optional, because the contract step drops it while this release runs.
+func openRenames(ctx gen.Context, models []tableModel) (map[string][]syncTrigger, []openRename, error) {
+	last := map[string]string{}
+	for _, step := range ctx.SchemaHistory {
+		last[step.Change] = step.Phase
+	}
+	optional := map[string][]syncTrigger{}
+	var open []openRename
+	for _, change := range ctx.SchemaChanges {
+		if change.Kind != "rename" || last[change.ID] != "expand" {
+			continue
+		}
+		_, owner, err := serviceRoles(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		name := tableName(change.Entity)
+		for i := range models {
+			if models[i].name != name {
+				continue
+			}
+			for j := range models[i].columns {
+				if models[i].columns[j].name == change.Field {
+					models[i].columns[j].notNull, models[i].columns[j].manifestDefault = false, ""
+				}
+			}
+			trigger := SyncTriggerName(change.Entity, change.Field)
+			optional[name] = append(optional[name], syncTrigger{name: trigger, source: syncSource(change.ID, owner, change.From, change.Field)})
+			tenant := ""
+			if models[i].owned {
+				tenant = tenantColumn(ctx)
+			}
+			open = append(open, openRename{change: change.ID, table: name, tenant: tenant, from: change.From, to: change.Field})
+		}
+	}
+	return optional, open, nil
+}
+
+// openRename is the copy of the backfill of an open rename: its change, its table, the tenant column of an owned
+// table, and the old and the new column (registry/runtime/lease.Copy).
+type openRename struct{ change, table, tenant, from, to string }
+
+// stepsSource gives the variables SchemaSteps, the IDs of the open renames, which the writer marker names
+// (ST-SUP-RC01-OC23), and BackfillCopies, the copy of the backfill of each (ST-GEN-UC13).
+func stepsSource(open []openRename) string {
+	var ids, copies strings.Builder
+	for _, r := range open {
+		fmt.Fprintf(&ids, "%q,\n", r.change)
+		fmt.Fprintf(&copies, "{Change: %q, Table: %q, TenantColumn: %q, From: %q, To: %q},\n", r.change, r.table, r.tenant, r.from, r.to)
+	}
+	return fmt.Sprintf(`
+// SchemaSteps are the IDs of the schema changes of this release whose last step is expand and that have a sync
+// trigger. Each transaction that writes sets the writer marker stego.schema_step to them, so the sync trigger of each
+// copies the new column into the old one (ST-SUP-RC01-OC23).
+var SchemaSteps = []string{
+%s}
+
+// BackfillCopies are the batches of the backfill of each of them, which the migration job runs before the rollout
+// (ST-GEN-UC13).
+var BackfillCopies = []lease.Copy{
+%s}
+`, ids.String(), copies.String())
+}
+
 // generateSchemaManifest gives schema_manifest.go of the runtime data path: the variable SchemaManifest, which the
 // service runtime takes in its parts and checks at startup (ST-SUP-RC01-OC12).
 func generateSchemaManifest(ctx gen.Context) (gen.File, error) {
@@ -226,16 +310,23 @@ func generateSchemaManifest(ctx gen.Context) (gen.File, error) {
 	if err != nil {
 		return gen.File{}, err
 	}
+	optional, open, err := openRenames(ctx, models)
+	if err != nil {
+		return gen.File{}, err
+	}
 	source := fmt.Sprintf(`package %s
 
-import %q
+import (
+	%q
+	%q
+)
 
 // %s is what the commands and queries of the service need of the tables of the declaration: the columns with
 // their types, the constraints, the primary key and unique indexes and, on an owned table, the row-level security
 // with its tenant policy. The service runtime reads the catalog as the runtime role before the service serves, and
 // refuses to start on a database that does not hold it (ST-SUP-RC01-OC12).
 var %s = %s
-`, path.Base(ctx.OutputNamespace), manifestImport, schemaManifestVariable, schemaManifestVariable, manifestSource(models, tenantColumn(ctx)))
+%s`, path.Base(ctx.OutputNamespace), leaseImport, manifestImport, schemaManifestVariable, schemaManifestVariable, manifestSource(models, tenantColumn(ctx), optional), stepsSource(open))
 	formatted, err := format.Source([]byte(source))
 	if err != nil {
 		return gen.File{}, fmt.Errorf("formatting %s: %w", schemaManifestFile, err)

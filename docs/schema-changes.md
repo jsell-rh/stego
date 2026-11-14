@@ -67,8 +67,10 @@ fails, the job tries it again, at most 5 times; when it still fails, the job
 fails and names the invalid index, which you must drop by hand. Before the
 job records an index build, it checks that the index is valid and has the
 definition of the step: a table or an index of another definition that has
-the name of the index fails the job. The last
-migration of the step, `..._validate`, validates the constraints in its own
+the name of the index fails the job. A rename then has the migration
+`..._sync`, which adds the sync trigger after the indexes, so the unique
+index of the new column is valid before the trigger copies a value into
+it. The last migration of the step, `..._validate`, validates the constraints in its own
 transaction, which blocks no read and no write. Each migration of a step
 waits at most 1 s for a lock, and runs for at most 15 s, or 1 h for an index
 build or a validation. When the lock wait ends, the job tries again after a
@@ -126,6 +128,11 @@ in the exact form that the step gives it, on the table of a declared entity:
   a BEFORE INSERT OR UPDATE row trigger whose function is the fixed
   template of this release, in the schema `stego_steps`, for one column
   that the release before knows and one new column (ST-SUP-RP15-LC02).
+  The old column may be in one unique key: the tenant column and that
+  column alone, a unique index that the manifest names. Then the new column
+  must have the same unique key, valid, named `<table>_<column>_key`, and no
+  other (ST-GEN-Q18). A rename of a field in a unique key of more than one
+  field, or of a reference, is refused.
 
 The sync trigger takes its direction from the writer, never from a NULL.
 The release of the step sets `stego.schema_step` to the IDs of its open

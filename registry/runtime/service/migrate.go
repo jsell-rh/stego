@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/audit/auditsink"
 	"github.com/jsell-rh/stego/registry/runtime/idempotency"
 	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/probe"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
@@ -36,7 +39,12 @@ const (
 	StepRuntimeGrants       = "runtime_grants"
 	StepAuditPartitions     = "audit_partitions"
 	StepSchemaAgain         = "authorization_schema_again"
+	StepBackfill            = "backfill"
 )
+
+// BackfillTimeout is the longest time that the backfill step of the migration job runs when Migration gives none.
+// A job that it stops resumes from the checkpoint on its next run.
+const BackfillTimeout = time.Hour
 
 // Migration is what varies with the declaration of the migration job of one service, which the generated code
 // gives Migrate: the roles, the adapter's connection configuration and ledger, the ordered migration texts of the
@@ -70,6 +78,27 @@ type Migration struct {
 	TenantSchema string
 	// Timeout is the longest time that the job runs; zero is MigrationTimeout.
 	Timeout time.Duration
+	// Backfills are the backfills of the schema changes of this release whose last step is expand, which the job
+	// runs last, before the rollout of the release (decision on finding F5 of the schema-change research, owner,
+	// 2026-11-13).
+	Backfills []Backfill
+	// BackfillLease are the lease settings of the backfills, and BackfillTimeout the longest time that the backfill
+	// step runs, apart from Timeout; zero is BackfillTimeout. Holder names the job in the lease; empty is the host
+	// name and the process ID.
+	BackfillLease   lease.Settings
+	BackfillTimeout time.Duration
+	Holder          string
+	// Service names the service on the probe runtime of the backfills, which reports their progress as counts
+	// (ST-GEN-UC13-R06).
+	Service string
+}
+
+// Backfill is the backfill of one schema change at expand: its change ID, the generated step of one batch, and its
+// settings (ST-GEN-UC13).
+type Backfill struct {
+	Change   string
+	Step     lease.Step
+	Settings lease.BackfillSettings
 }
 
 // StepError is the failure of one step of the migration job: it names the step, and its text holds no value of a
@@ -219,7 +248,122 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	if err := step(StepAuditPartitions, func() error { return maintainAudit(ctx, conn, m.OwnerRole) }); err != nil {
 		return err
 	}
-	return step(StepSchemaAgain, func() error { return m.WriteSchema(ctx, spice) })
+	if err := step(StepSchemaAgain, func() error { return m.WriteSchema(ctx, spice) }); err != nil {
+		return err
+	}
+	return step(StepBackfill, func() error { return runBackfills(parent, db, m) })
+}
+
+// BackfillLeaseName gives the lease of the backfill of a schema change: stego.backfill.<change ID>
+// (ST-GEN-UC13-R01).
+func BackfillLeaseName(change string) string { return "stego.backfill." + change }
+
+// runBackfills runs the backfill of each schema change of m in turn, as the owner role, the backfill role of the
+// sync trigger (ST-SUP-RC01-OC32; decision on finding F4, orchestrator under the owner's delegation, 2026-11-13),
+// each under its own lease, so that of two jobs that run at the same time one moves rows and the other waits
+// (ST-GEN-UC13-R01). A job whose batch was fenced or whose lease was lost waits for the lease again, and finds the
+// change complete or resumes it from the checkpoint (ST-GEN-UC13-R04). The step ends when every change is complete,
+// or at BackfillTimeout with an error, and the next run of the job resumes.
+func runBackfills(parent context.Context, db *sql.DB, m Migration) error {
+	if len(m.Backfills) == 0 {
+		return nil
+	}
+	timeout := m.BackfillTimeout
+	if timeout <= 0 {
+		timeout = BackfillTimeout
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	holder := m.Holder
+	if holder == "" {
+		holder = defaultHolder()
+	}
+	var changes []probe.SchemaChange
+	for _, b := range m.Backfills {
+		changes = append(changes, probe.SchemaChange{ID: b.Change, Open: true})
+	}
+	builtins, err := probe.NewBuiltins(nil, changes)
+	if err != nil {
+		return err
+	}
+	if m.Service == "" {
+		return errors.New("the backfills need the service name")
+	}
+	telemetry, err := otel.New(m.Service, probe.SpanNames()...)
+	if err != nil {
+		return err
+	}
+	defer telemetry.Close()
+	probes, err := probe.Start(telemetry, builtins)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = probes.Close(context.WithoutCancel(ctx)) }()
+	// Two sessions as the owner role: the lease renews on one while a batch holds a transaction on the other.
+	session := func() (*sql.Conn, error) {
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := conn.ExecContext(ctx, "SET ROLE "+quote(m.OwnerRole)+"; SET search_path = public, pg_temp"); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		return conn, nil
+	}
+	// A session goes back to the pool as the login role, with its own search path.
+	release := func(conn *sql.Conn) {
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "RESET ROLE; RESET search_path")
+		_ = conn.Close()
+	}
+	for _, b := range m.Backfills {
+		settings := b.Settings
+		if settings.Observer == nil {
+			settings.Observer = probes.Backfill()
+		}
+		backfill, err := lease.NewBackfill(b.Change, b.Step, settings)
+		if err != nil {
+			return err
+		}
+		name := BackfillLeaseName(b.Change)
+		// Each hold of the lease gets new sessions, since a statement that a lost lease cancels can break its
+		// connection.
+		hold := func() error {
+			leaseConn, err := session()
+			if err != nil {
+				return err
+			}
+			defer release(leaseConn)
+			batchConn, err := session()
+			if err != nil {
+				return err
+			}
+			defer release(batchConn)
+			if err := lease.Declare(ctx, leaseConn, name); err != nil {
+				return err
+			}
+			client, err := lease.New(leaseConn, name, holder, m.BackfillLease)
+			if err != nil {
+				return err
+			}
+			return client.Hold(ctx, func(ctx context.Context, held *lease.Held) error {
+				return backfill.Run(ctx, batchConn, held)
+			})
+		}
+		for {
+			err := hold()
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, lease.ErrFenced) && !errors.Is(err, lease.ErrLost) && !errors.Is(err, lease.ErrStopped) {
+				return fmt.Errorf("backfill %s: %w", b.Change, err)
+			}
+			if ctx.Err() != nil {
+				return fmt.Errorf("backfill %s: %w", b.Change, ctx.Err())
+			}
+		}
+	}
+	return nil
 }
 
 // errSequenceBehind is the refusal of a queue whose identity sequence would give a message a sequence that a stored
@@ -320,3 +464,28 @@ func maintainAudit(ctx context.Context, conn *sql.Conn, owner string) error {
 
 // quote quotes one SQL name.
 func quote(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
+
+// CopyBackfills gives the backfill of each copy, the batch of a rename at expand, over the tenant list stego_tenants
+// in tenantSchema (empty is public), with the default batch settings of the lease runtime and a pause of
+// BackfillPause between batches.
+func CopyBackfills(copies []lease.Copy, tenantSchema string) ([]Backfill, error) {
+	if tenantSchema == "" {
+		tenantSchema = "public"
+	}
+	var out []Backfill
+	for _, c := range copies {
+		c.Tenants = quote(tenantSchema) + ".stego_tenants"
+		step, err := c.Step()
+		if err != nil {
+			return nil, err
+		}
+		key, parts := c.Settings()
+		out = append(out, Backfill{Change: c.Change, Step: step, Settings: lease.BackfillSettings{Key: key, KeyParts: parts, Pause: BackfillPause}})
+	}
+	return out, nil
+}
+
+// BackfillPause is the wait of a backfill of the migration job after each batch, which leaves room for the writes of
+// the running release and for the replicas (decision on finding F6, orchestrator under the owner's delegation,
+// 2026-11-13).
+const BackfillPause = 50 * time.Millisecond
