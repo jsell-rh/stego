@@ -458,8 +458,8 @@ CREATE UNIQUE INDEX org_settings_org_id_key_key ON public.org_settings (tenant_i
 				switch {
 				case change.healed && err != nil:
 					t.Fatalf("the migration job, whose texts make the object again, failed: %v\n%s", err, output)
-				case !change.healed && (err == nil || !strings.Contains(string(output), `"stage":"migrate.manifest"`)):
-					t.Fatalf("the migration job gave %v, want a refusal at the stage migrate.manifest:\n%s", err, output)
+				case !change.healed && (err == nil || !strings.Contains(string(output), `"stage":"migrate.manifest_before_backfill"`)):
+					t.Fatalf("the migration job gave %v, want a refusal at the stage migrate.manifest_before_backfill:\n%s", err, output)
 				}
 			})
 		}

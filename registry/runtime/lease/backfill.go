@@ -36,8 +36,10 @@ var ErrIncomplete = errors.New("the change is not complete")
 // at once, with the cause, instead of running the batch again until its time limit (review of PR #300, L1).
 var ErrValidate = errors.New("the completeness CHECK cannot be validated")
 
-// transientStates are the SQLSTATEs of a validate statement that a run again can pass.
-var transientStates = map[string]bool{"55P03": true, "57014": true, "40001": true, "40P01": true}
+// transientStates are the SQLSTATEs of a validate statement that a run again can pass: a lock or statement timeout,
+// a serialization failure, a deadlock, and an administrator shutdown or a server that cannot take connections yet, as
+// at a failover (review of PR #305).
+var transientStates = map[string]bool{"55P03": true, "57014": true, "40001": true, "40P01": true, "57P01": true, "57P03": true}
 
 // The reasons of schema.backfill.throttled: the backfill waited for a replica whose replay lag is above the
 // maximum, or it made its batches smaller because a batch took longer than the target batch time.

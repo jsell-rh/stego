@@ -58,7 +58,7 @@ func TestMigrate(t *testing.T) {
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
 		want := []string{StepOwnerRole, StepJobLock, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepOutboxSequence, StepAuditTables, StepAuditSink,
-			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain, StepBackfill, StepManifest}
+			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain, StepManifestBefore, StepBackfill, StepManifest}
 		run := func(m Migration) (*steps, error) {
 			s := &steps{backends: map[int]bool{}}
 			stepped = s.record(t)
@@ -1034,7 +1034,7 @@ func TestMigrateLocks(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP14-LC03-T13 The migration job refuses at its end a database that does not satisfy the schema manifest, which the start of a pod only alerts", func(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T13 The migration job refuses before its backfills and at its end a database that does not satisfy the schema manifest, which the start of a pod only alerts", func(t *testing.T) {
 		endpoint, key := startSpiceDB(t)
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
@@ -1050,13 +1050,35 @@ func TestMigrateLocks(t *testing.T) {
 		stepped = func(step string, _ *sql.Conn) { steps = append(steps, step) }
 		defer func() { stepped = nil }()
 		err := Migrate(context.Background(), settings, f.migration(nil))
+		if Stage(err) != "migrate."+StepManifestBefore || !errors.Is(err, manifest.ErrNotSatisfied) ||
+			!strings.Contains(err.Error(), "table public.orders: column status has the type character varying(20)") {
+			t.Fatalf("the job on a database with another column type gave %v at the stage %q, want the refusal of the step %s that names the column", err, Stage(err), StepManifestBefore)
+		}
+		if len(steps) < 2 || steps[len(steps)-1] != StepManifestBefore || steps[len(steps)-2] != StepSchemaAgain {
+			t.Fatalf("the refused job ran the steps %v, want it to end at %s, after %s and before any backfill", steps, StepManifestBefore, StepSchemaAgain)
+		}
+		if _, err := f.admin.Exec("ALTER TABLE public.orders ALTER COLUMN status TYPE text"); err != nil {
+			t.Fatal(err)
+		}
+		// A change of the catalog while the backfills run is refused at the end of the job.
+		steps = nil
+		stepped = func(step string, _ *sql.Conn) {
+			steps = append(steps, step)
+			if step == StepBackfill {
+				if _, err := f.admin.Exec("ALTER TABLE public.orders ALTER COLUMN status TYPE character varying(20)"); err != nil {
+					t.Error(err)
+				}
+			}
+		}
+		err = Migrate(context.Background(), settings, f.migration(nil))
 		if Stage(err) != "migrate."+StepManifest || !errors.Is(err, manifest.ErrNotSatisfied) ||
 			!strings.Contains(err.Error(), "table public.orders: column status has the type character varying(20)") {
-			t.Fatalf("the job on a database with another column type gave %v at the stage %q, want the refusal of the step %s that names the column", err, Stage(err), StepManifest)
+			t.Fatalf("the job whose database changed in its backfills gave %v at the stage %q, want the refusal of the step %s", err, Stage(err), StepManifest)
 		}
 		if len(steps) < 2 || steps[len(steps)-1] != StepManifest || steps[len(steps)-2] != StepBackfill {
 			t.Fatalf("the refused job ran the steps %v, want it to end at %s, after %s", steps, StepManifest, StepBackfill)
 		}
+		stepped = nil
 		// The parts are needed: a job with none is refused at the start.
 		bare := f.migration(nil)
 		bare.Parts = nil
@@ -1535,4 +1557,220 @@ func stopSpiceDB() {
 	if spiceServer.name != "" {
 		_ = exec.Command("docker", "rm", "-f", spiceServer.name).Run()
 	}
+}
+
+// boardsManifest is the manifest of the table boards of renameJob as the release of the rename states it: the table
+// of a declared entity under row-level security, with the sync trigger of the open rename, whose function is in the
+// held schema stego_steps, and its completeness CHECK as optional objects.
+func boardsManifest(t *testing.T, owner string) manifest.Manifest {
+	t.Helper()
+	source, err := manifest.SyncSource(manifest.SyncVersion, manifest.Sync{Change: "board-title-rename", Owner: owner, K: "title", U: "heading",
+		Conversion: manifest.Conversion{Name: "identity"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manifest.Manifest{Schemas: []manifest.Schema{{Name: "stego_steps", Steps: true}},
+		Tables: []manifest.Table{{Schema: "public", Name: "boards", RowSecurity: true, Entity: true,
+			Indexes: []manifest.Index{{Name: "boards_pkey", Columns: []string{"tenant_id", "id"}}},
+			Columns: []manifest.Column{{Name: "tenant_id", Type: "text", NotNull: true, Default: "current_setting('app.tenant'::text)"},
+				{Name: "id", Type: "uuid", NotNull: true}, {Name: "title", Type: "text", NotNull: true}, {Name: "heading", Type: "text"}},
+			Policies: []manifest.Policy{{Name: "tenant_isolation", Command: "*", Using: "(tenant_id = current_setting('app.tenant'::text, true))",
+				WithCheck: "(tenant_id = current_setting('app.tenant'::text, true))"}},
+			OptionalTriggers: []manifest.Trigger{{Name: "boards_heading_sync", Timing: "BEFORE", Row: true, Events: []string{"INSERT", "UPDATE"},
+				Function: manifest.Function{Name: "stego_steps.boards_heading_sync", Language: "plpgsql", Source: source, Config: []string{manifest.SyncConfig}}}},
+			OptionalConstraints: []manifest.Constraint{{Name: "boards_heading_complete", Kind: manifest.KindCheck, Definition: "CHECK (((heading IS NOT NULL) OR (title IS NULL)))"}}}}}
+}
+
+// boardsJob is the job of renameJob whose declared parts also have the manifest of boards, with the settings of a
+// job against the SpiceDB of the tests.
+func boardsJob(t *testing.T) (*fixture, Migration, MigrationSettings) {
+	t.Helper()
+	endpoint, key := startSpiceDB(t)
+	f, m, _ := renameJob(t)
+	runtimeGrants(t, f)
+	declared := *m.Parts
+	declared.Schema = manifest.Join(declared.Schema, boardsManifest(t, f.owner))
+	m.Parts = &declared
+	return f, m, MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+}
+
+// boardsCompleted tells that the change board-title-rename is marked complete.
+func boardsCompleted(t *testing.T, f *fixture) bool {
+	t.Helper()
+	var done bool
+	if err := f.admin.QueryRow("SELECT completed_at IS NOT NULL FROM stego_schema.backfills WHERE change_id = 'board-title-rename'").Scan(&done); err != nil {
+		t.Fatal(err)
+	}
+	return done
+}
+
+// recordSteps records the steps of each Migrate of the test in steps.
+func recordSteps(t *testing.T, steps *[]string) {
+	t.Helper()
+	stepped = func(step string, _ *sql.Conn) { *steps = append(*steps, step) }
+	t.Cleanup(func() { stepped = nil })
+}
+
+func TestMigrateManifestBefore(t *testing.T) {
+	ctx := context.Background()
+	t.Run("ST-SUP-RP14-LC03-T14 The migration job refuses before its backfills a trigger that the manifest does not name on an entity table, so it never runs as the owner role", func(t *testing.T) {
+		f, m, settings := boardsJob(t)
+		// Review of PR #305, M1: a trigger of a role that holds only TRIGGER on boards ran 10 times in the backfill
+		// as the owner role, before the only check of the job.
+		for _, statement := range []string{
+			"CREATE SCHEMA lc03t14", "CREATE TABLE lc03t14.log (role text)", "GRANT USAGE ON SCHEMA lc03t14 TO PUBLIC",
+			"GRANT INSERT ON lc03t14.log TO PUBLIC",
+			`CREATE FUNCTION lc03t14.f() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN INSERT INTO lc03t14.log VALUES (current_user); RETURN NULL; END$$`,
+			"CREATE TRIGGER lc03t14_evil AFTER UPDATE ON public.boards FOR EACH STATEMENT EXECUTE FUNCTION lc03t14.f()",
+		} {
+			if _, err := f.admin.ExecContext(ctx, statement); err != nil {
+				t.Fatalf("%.50s: %v", statement, err)
+			}
+		}
+		var steps []string
+		recordSteps(t, &steps)
+		err := Migrate(ctx, settings, m)
+		if Stage(err) != "migrate."+StepManifestBefore || !strings.Contains(err.Error(), "table public.boards: trigger lc03t14_evil is a trigger that the manifest does not name") {
+			t.Fatalf("the job with a trigger that the manifest does not name gave %v at the stage %q, want the refusal of the step %s that names it", err, Stage(err), StepManifestBefore)
+		}
+		var ran int
+		if err := f.admin.QueryRow("SELECT count(*) FROM lc03t14.log").Scan(&ran); err != nil {
+			t.Fatal(err)
+		}
+		if ran != 0 || slices.Contains(steps, StepBackfill) || boardsCompleted(t, f) || unmoved(t, f) != 24 {
+			t.Fatalf("the refused job ran the trigger %d times in the steps %v, complete %v with %d rows unmoved, want no run, no backfill and 24 rows unmoved",
+				ran, steps, boardsCompleted(t, f), unmoved(t, f))
+		}
+		// With no trigger of its own, the same job accepts the open change's NOT VALID completeness CHECK before
+		// the backfill, completes the change and passes its last check.
+		if _, err := f.admin.ExecContext(ctx, "DROP TRIGGER lc03t14_evil ON public.boards"); err != nil {
+			t.Fatal(err)
+		}
+		steps = nil
+		if err := Migrate(ctx, settings, m); err != nil {
+			t.Fatalf("the job with no trigger of its own gave %v after the steps %v", err, steps)
+		}
+		if !boardsCompleted(t, f) || unmoved(t, f) != 0 || steps[len(steps)-1] != StepManifest {
+			t.Fatalf("the job ran the steps %v, complete %v with %d rows unmoved, want the change complete and the step %s last", steps, boardsCompleted(t, f), unmoved(t, f), StepManifest)
+		}
+	})
+
+	t.Run("ST-SUP-RP14-LC03-T15 Before its backfills the migration job accepts the completeness CHECK NOT VALID only in its exact form and only for a change it backfills", func(t *testing.T) {
+		f, m, settings := boardsJob(t)
+		var steps []string
+		recordSteps(t, &steps)
+		// The NOT VALID completeness CHECK of a change that the job does not backfill.
+		open := m.Backfills
+		m.Backfills = nil
+		err := Migrate(ctx, settings, m)
+		if Stage(err) != "migrate."+StepManifestBefore || !strings.Contains(err.Error(), "table public.boards: constraint boards_heading_complete is not validated") {
+			t.Fatalf("the job that does not backfill the change gave %v at the stage %q, want the refusal of the NOT VALID completeness CHECK at %s", err, Stage(err), StepManifestBefore)
+		}
+		// Review of PR #305, M1 (TestSec304Validate): a CHECK (true) NOT VALID of the same name let the change be
+		// marked complete with rows unmoved.
+		m.Backfills = open
+		if _, err := f.admin.ExecContext(ctx, "ALTER TABLE public.boards DROP CONSTRAINT boards_heading_complete; ALTER TABLE public.boards ADD CONSTRAINT boards_heading_complete CHECK (true) NOT VALID"); err != nil {
+			t.Fatal(err)
+		}
+		steps = nil
+		err = Migrate(ctx, settings, m)
+		if Stage(err) != "migrate."+StepManifestBefore || !strings.Contains(err.Error(), "table public.boards: constraint boards_heading_complete is not the constraint of the manifest") ||
+			slices.Contains(steps, StepBackfill) || boardsCompleted(t, f) {
+			t.Fatalf("the job with the CHECK (true) gave %v at the stage %q after the steps %v, complete %v, want the refusal at %s before any backfill",
+				err, Stage(err), steps, boardsCompleted(t, f), StepManifestBefore)
+		}
+		// The CHECK in its exact form: the job completes the change, and a job that backfills no change then accepts
+		// the validated CHECK before its backfills.
+		if _, err := f.admin.ExecContext(ctx, "ALTER TABLE public.boards DROP CONSTRAINT boards_heading_complete; "+boardsComplete); err != nil {
+			t.Fatal(err)
+		}
+		if err := Migrate(ctx, settings, m); err != nil || !boardsCompleted(t, f) {
+			t.Fatalf("the job with the exact CHECK gave %v, complete %v", err, boardsCompleted(t, f))
+		}
+		m.Backfills = nil
+		if err := Migrate(ctx, settings, m); err != nil {
+			t.Fatalf("the job with the validated CHECK and no change to backfill gave %v", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP14-LC03-T16 The migration job refuses the search path and the settings that would give the runtime role another table", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		if err := Migrate(ctx, settings, f.migration(nil)); err != nil {
+			t.Fatal(err)
+		}
+		database := mustURL(t, f.database).Path[1:]
+		refused := func(what, change, restore string, faults ...string) {
+			t.Helper()
+			if _, err := f.admin.ExecContext(ctx, change); err != nil {
+				t.Fatalf("%s: %v", what, err)
+			}
+			err := Migrate(ctx, settings, f.migration(nil))
+			if _, rerr := f.admin.ExecContext(ctx, restore); rerr != nil {
+				t.Fatalf("restore %s: %v", what, rerr)
+			}
+			if Stage(err) != "migrate."+StepManifestBefore {
+				t.Fatalf("%s: the job gave %v at the stage %q, want the refusal of the step %s", what, err, Stage(err), StepManifestBefore)
+			}
+			for _, fault := range faults {
+				if !strings.Contains(err.Error(), fault) {
+					t.Fatalf("%s: the refusal %v does not name %q", what, err, fault)
+				}
+			}
+		}
+		// Review of PR #305, M2: a schema named after the runtime role, with an orders table with no row-level
+		// security, which "$user", public puts first.
+		refused("a schema named after the runtime role",
+			"CREATE SCHEMA "+f.runtime+" AUTHORIZATION "+f.runtime+"; CREATE TABLE "+f.runtime+".orders (tenant_id text, status text); ALTER TABLE "+f.runtime+".orders OWNER TO "+f.runtime,
+			"DROP SCHEMA "+f.runtime+" CASCADE",
+			"the schema "+f.runtime+" has the name of the role of the session", "the relation "+f.runtime+".orders comes before public.orders on the search path of the session")
+		// A search path of the role, with a quoted name, that puts a schema with an orders table first.
+		refused("a search path of the role",
+			`CREATE SCHEMA "Lc03T16"; CREATE TABLE "Lc03T16".orders (status text); ALTER ROLE `+f.runtime+` SET search_path = "Lc03T16", public`,
+			`ALTER ROLE `+f.runtime+` RESET search_path; DROP SCHEMA "Lc03T16" CASCADE`,
+			"the role "+f.runtime+" gets search_path from a setting of the role, which the manifest does not allow", "the relation Lc03T16.orders comes before public.orders")
+		// PostgreSQL stores a name with no quotes in lower case.
+		refused("a search path of the database, with a name in capitals",
+			`CREATE SCHEMA lc03t16b; CREATE TABLE lc03t16b.orders (status text); ALTER DATABASE "`+database+`" SET search_path = LC03T16B, public`,
+			`ALTER DATABASE "`+database+`" RESET search_path; DROP SCHEMA lc03t16b CASCADE`,
+			"gets search_path from a setting of the database", "the relation lc03t16b.orders comes before public.orders")
+		refused("a session_replication_role of the role in the database",
+			`ALTER ROLE `+f.runtime+` IN DATABASE "`+database+`" SET session_replication_role = replica`,
+			`ALTER ROLE `+f.runtime+` IN DATABASE "`+database+`" RESET session_replication_role`,
+			"the role "+f.runtime+" gets session_replication_role from a setting of the role in the database, which skips the triggers")
+		// The search path public, pg_temp is accepted only as the role's own setting, which the role migration of the
+		// service makes (internal/generator/tenancy), and only in that order.
+		refused("the path of the role migration as a setting of the database",
+			`ALTER DATABASE "`+database+`" SET search_path = public, pg_temp`, `ALTER DATABASE "`+database+`" RESET search_path`,
+			"the role "+f.runtime+" gets search_path from a setting of the database, which the manifest does not allow")
+		refused("the temporary schema first in a search path of the role",
+			"ALTER ROLE "+f.runtime+" SET search_path = pg_temp, public", "ALTER ROLE "+f.runtime+" RESET search_path",
+			"the role "+f.runtime+" gets search_path from a setting of the role, which the manifest does not allow")
+		// The path of the role migration, a setting of another name, and a setting of another role are no fault.
+		if _, err := f.admin.ExecContext(ctx, "ALTER ROLE "+f.runtime+" SET search_path = public, pg_temp; ALTER ROLE "+f.runtime+" SET statement_timeout = '5s'; ALTER ROLE "+f.worker+" SET search_path = public"); err != nil {
+			t.Fatal(err)
+		}
+		if err := Migrate(ctx, settings, f.migration(nil)); err != nil {
+			t.Fatalf("the job with other settings gave %v", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP14-LC03-T17 The last schema manifest check of the migration job has its own time limit after a backfill that ends past the time limit of the job", func(t *testing.T) {
+		f, m, settings := boardsJob(t)
+		m.Timeout = 5 * time.Second
+		// Review of PR #305, L1: the step stands for a backfill that ends past the time limit of the job.
+		stepped = func(step string, _ *sql.Conn) {
+			if step == StepBackfill {
+				time.Sleep(6 * time.Second)
+			}
+		}
+		t.Cleanup(func() { stepped = nil })
+		if err := Migrate(ctx, settings, m); err != nil {
+			t.Fatalf("the job whose backfill ended past its time limit gave %v at the stage %q, want it to pass", err, Stage(err))
+		}
+		if !boardsCompleted(t, f) {
+			t.Fatal("the change is not complete")
+		}
+	})
 }

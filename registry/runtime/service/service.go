@@ -218,10 +218,14 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	return svc, nil
 }
 
+// MaxLoggedFaults is the most faults of the schema manifest check that the start of a service logs, each on its own
+// line.
+const MaxLoggedFaults = 50
+
 // checkSchema checks the database against the schema manifest of the service, of the audit record, of the outbox, of
 // the authorization runtime and of the key table (ST-SUP-RP14-LC06): it reads the catalog as the runtime role before
 // New opens anything else. A database that does not satisfy the manifest is an alert and not a refusal (decision on
-// finding F10 of the schema-change research, owner, 2026-11-13): checkSchema logs each fault on a line of its own at
+// finding F10 of the schema-change research, owner, 2026-11-13): checkSchema logs each fault, up to MaxLoggedFaults, on a line of its own at
 // the level error, with its class (manifest.FaultClass), which names only objects of the catalog and no row value,
 // and gives the classes of the faults, each once, so that New emits the probe observation schema.manifest.mismatch
 // for each class and starts; the migration job refuses the same database. Any other failure of the check,
@@ -242,13 +246,20 @@ func checkSchema(ctx context.Context, db *sql.DB, p Parts) ([]string, error) {
 	var mismatch *manifest.Mismatch
 	if errors.As(err, &mismatch) {
 		var classes []string
-		for _, fault := range mismatch.Faults {
+		for i, fault := range mismatch.Faults {
 			class := manifest.FaultClass(fault)
-			slog.ErrorContext(ctx, "service: the database does not satisfy the schema manifest; the service starts, and the migration job refuses it",
-				"class", class, "fault", fault)
+			// At most MaxLoggedFaults lines, and one line with the count of the rest, as a role that can make
+			// catalog objects can make thousands of faults (review of PR #305, L2). Each fault still gives its class.
+			if i < MaxLoggedFaults {
+				slog.ErrorContext(ctx, "service: the database does not satisfy the schema manifest; the service starts, and the migration job refuses it",
+					"class", class, "fault", fault)
+			}
 			if !slices.Contains(classes, class) {
 				classes = append(classes, class)
 			}
+		}
+		if rest := len(mismatch.Faults) - MaxLoggedFaults; rest > 0 {
+			slog.ErrorContext(ctx, "service: the database does not satisfy the schema manifest; more faults are not logged", "faults", rest)
 		}
 		return classes, nil
 	}

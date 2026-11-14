@@ -535,19 +535,40 @@ type Beginner interface {
 }
 
 func Check(ctx context.Context, db Beginner, m Manifest) (err error) {
-	return check(ctx, db, m, true)
+	return check(ctx, db, m, nil)
 }
 
-// CheckCatalog is Check with no check of the session: not of its search path and not of its
-// session_replication_role, which are those of the service's own sessions that Check reads at the start of a pod.
-// The migration job runs it on its own connection, as the owner role with its own fixed search path, at its end
-// (decision on finding F10 of the schema-change research, owner, 2026-11-13).
-func CheckCatalog(ctx context.Context, db Beginner, m Manifest) error {
-	return check(ctx, db, m, false)
+// Job is what the migration job checks with CheckCatalog beyond the catalog of the manifest.
+type Job struct {
+	// RuntimeRole is the role that the service runs as. CheckCatalog checks the search path that a new session of
+	// the role gets as Check checks the path of its session, and refuses each setting of search_path or
+	// session_replication_role of the role or of the database that the role gets (review of PR #305, M2,
+	// orchestrator under the owner's delegation, 2026-11-14). Empty checks no role.
+	RuntimeRole string
+	// BeforeBackfill is set for the check before the backfills: an optional constraint of a table, such as the
+	// completeness CHECK of an open rename of this release, may then be NOT VALID in its exact form when Open names
+	// it. Else, as at the end of the job and at the start of a pod, it must be validated (review of PR #305, M1,
+	// orchestrator under the owner's delegation, 2026-11-14).
+	BeforeBackfill bool
+	// Open are the completeness CHECKs of the schema changes whose backfill the job runs.
+	Open []Open
 }
 
-// check is Check, with the checks of the session when session is set.
-func check(ctx context.Context, db Beginner, m Manifest, session bool) (err error) {
+// Open is the completeness CHECK Check of an open schema change on the table Schema.Table.
+type Open struct {
+	Schema, Table, Check string
+}
+
+// CheckCatalog is Check with no check of the session that it runs in: the migration job runs it on its own
+// connection, as the owner role with its own fixed search path, before its backfills and at its end (decision on
+// finding F10 of the schema-change research, owner, 2026-11-13; review of PR #305, M1). In place of the session, it
+// checks the search path and the settings of the runtime role of job.
+func CheckCatalog(ctx context.Context, db Beginner, m Manifest, job Job) error {
+	return check(ctx, db, m, &job)
+}
+
+// check is Check when job is nil, with the checks of its session, and CheckCatalog for job when it is not.
+func check(ctx context.Context, db Beginner, m Manifest, job *Job) (err error) {
 	if db == nil {
 		return errors.New("manifest: Check needs a database")
 	}
@@ -570,7 +591,14 @@ func check(ctx context.Context, db Beginner, m Manifest, session bool) (err erro
 		return fmt.Errorf("manifest: read the catalog: %w", err)
 	}
 	var faults []string
-	if session {
+	if job != nil && job.RuntimeRole != "" {
+		found, err := checkRoleSettings(ctx, tx, m, job.RuntimeRole)
+		if err != nil {
+			return fmt.Errorf("manifest: read the settings of the role %s: %w", job.RuntimeRole, err)
+		}
+		faults = append(faults, found...)
+	}
+	if job == nil {
 		found, err := checkSearchPath(ctx, tx, m, strings.Split(path, "\x1f"), role)
 		if err != nil {
 			return fmt.Errorf("manifest: read the catalog of the search path: %w", err)
@@ -600,6 +628,12 @@ func check(ctx context.Context, db Beginner, m Manifest, session bool) (err erro
 		}
 	}
 	steps := &stepState{owner: m.Owner, entities: entities, shared: shared, accepted: map[uint32]bool{}}
+	if job != nil && job.BeforeBackfill {
+		steps.open = map[string]bool{}
+		for _, o := range job.Open {
+			steps.open[o.Schema+"."+o.Table+"\x1f"+o.Check] = true
+		}
+	}
 	for _, sc := range m.Schemas {
 		if sc.Steps {
 			steps.schema = sc.Name
@@ -747,6 +781,116 @@ func checkSearchPath(ctx context.Context, tx *sql.Tx, m Manifest, path []string,
 		}
 	}
 	return faults, nil
+}
+
+// roleSettingSources are the sources of a setting that a new session of a role gets from pg_db_role_setting, from
+// the one that wins to the one that loses: the role in this database, the role, the database, and every role.
+// own tells that the setting is the role's own.
+var roleSettingSources = []struct {
+	name, where string
+	own         bool
+}{
+	{"of the role in the database", "s.setrole = r.oid AND s.setdatabase = d.oid", true},
+	{"of the role", "s.setrole = r.oid AND s.setdatabase = 0", true},
+	{"of the database", "s.setrole = 0 AND s.setdatabase = d.oid", false},
+	{"of every role", "s.setrole = 0 AND s.setdatabase = 0", false},
+}
+
+// rolePath is the search path that the role migration of the service sets for each of its login roles
+// (internal/generator/tenancy): public, pg_temp, with pg_catalog first.
+var rolePath = []string{"pg_catalog", "public", "pg_temp"}
+
+// checkRoleSettings gives a fault for each setting of search_path or session_replication_role in pg_db_role_setting
+// that a new session of role in this database gets, but the role's own search_path public, pg_temp that the role
+// migration of the service sets (rolePath), and the faults of checkSearchPath for the search path that such a session
+// gets: the value of the setting that wins, or "$user", public. A session of the role then finds a name with
+// no schema as the start check finds it (review of PR #305, M2, orchestrator under the owner's delegation,
+// 2026-11-14). A role that the catalog does not hold has no setting.
+func checkRoleSettings(ctx context.Context, tx *sql.Tx, m Manifest, role string) ([]string, error) {
+	var faults []string
+	path := `"$user", public`
+	pathSet := false
+	for _, source := range roleSettingSources {
+		rows, err := tx.QueryContext(ctx, `SELECT c FROM pg_catalog.pg_db_role_setting s, pg_catalog.pg_roles r, pg_catalog.pg_database d,
+  pg_catalog.unnest(s.setconfig) AS c WHERE r.rolname = $1 AND d.datname = pg_catalog.current_database() AND `+source.where+` ORDER BY 1`, role)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var setting string
+			if err := rows.Scan(&setting); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			name, value, _ := strings.Cut(setting, "=")
+			switch strings.ToLower(name) {
+			case "search_path":
+				if !source.own || !slices.Equal(searchPath(value, role), rolePath) {
+					faults = append(faults, "the role "+role+" gets search_path from a setting "+source.name+", which the manifest does not allow")
+				}
+				if !pathSet {
+					path, pathSet = value, true
+				}
+			case "session_replication_role":
+				faults = append(faults, "the role "+role+" gets session_replication_role from a setting "+source.name+", which skips the triggers")
+			}
+		}
+		if err := closed(rows); err != nil {
+			return nil, err
+		}
+	}
+	found, err := checkSearchPath(ctx, tx, m, searchPath(path, role), role)
+	if err != nil {
+		return nil, err
+	}
+	return append(faults, found...), nil
+}
+
+// searchPath gives the schemas of the search path setting value of a session of role, as current_schemas(true)
+// gives them: pg_catalog first unless the path names it, then each schema in turn, "$user" as role, a quoted name as
+// it is and a name with no quotes in lower case.
+func searchPath(value, role string) []string {
+	var names []string
+	var b strings.Builder
+	quoted, inQuotes := false, false
+	end := func() {
+		n := b.String()
+		if !quoted {
+			n = strings.ToLower(strings.TrimSpace(n))
+		}
+		if n == "$user" {
+			n = role
+		}
+		if n != "" {
+			names = append(names, n)
+		}
+		b.Reset()
+		quoted = false
+	}
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		switch {
+		case inQuotes && c == '"' && i+1 < len(value) && value[i+1] == '"':
+			b.WriteByte('"')
+			i++
+		case inQuotes && c == '"':
+			inQuotes = false
+		case inQuotes:
+			b.WriteByte(c)
+		case c == ',':
+			end()
+		case c == '"':
+			b.Reset()
+			inQuotes, quoted = true, true
+		case !quoted:
+			b.WriteByte(c)
+		}
+	}
+	end()
+	if !slices.Contains(names, "pg_catalog") {
+		names = append([]string{"pg_catalog"}, names...)
+	}
+	return names
 }
 
 // checkNames gives a fault for each function that has the schema and the name of a function of the manifest and that
@@ -1576,7 +1720,7 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 		case !ok:
 		case got.kind != want.Kind || strings.TrimSuffix(got.definition, " NOT VALID") != want.Definition:
 			fault("constraint %s is not the constraint of the manifest", want.Name)
-		case !got.validated:
+		case !got.validated && !steps.openCheck(t, want.Name):
 			fault("constraint %s is not validated", want.Name)
 		}
 	}

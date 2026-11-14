@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -440,6 +441,80 @@ func TestNew(t *testing.T) {
 			}
 			if _, err := f.admin.Exec("DROP FUNCTION public.claim()"); err != nil {
 				t.Fatal(err)
+			}
+		})
+
+		t.Run("ST-SUP-RP14-LC06-T02 The start check gives the class of a fault of a partition and of a member of a confined role, and logs at most 50 faults", func(t *testing.T) {
+			declared := parts(nil, nil)
+			declared.Schema = manifest.Manifest{Tables: []manifest.Table{{Schema: "public", Name: "orders", RowSecurity: true,
+				Indexes: []manifest.Index{{Name: "orders_pkey", Columns: []string{"tenant_id", "id"}}},
+				Columns: []manifest.Column{{Name: "tenant_id", Type: "text", NotNull: true}, {Name: "status", Type: "text", NotNull: true},
+					{Name: "version", Type: "bigint", Default: "1"}, {Name: "authz_token", Type: "text", Default: "''::text"}},
+				Policies: []manifest.Policy{{Name: "orders_tenant", Command: "*", Using: "(tenant_id = current_setting('app.tenant'::text, true))",
+					WithCheck: "(tenant_id = current_setting('app.tenant'::text, true))"}}}}}
+			rt, err := sql.Open("pgx", f.runtimeURL())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rt.Close()
+			var partition string
+			if err := f.admin.QueryRow("SELECT inhrelid::regclass::text FROM pg_inherits WHERE inhparent = 'public.audit_event'::regclass ORDER BY 1 LIMIT 1").Scan(&partition); err != nil {
+				t.Fatal(err)
+			}
+			// classes makes the change, runs the start check with the log captured, and gives the classes and the error
+			// lines of the log.
+			classes := func(change, restore string) ([]string, []map[string]any) {
+				t.Helper()
+				if _, err := f.admin.Exec(change); err != nil {
+					t.Fatal(err)
+				}
+				defer func() {
+					if _, err := f.admin.Exec(restore); err != nil {
+						t.Fatal(err)
+					}
+				}()
+				var got []string
+				logs, _ := startCaptured(t, func() {
+					if got, err = checkSchema(context.Background(), rt, declared); err != nil {
+						t.Fatalf("the check after %q gave %v, want an alert", change, err)
+					}
+				})
+				var lines []map[string]any
+				for _, line := range strings.Split(logs, "\n") {
+					var record map[string]any
+					if json.Unmarshal([]byte(line), &record) == nil && record["level"] == "ERROR" {
+						lines = append(lines, record)
+					}
+				}
+				return got, lines
+			}
+			// Review of PR #305, M3: each of these faults had the class other, which an operator does not page on.
+			for _, c := range []struct{ what, change, restore, class string }{
+				{"a trigger on an audit partition",
+					"CREATE FUNCTION public.lc06t02() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END$$; ALTER FUNCTION public.lc06t02() OWNER TO " + f.owner +
+						"; CREATE TRIGGER lc06t02 BEFORE INSERT ON " + partition + " FOR EACH ROW EXECUTE FUNCTION public.lc06t02()",
+					"DROP TRIGGER lc06t02 ON " + partition + "; DROP FUNCTION public.lc06t02()", "trigger"},
+				{"a grant on an audit partition", "GRANT UPDATE ON " + partition + " TO " + f.runtime, "REVOKE UPDATE ON " + partition + " FROM " + f.runtime, "grant"},
+				{"a rule on an audit partition", "CREATE RULE lc06t02 AS ON UPDATE TO " + partition + " DO INSTEAD NOTHING", "DROP RULE lc06t02 ON " + partition, "rule"},
+				{"the runtime role a member of the outbox relay role", "GRANT " + f.outboxRelay + " TO " + f.runtime, "REVOKE " + f.outboxRelay + " FROM " + f.runtime, "owner"},
+			} {
+				got, lines := classes(c.change, c.restore)
+				if !slices.Equal(got, []string{c.class}) || len(lines) != 1 || lines[0]["class"] != c.class {
+					t.Errorf("%s: the classes %v and the log %v, want the class %s once", c.what, got, lines, c.class)
+				}
+			}
+			// Review of PR #305, L2: 2000 extra policies gave 2000 log lines at each start.
+			var flood, unflood strings.Builder
+			for i := range MaxLoggedFaults + 10 {
+				fmt.Fprintf(&flood, "CREATE POLICY lc06t02_%03d ON public.orders AS RESTRICTIVE USING (true);", i)
+				fmt.Fprintf(&unflood, "DROP POLICY lc06t02_%03d ON public.orders;", i)
+			}
+			got, lines := classes(flood.String(), unflood.String())
+			if !slices.Equal(got, []string{"policy"}) || len(lines) != MaxLoggedFaults+1 {
+				t.Fatalf("%d faults gave the classes %v and %d error lines, want the class policy and %d lines", MaxLoggedFaults+10, got, len(lines), MaxLoggedFaults+1)
+			}
+			if last := lines[MaxLoggedFaults]; fmt.Sprint(last["faults"]) != "10" || last["fault"] != nil {
+				t.Fatalf("the last line is %v, want the count of the 10 faults that are not logged", last)
 			}
 		})
 	})
