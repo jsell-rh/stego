@@ -34,14 +34,14 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261114080012-1b014d2a5177
+        module_version: v0.0.0-20261114081706-8709de56a608
         vcs: git
-        revision: 1b014d2a51771ab0e8e9e6f2cecd7cd09f9db1c5
+        revision: 8709de56a60862df5d9044a8b59431ef64f441e5
         source_state: clean
     service_name: user-management
     service_hash: bf9ae6f59e42415acf7e472f491e4544a532f496a834c92a946f82bc5aa4d40b
     registry_sha: env-override
-    registry_content_sha256: bca3b32f5bd7ccce78cb421ecedee82d0b9c9e65b43348195368d644cd98fa39
+    registry_content_sha256: e81f852e84bbab17c78cbc4fb51daee2f1bca9d8f075b826a5be27082590ce13
     components:
         audit-log:
             version: 1.1.0
@@ -74,8 +74,8 @@ last_applied:
             version: 1.1.0
             sha: 9b4a5a4b5afcbc9d23c6d02d78b3a227ff445b857bef9e73c547af184d7226e0
         rest-api:
-            version: 4.4.0
-            sha: 46a495453bbf57bd05b6f33722c6198fa63ba590af980bb38423c3b69b395d99
+            version: 4.4.1
+            sha: 1a6cc02845448eb1472881740c03698df4e70ac0e758cf27046cd47164a2adf4
         spicedb-authz:
             version: 1.1.2
             sha: 7c4fe9dbf3d5ae5e27ae6f857e342230a4dd82af6f2b63058da06873f7c3abbd
@@ -145,7 +145,7 @@ last_applied:
         internal/api/data/views.go: f48599447266a8acddd00423efdfbda2f3d3ad19b853d6eb08d4c4dc225d3f16
         internal/api/discovery.go: f5dc2a3505da0dc3b98bab336e01b9c22ae67d0a04911d5e964d71b58eeb4edc
         internal/api/errors.go: 8746d7f2437f9d6409c35b3ce25a67f3b71f5888ad3cdfe721b55663674f2ec7
-        internal/api/openapi.json: 1eede7641a5574bb33e11f0f1c6396b65da6127bbd787450cc2bc770e58b7fcb
+        internal/api/openapi.json: 8b7fca8bd9817f4edc6fb039efce9ef59b050dd09244b3426f15c00bd3545598
         internal/api/org_activity_handler.go: 235b62ab3287a0b2b73ab0070744fb68cd55f18c231fac3c259ad61f448af558
         internal/api/org_settings_handler.go: caba01dc06ac42966e087a01c5a09d758cf389d31527b88a3bed137b4e20a08a
         internal/api/org_users_handler.go: 9b035cb24469559e1bb467602ca366781bb9ca5c8979ad589552f46d388fb6d8
