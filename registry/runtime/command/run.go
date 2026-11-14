@@ -22,6 +22,7 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/otel"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/probe"
@@ -95,12 +96,19 @@ type Config struct {
 	Logger otellog.LoggerProvider
 	// Service, ServiceVersion and DeclarationVersion name the service in its audit rows.
 	Service, ServiceVersion, DeclarationVersion string
+	// SchemaSteps are the IDs of the schema changes of this release whose last step is expand and that have a sync
+	// trigger: each transaction that writes sets the writer marker stego.schema_step to them with SET LOCAL, so the
+	// sync trigger of each copies the new column into the old one (ST-SUP-RC01-OC23, decision on finding F3,
+	// orchestrator under the owner's delegation, 2026-11-13).
+	SchemaSteps []string
 }
 
 // Runtime is the command runtime of one service.
 type Runtime struct {
 	cfg    Config
 	logger otellog.Logger
+	// schemaStep is the value of the writer marker, or empty for a release with no open sync trigger.
+	schemaStep string
 	// slots is set only by New: a Runtime that New did not make, such as new(Runtime), gives a slot key that
 	// FromRequest refuses (ST-SUP-RP10-LC32).
 	slots           *slotSeal
@@ -146,6 +154,11 @@ func New(ctx context.Context, cfg Config) (*Runtime, error) {
 		cfg.AuditSettings.Level = audit.LevelChange
 	}
 	rt := &Runtime{cfg: cfg, slots: &slotSeal{entities: map[Declared]bool{}}}
+	step, err := manifest.SchemaStepValue(cfg.SchemaSteps)
+	if err != nil {
+		return nil, fmt.Errorf("command: %w", err)
+	}
+	rt.schemaStep = step
 	for _, e := range cfg.Entities {
 		if e == nil {
 			return nil, errors.New("command: the runtime declares a nil entity")
@@ -453,6 +466,13 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 
 	tx, err := tenant.Begin(ctx, rt.cfg.DB, req.Tenant, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
+		if isConflict(ctx, err) {
+			return Result{}, &conflictError{text: "the transaction did not begin before the deadline"}, true
+		}
+		return Result{}, internalf("the transaction did not begin"), false
+	}
+	if err := rt.markStep(ctx, tx); err != nil {
+		_ = tx.Rollback()
 		if isConflict(ctx, err) {
 			return Result{}, &conflictError{text: "the transaction did not begin before the deadline"}, true
 		}
@@ -773,3 +793,16 @@ func (r errRow) Scan(...any) error { return r.err }
 
 // statusOK is the status of a consumed message's stored response.
 const statusOK = http.StatusOK
+
+// markStepStatement sets the writer marker of the transaction only, with the function named with its schema.
+const markStepStatement = "SELECT pg_catalog.set_config('" + manifest.SchemaStepSetting + "', $1, true)"
+
+// markStep sets the writer marker stego.schema_step in the transaction tx, before its first write, when the release
+// has an open change with a sync trigger (ST-SUP-RC01-OC23).
+func (rt *Runtime) markStep(ctx context.Context, tx *sql.Tx) error {
+	if rt.schemaStep == "" {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, markStepStatement, rt.schemaStep)
+	return err
+}

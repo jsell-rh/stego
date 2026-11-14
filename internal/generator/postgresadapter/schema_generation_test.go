@@ -182,7 +182,7 @@ go 1.26.11
 require (
  github.com/google/uuid v1.6.0
  github.com/jackc/pgx/v5 v5.11.0
- github.com/jsell-rh/stego/registry/runtime v0.91.0
+ github.com/jsell-rh/stego/registry/runtime v0.93.0
 )
 
 replace github.com/jsell-rh/stego/registry/runtime => ` + runtimeDir + "\n"
@@ -242,4 +242,39 @@ func TestFunctionMigrationDigestCoversBody(t *testing.T) {
 	if !strings.Contains(migrate, `RegisterSQL("001_initial", InitialTables)`) || strings.Contains(migrate, "Digest(name)") || strings.Contains(migrate, "Digest(row.Name)") {
 		t.Fatal("the initial migration is not sealed by its body", migrate)
 	}
+}
+
+// runtimeText gives the text between the first backquotes after head in the Go file of the runtime library at path.
+func runtimeText(t *testing.T, path, head string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "registry", "runtime", path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rest, ok := strings.Cut(string(data), head)
+	if !ok {
+		t.Fatalf("%s holds no %q", path, head)
+	}
+	text, _, ok := strings.Cut(rest, "`")
+	if !ok {
+		t.Fatalf("%s: the text after %q has no end", path, head)
+	}
+	return text
+}
+
+// TestSyncTemplateCopy proves that the copies that the generator writes into the migration of a rename are the
+// runtime library's texts byte for byte: version 1 of the sync template, which the release before accepts only by
+// its text (ST-SUP-RP15-LC02), and the table and the functions of the backfill checkpoints (ST-SUP-RC01-OC25).
+func TestSyncTemplateCopy(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC23-T03 The generator's copy of sync template version 1 and of the backfill table and functions is the runtime library's text", func(t *testing.T) {
+		for _, c := range []struct{ name, path, head, copy string }{
+			{"sync template version 1", "manifest/sync.go", "var syncTemplates = map[int]string{1: `", syncTemplate},
+			{"backfill table", "lease/backfill.go", "const BackfillsTable = `", backfillsTable},
+			{"backfill functions", "lease/backfill.go", "const BackfillFunctions = `", backfillFunctions},
+		} {
+			if got := runtimeText(t, c.path, c.head); got != c.copy {
+				t.Errorf("the generator's copy of the %s differs from registry/runtime/%s", c.name, c.path)
+			}
+		}
+	})
 }

@@ -2022,6 +2022,17 @@ func (w *runtimeHandlerWriter) list() {
 		own++
 	}
 	w.f("\twhere, err := query.ParseSearch(r.URL.Query().Get(\"search\"), %sSearchFields, query.MaxFilter-%d)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the search is not valid\"))\n\t\treturn\n\t}\n", c.camel, own)
+	// A renamed field is named in the API by its first name and stored in the column of its declared name
+	// (ST-GEN-UC12-R04): the order and the search name it by the API name, and the query runtime reads columns.
+	var renamed []string
+	for _, f := range e.Fields {
+		if f.Column != "" {
+			renamed = append(renamed, fmt.Sprintf("%q: %q", f.Name, f.Column))
+		}
+	}
+	if len(renamed) > 0 {
+		w.f("\tcolumns := map[string]string{%s}\n\tfor i := range order {\n\t\tif column, ok := columns[order[i].Field]; ok {\n\t\t\torder[i].Field = column\n\t\t}\n\t}\n\tfor i := range where {\n\t\tif column, ok := columns[where[i].Field]; ok {\n\t\t\twhere[i].Field = column\n\t\t}\n\t}\n", strings.Join(renamed, ", "))
+	}
 	if c.scope != "" {
 		w.f("\twhere = append(where, query.Equal{Field: %q, Value: scope})\n", c.scope)
 	}

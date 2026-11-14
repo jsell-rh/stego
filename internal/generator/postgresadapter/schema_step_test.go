@@ -90,6 +90,30 @@ func boardBase(ns, tenancyNS string) gen.Context {
 	return runtimeService(ns, tenancyNS, boardEntities(), boardCollections(false))
 }
 
+// boardRenameBase is the release before a rename: the owned entity Board with the field title of 1 to 40
+// characters, which the list of boards searches, and the optional field note.
+func boardRenameBase(ns, tenancyNS string) gen.Context {
+	n, one := 40, 1
+	entities := []types.Entity{{Name: "Board", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString, MinLength: &one, MaxLength: &n},
+		{Name: "note", Type: types.FieldTypeString, Optional: true}}}}
+	return runtimeService(ns, tenancyNS, entities, boardCollections(false))
+}
+
+// boardRename is boardRenameBase with the rename board-title-rename of Board.title to heading at expand, with the
+// entities as the compiler gives them (gen.StoredNames): the field keeps its API name title, in the column heading.
+func boardRename(ns, tenancyNS string) gen.Context {
+	ctx := boardRenameBase(ns, tenancyNS)
+	ctx.Entities[0].Fields[0].Name = "heading"
+	ctx.SchemaChanges = []types.SchemaChange{{ID: "board-title-rename", Kind: "rename", Entity: "Board", Field: "heading", From: "title"}}
+	ctx.SchemaHistory = []types.SchemaStep{{Change: "board-title-rename", Phase: "expand"}}
+	entities, err := gen.StoredNames(ctx.Entities, nil, ctx.Collections, ctx.SchemaChanges)
+	if err != nil {
+		panic(err)
+	}
+	ctx.Entities = entities
+	return ctx
+}
+
 // tenancyFiles generates the tenancy component of the service ctx into its tenancy namespace.
 func tenancyFiles(t *testing.T, ctx gen.Context) []gen.File {
 	t.Helper()
@@ -192,12 +216,12 @@ func TestSchemaSteps(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RC01-OC22-T02 Generation refuses a step that is not the expand step of an add, or an add that the rows cannot take", func(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC22-T02 Generation refuses a step that is not the expand step of an add or a rename, or an add that the rows cannot take", func(t *testing.T) {
 		refused := map[string]func(*gen.Context){
-			"rename": func(ctx *gen.Context) {
-				ctx.Entities[0].Fields[0].Name = "heading"
-				ctx.SchemaChanges = append(ctx.SchemaChanges, types.SchemaChange{ID: "board-title-rename", Kind: "rename", Entity: "Board", Field: "heading", From: "title"})
-				ctx.SchemaHistory = append(ctx.SchemaHistory, types.SchemaStep{Change: "board-title-rename", Phase: "expand"})
+			"retype": func(ctx *gen.Context) {
+				ctx.Entities[0].Fields[2].Type = types.FieldTypeInt64
+				ctx.SchemaChanges = append(ctx.SchemaChanges, types.SchemaChange{ID: "board-rank-retype", Kind: "retype", Entity: "Board", Field: "rank", From: "int32", Conversion: "int32_to_int64", InverseConversion: "int64_to_int32"})
+				ctx.SchemaHistory = append(ctx.SchemaHistory, types.SchemaStep{Change: "board-rank-retype", Phase: "expand"})
 			},
 			"is not built": func(ctx *gen.Context) {
 				ctx.SchemaHistory = append(ctx.SchemaHistory, types.SchemaStep{Change: "add-card", Phase: "contract"})

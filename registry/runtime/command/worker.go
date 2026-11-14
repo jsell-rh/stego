@@ -129,6 +129,10 @@ func RunWorker[P any](ctx context.Context, rt *Runtime, w *Worker[P], due time.T
 	if err != nil {
 		return workerBegin(ctx, notAfter, err)
 	}
+	if err := rt.markStep(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		return workerBegin(ctx, notAfter, err)
+	}
 	committed := false
 	defer func() {
 		if !committed {
@@ -236,6 +240,9 @@ func RunConsumer[M, P any](ctx context.Context, rt *Runtime, w *Worker[P], tx *s
 	ctx, finish := rt.span(ctx, ConsumerSpanName)
 	outcome := otel.OutcomeRolledBack
 	defer func() { finish(outcome, false, err != nil && !outbox.IsConflict(err)) }()
+	if err := rt.markStep(ctx, tx); err != nil {
+		return outbox.Conflict(fmt.Errorf("command: %s: set the writer marker: %w", w.spec.Name, err))
+	}
 
 	stagingPrincipal, err := authz.StagingPrincipal(staging.NewStaging(), d.Principal)
 	if err != nil {

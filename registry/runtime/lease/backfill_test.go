@@ -34,6 +34,9 @@ type observations struct {
 	changes   []string
 	onRows    func(batch int)
 	batches   int
+	throttled []string
+	// onThrottle runs after each throttle with its count.
+	onThrottle func(n int)
 }
 
 func (o *observations) BackfillRows(change string, rows int64) {
@@ -74,6 +77,23 @@ func (o *observations) BackfillStalled(change string) {
 	defer o.mu.Unlock()
 	o.stalled = append(o.stalled, time.Now())
 	o.changes = append(o.changes, change)
+}
+
+func (o *observations) BackfillThrottled(change, reason string) {
+	o.mu.Lock()
+	o.throttled = append(o.throttled, reason)
+	o.changes = append(o.changes, change)
+	n, on := len(o.throttled), o.onThrottle
+	o.mu.Unlock()
+	if on != nil {
+		on(n)
+	}
+}
+
+func (o *observations) throttledReasons() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]string(nil), o.throttled...)
 }
 
 func (o *observations) stalls() []time.Time {
@@ -619,7 +639,7 @@ func checkpointInTransaction(t *testing.T, statements []statement) {
 			if tx := open[s.conn]; tx != nil {
 				tx.moved = true
 			}
-		case strings.HasPrefix(text, "update stego_schema.backfills"):
+		case strings.HasPrefix(text, "select stego_schema.backfill_checkpoint("):
 			if tx := open[s.conn]; tx != nil {
 				tx.checkpoint = true
 			}
@@ -850,3 +870,119 @@ func probe(t *testing.T, url string) int {
 type readyQueue struct{}
 
 func (readyQueue) QueueReady() bool { return true }
+
+func TestBackfillThrottle(t *testing.T) {
+	const id = "ST-SUP-RP09-LC09-T04 A backfill pauses between batches, halves a slow batch, waits for a lagging replica and bounds each statement"
+	t.Run(id+": pause", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 30)
+		var mu sync.Mutex
+		var commits []time.Time
+		b := newBackfill(t, it, BackfillSettings{BatchSize: 10, Pause: 300 * time.Millisecond, Observer: &observations{onRows: func(int) {
+			mu.Lock()
+			commits = append(commits, time.Now())
+			mu.Unlock()
+		}}})
+		if err := b.Run(context.Background(), d.db, heldLease(t, d, "h1", Settings{})); err != nil {
+			t.Fatal(err)
+		}
+		if len(commits) != 3 {
+			t.Fatalf("%d batches committed, want 3", len(commits))
+		}
+		for i := 1; i < len(commits); i++ {
+			if gap := commits[i].Sub(commits[i-1]); gap < 300*time.Millisecond {
+				t.Fatalf("batch %d committed %s after the one before, less than the pause", i+1, gap)
+			}
+		}
+	})
+	t.Run(id+": target batch time", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 40)
+		var limits []int
+		slow := func(ctx context.Context, tx *sql.Tx, key *Key, limit int) (Batch, error) {
+			limits = append(limits, limit)
+			if len(limits) <= 2 {
+				if _, err := tx.ExecContext(ctx, "SELECT pg_sleep(0.3)"); err != nil {
+					return Batch{}, err
+				}
+			}
+			return it.step(ctx, tx, key, limit)
+		}
+		observed := &observations{}
+		b, err := NewBackfill(backfillChange, slow, BackfillSettings{Key: KeyInteger, BatchSize: 16, TargetBatchTime: 200 * time.Millisecond, Observer: observed})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := b.Run(context.Background(), d.db, heldLease(t, d, "h1", Settings{})); err != nil {
+			t.Fatal(err)
+		}
+		if len(limits) < 4 || limits[0] != 16 || limits[1] != 8 || limits[2] != 4 || limits[3] != 8 {
+			t.Fatalf("the batch sizes were %v, want 16, 8, 4 and then 8 after a fast batch", limits)
+		}
+		if got := observed.throttledReasons(); len(got) != 2 || got[0] != ThrottleBatchTime {
+			t.Fatalf("schema.backfill.throttled was %v, want batch_time twice", got)
+		}
+	})
+	t.Run(id+": maximum replica lag", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 20)
+		lagging := "SELECT 5000::bigint"
+		saved := replicaLagStatement
+		replicaLagStatement = lagging
+		defer func() { replicaLagStatement = saved }()
+		observed := &observations{}
+		var once sync.Once
+		observed.onThrottle = func(n int) {
+			if n == 3 {
+				once.Do(func() { replicaLagStatement = "SELECT 10::bigint" })
+			}
+		}
+		b := newBackfill(t, it, BackfillSettings{BatchSize: 10, MaxReplicaLag: time.Second, Observer: observed})
+		if err := b.Run(context.Background(), d.db, heldLease(t, d, "h1", Settings{Retry: 50 * time.Millisecond})); err != nil {
+			t.Fatal(err)
+		}
+		calls := it.allCalls()
+		if got := observed.throttledReasons(); len(got) != 3 || got[0] != ThrottleReplicaLag {
+			t.Fatalf("schema.backfill.throttled was %v, want replica_lag three times before the first batch", got)
+		}
+		if len(calls) != 3 || observed.rows != 20 {
+			t.Fatalf("the step ran %d times and moved %d rows, want 3 runs and 20 rows after the lag dropped", len(calls), observed.rows)
+		}
+	})
+	t.Run(id+": statement timeout", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 10)
+		var runs int
+		hang := func(ctx context.Context, tx *sql.Tx, key *Key, limit int) (Batch, error) {
+			runs++
+			if runs == 1 {
+				if _, err := tx.ExecContext(ctx, "SELECT pg_sleep(2)"); err != nil {
+					return Batch{}, err
+				}
+			}
+			return it.step(ctx, tx, key, limit)
+		}
+		var first error
+		check := func(ctx context.Context, tx *sql.Tx, key *Key, limit int) (Batch, error) {
+			b, err := hang(ctx, tx, key, limit)
+			if runs == 1 {
+				first = err
+			}
+			return b, err
+		}
+		b, err := NewBackfill(backfillChange, check, BackfillSettings{Key: KeyInteger, BatchSize: 10, StatementTimeout: 200 * time.Millisecond})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := b.Run(context.Background(), d.db, heldLease(t, d, "h1", Settings{Retry: 50 * time.Millisecond})); err != nil {
+			t.Fatal(err)
+		}
+		var pgErr *pgconn.PgError
+		if !errors.As(first, &pgErr) || pgErr.Code != "57014" {
+			t.Fatalf("the first batch gave %v, want the statement timeout 57014", first)
+		}
+		if r := checkpointRow(t, d); r.moved != 10 || !r.completed.Valid {
+			t.Fatalf("the checkpoint moved %d rows, complete %v; want 10 and complete after the retry", r.moved, r.completed.Valid)
+		}
+	})
+}

@@ -70,6 +70,7 @@ func noteFields(fields string) string {
 const (
 	renamedTitle = "[{name: heading, type: string}]"
 	titleRename  = "schema_changes:\n  - {id: note-title-rename, kind: rename, entity: Note, field: heading, from: title}\nschema_history:\n  - {change: note-title-rename, phase: expand}\n"
+	titleRetype  = "schema_changes:\n  - {id: note-title-retype, kind: retype, entity: Note, field: title, from: string, conversion: text_to_int64, inverse_conversion: int64_to_text}\nschema_history:\n  - {change: note-title-retype, phase: expand}\n"
 )
 
 func TestCompat(t *testing.T) {
