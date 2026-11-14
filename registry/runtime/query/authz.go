@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
@@ -554,14 +553,40 @@ func (r *Repository[T]) permission() string {
 // keys reads its rows; the list closes it before it returns.
 const searchedCursorPrefix = "stego_searched_list_"
 
-// searchedCursors numbers the cursors of the process, so each list call declares a cursor of its own name, and two
-// lists on one transaction, such as one that a decision of another starts, never share one (finding C1 of the
-// security review of #261). The name holds only the prefix and a number, never a value of the request.
-var searchedCursors atomic.Uint64
+// searchedCursors numbers the open cursors of each transaction. A list takes the lowest number that no open list of
+// its transaction holds, so two lists on one transaction, such as one that a decision of another starts, never share
+// a name (finding C1 of the security review of #261), and the names repeat from call to call: stego_searched_list_1,
+// and _2 only while a second list is open. Statement text that repeats keeps pg_stat_statements and the statement
+// cache of the driver small (finding L1 of the review of #277). The name holds only the prefix and a number, never a
+// value of the request.
+var searchedCursors = struct {
+	sync.Mutex
+	open map[*sql.Tx]map[int]bool
+}{open: map[*sql.Tx]map[int]bool{}}
 
-// searchedCursor gives the name of the cursor of one list call.
-func searchedCursor() string {
-	return searchedCursorPrefix + strconv.FormatUint(searchedCursors.Add(1), 10)
+// takeCursor gives the name of a cursor for one list call on tx and the function that frees its number, which the
+// call runs when it closes the cursor, also on a panic.
+func takeCursor(tx *sql.Tx) (string, func()) {
+	searchedCursors.Lock()
+	defer searchedCursors.Unlock()
+	held := searchedCursors.open[tx]
+	if held == nil {
+		held = map[int]bool{}
+		searchedCursors.open[tx] = held
+	}
+	n := 1
+	for held[n] {
+		n++
+	}
+	held[n] = true
+	return searchedCursorPrefix + strconv.Itoa(n), func() {
+		searchedCursors.Lock()
+		defer searchedCursors.Unlock()
+		delete(held, n)
+		if len(held) == 0 {
+			delete(searchedCursors.open, tx)
+		}
+	}
 }
 
 // tablePage pages the table by its key, or in order and then by its key, and keeps the allowed rows of each page,
@@ -614,11 +639,12 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 	// The cursor's plan follows the server's work_mem: with a very low work_mem the planner reads the whole table,
 	// which tells the size of the table but not which rows are hidden (C3 of the review of #261). The runtime keeps
 	// the server default and sets no work_mem of its own.
-	cursorOpen, cursor := false, ""
+	cursorOpen, cursor, free := false, "", func() {}
 	defer func() {
 		if cursorOpen {
 			_, _ = c.tx.ExecContext(context.WithoutCancel(ctx), "CLOSE "+cursor)
 		}
+		free()
 	}()
 	for {
 		size := min(chunk, ScanLimit-scanned)
@@ -632,7 +658,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 					return ListResult[T]{}, err
 				}
 				statement, args := e.orderedStatement(order, started, at, key, 0, where, keys)
-				cursor = searchedCursor()
+				cursor, free = takeCursor(c.tx)
 				if _, err := c.tx.ExecContext(ctx, "DECLARE "+cursor+" NO SCROLL CURSOR FOR "+statement,
 					append([]any{c.tenant.ID()}, args...)...); err != nil {
 					return ListResult[T]{}, fmt.Errorf("query: list %s: %w", e.spec.Name, err)
