@@ -15,6 +15,7 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/audit/auditsink"
 	"github.com/jsell-rh/stego/registry/runtime/idempotency"
 	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/otel"
 	"github.com/jsell-rh/stego/registry/runtime/probe"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
@@ -41,7 +42,9 @@ const (
 	StepRuntimeGrants       = "runtime_grants"
 	StepAuditPartitions     = "audit_partitions"
 	StepSchemaAgain         = "authorization_schema_again"
+	StepManifestBefore      = "manifest_before_backfill"
 	StepBackfill            = "backfill"
+	StepManifest            = "manifest"
 )
 
 // BackfillTimeout is the longest time that the backfill step of the migration job runs when Migration gives none.
@@ -73,6 +76,11 @@ type Migration struct {
 	// WriteSchema writes the authorization schema of the release to SpiceDB, which refuses a schema that removes a
 	// definition or a relation that has relationships (ST-SUP-RC29-OC23).
 	WriteSchema func(ctx context.Context, conn grpc.ClientConnInterface) error
+	// Parts are the declared parts of the service, which service.New takes: the job checks the database against the
+	// same joined schema manifest at its end (StepManifest), and refuses a database that does not satisfy it, as the
+	// start of a pod only alerts (decision on finding F10 of the schema-change research, owner, 2026-11-13, and the
+	// orchestrator under the owner's delegation, 2026-11-14).
+	Parts *Parts
 	// Grants are the GRANT statements of the runtime role, each without its grantee.
 	Grants []string
 	// TenantSchema is the schema of the tenant list stego_tenants, which the tables step makes with the migration
@@ -95,12 +103,13 @@ type Migration struct {
 	Service string
 }
 
-// Backfill is the backfill of one schema change at expand: its change ID, the generated step of one batch, and its
-// settings (ST-GEN-UC13).
+// Backfill is the backfill of one schema change at expand: its change ID, the generated step of one batch, its
+// settings (ST-GEN-UC13), and the table in public whose completeness CHECK, Settings.Check, the backfill validates.
 type Backfill struct {
 	Change   string
 	Step     lease.Step
 	Settings lease.BackfillSettings
+	Table    string
 }
 
 // StepError is the failure of one step of the migration job: it names the step, and its text holds no value of a
@@ -155,16 +164,17 @@ const (
 // for a schema that removes what has relationships, so a refused schema leaves the database as it was; the ledger of
 // the adapter and then the tenant list of the tenant runtime (tenant.Migration) in TenantSchema; the outbox, audit, idempotency and authorization migrations, each in one transaction, the audit step
 // with the lease table and the row of the controller lease (ControllerLease); the grants of
-// the runtime role; the audit partitions of this month and the next; and WriteSchema again, so the release ends on
-// its own schema. It stops at the first step that fails, with a StepError that names the step. After the owner role
+// the runtime role; the audit partitions of this month and the next; WriteSchema again, so the release ends on
+// its own schema; the schema manifest check before the backfills (StepManifestBefore); the backfills; and the schema
+// manifest check again (StepManifest). It stops at the first step that fails, with a StepError that names the step. After the owner role
 // it takes the job lock, which it holds until the backfill, so a second job of the database waits for it (StepJobLock); and
 // it runs the tenant list and each migration text under a lock timeout of 1 s, and again after a pause when a lock
 // wait ends at that timeout, at most 10 times, so no read or write of the running release queues long behind it. Each step runs again
 // on a database that it made, so the job runs on every release.
 func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	if m.OwnerRole == "" || m.RuntimeRole == "" || m.WorkerRole == "" || m.PurgeRole == "" || m.OutboxRelayRole == "" || m.TenantConfig == nil || m.LedgerCheck == nil || m.Ledger == nil ||
-		m.WriteSchema == nil || m.Outbox == "" || m.Audit == "" || m.Authorization == "" {
-		return failed(StepSettings, errors.New("the migration job needs its roles, the adapter, the ledger, the migration texts and the schema writer"))
+		m.WriteSchema == nil || m.Outbox == "" || m.Audit == "" || m.Authorization == "" || m.Parts == nil {
+		return failed(StepSettings, errors.New("the migration job needs its roles, the adapter, the ledger, the migration texts, the schema writer and the declared parts"))
 	}
 	keys, err := idempotency.Migration(m.PurgeRole, m.RuntimeRole)
 	if err != nil {
@@ -279,10 +289,46 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	if err := step(StepSchemaAgain, func() error { return m.WriteSchema(ctx, spice) }); err != nil {
 		return err
 	}
+	// Before the backfills, which write the rows of the entity tables as the owner role, the job refuses a database
+	// that does not satisfy the joined schema manifest of the service, so no trigger, rule or constraint that the
+	// manifest does not name runs as the owner role in them; only the completeness CHECK of an open change may still
+	// be NOT VALID, in its exact form (review of PR #305, M1, orchestrator under the owner's delegation, 2026-11-14).
+	if err := step(StepManifestBefore, func() error { return checkManifest(ctx, conn, m, true) }); err != nil {
+		return err
+	}
 	// The backfill runs after the job lock is released: two jobs of the database share it under the lease of each
 	// change, so one moves rows and the other waits for the lease (ST-GEN-UC13-R01).
 	unlock()
-	return step(StepBackfill, func() error { return runBackfills(parent, db, m) })
+	if err := step(StepBackfill, func() error { return runBackfills(parent, db, m) }); err != nil {
+		return err
+	}
+	// Last, after the texts, which make again the objects that they own, and after the backfills, which validate the
+	// completeness CHECK of each open change, the job checks again, as the rollout would find the database (F10). The
+	// step has its own time limit, manifest.Timeout, from parent, as a backfill may end near the time limit of the
+	// job (review of PR #305, L1).
+	return step(StepManifest, func() error {
+		ctx, cancel := context.WithTimeout(parent, manifest.Timeout)
+		defer cancel()
+		return checkManifest(ctx, conn, m, false)
+	})
+}
+
+// checkManifest checks the catalog of the database on the job's one connection (manifest.CheckCatalog), as the
+// owner role with the search path public, pg_temp, against the schema manifest that service.New checks
+// (joinedManifest) for the runtime role of m, with the search path and the settings that a new session of the
+// runtime role gets (review of PR #305, M2). Before the backfills (before), the completeness CHECK of each backfill
+// of m alone may be NOT VALID. A mismatch is a *manifest.Mismatch, which names each fault; the failure record
+// names the step only.
+func checkManifest(ctx context.Context, conn *sql.Conn, m Migration, before bool) error {
+	want, err := joinedManifest(*m.Parts, m.RuntimeRole)
+	if err != nil {
+		return err
+	}
+	job := manifest.Job{RuntimeRole: m.RuntimeRole, BeforeBackfill: before}
+	for _, b := range m.Backfills {
+		job.Open = append(job.Open, manifest.Open{Schema: "public", Table: b.Table, Check: b.Settings.Check})
+	}
+	return manifest.CheckCatalog(ctx, conn, want, job)
 }
 
 // BackfillLeaseName gives the lease of the backfill of a schema change: stego.backfill.<change ID>
@@ -292,8 +338,9 @@ func BackfillLeaseName(change string) string { return "stego.backfill." + change
 // runBackfills runs the backfill of each schema change of m in turn, as the owner role, the backfill role of the
 // sync trigger (ST-SUP-RC01-OC32; decision on finding F4, orchestrator under the owner's delegation, 2026-11-13),
 // each under its own lease, so that of two jobs that run at the same time one moves rows and the other waits
-// (ST-GEN-UC13-R01). A job whose batch was fenced or whose lease was lost waits for the lease again, and finds the
-// change complete or resumes it from the checkpoint (ST-GEN-UC13-R04). The step ends when every change is complete,
+// (ST-GEN-UC13-R01). A job whose batch was fenced, whose lease was lost or whose batch session broke (lease.ErrSession,
+// such as an administrator shutdown of the backend; review of PR #305, L3) waits for the lease again with new
+// sessions, and finds the change complete or resumes it from the checkpoint (ST-GEN-UC13-R04). The step ends when every change is complete,
 // or at BackfillTimeout with an error, and the next run of the job resumes.
 func runBackfills(parent context.Context, db *sql.DB, m Migration) error {
 	if len(m.Backfills) == 0 {
@@ -386,7 +433,7 @@ func runBackfills(parent context.Context, db *sql.DB, m Migration) error {
 			if err == nil {
 				break
 			}
-			if !errors.Is(err, lease.ErrFenced) && !errors.Is(err, lease.ErrLost) && !errors.Is(err, lease.ErrStopped) {
+			if !errors.Is(err, lease.ErrFenced) && !errors.Is(err, lease.ErrLost) && !errors.Is(err, lease.ErrStopped) && !errors.Is(err, lease.ErrSession) {
 				return fmt.Errorf("backfill %s: %w", b.Change, err)
 			}
 			if ctx.Err() != nil {
@@ -583,7 +630,7 @@ func CopyBackfills(copies []lease.Copy, tenantSchema string) ([]Backfill, error)
 		}
 		key, parts := c.Settings()
 		out = append(out, Backfill{Change: c.Change, Step: step, Settings: lease.BackfillSettings{Key: key, KeyParts: parts, Pause: BackfillPause,
-			Validate: c.Validate(), Check: c.Check}})
+			Validate: c.Validate(), Check: c.Check}, Table: c.Table})
 	}
 	return out, nil
 }
