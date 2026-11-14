@@ -147,6 +147,14 @@ func (h *OrgSettingsHandler) List(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := h.rt.Queries.AwaitWrite(w, r, b.Tenant, b.Principal); err != nil {
+		if errors.Is(err, query.ErrBadRequest) {
+			handleError(w, r, BadRequest("the Authz-Revocation-After header is not the identity of a revocation"))
+			return
+		}
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
 	page, err := query.Run(r.Context(), h.rt.Queries, orgSettingsListQuery, h.rt.boundQuery(r.Context(), b, orgSettingsListQuery), query.ListRequest{Limit: limit, After: after, Order: order, Where: where}, func(ctx context.Context, request query.ListRequest, qh *query.Handle[struct{}]) (orgSettingsPage, error) {
 		repo, err := query.Repo(qh, data.EntityOrgSettingView())
 		if err != nil {

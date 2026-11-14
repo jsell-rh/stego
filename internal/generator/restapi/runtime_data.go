@@ -2040,6 +2040,9 @@ func (w *runtimeHandlerWriter) list() {
 		w.f("\twhere = append(where, query.Equal{Field: %q, Value: %q})\n", kv[0], kv[1])
 	}
 	w.f("\tvar after query.Cursor\n\tif text := r.URL.Query().Get(\"cursor\"); text != \"\" {\n\t\tif after, err = h.rt.Queries.ParseCursor(%s, b.Tenant, b.Principal, text); err != nil {\n\t\t\thandleError(w, r, BadRequest(\"the cursor is not valid\"))\n\t\t\treturn\n\t\t}\n\t}\n", q)
+	// A list that names the caller's own write in Authz-Revocation-After waits for that write's revocation before it
+	// opens its transaction, so it shows the write (ST-SUP-RC20-OC41, ST-SUP-RP11-LC21, ST-SUP-Q119).
+	w.f("\tif err := h.rt.Queries.AwaitWrite(w, r, b.Tenant, b.Principal); err != nil {\n\t\tif errors.Is(err, query.ErrBadRequest) {\n\t\t\thandleError(w, r, BadRequest(\"the Authz-Revocation-After header is not the identity of a revocation\"))\n\t\t\treturn\n\t\t}\n\t\thandleError(w, r, InternalError(\"internal error\"))\n\t\treturn\n\t}\n")
 	w.f("\tpage, err := query.Run(r.Context(), h.rt.Queries, %s, h.rt.boundQuery(r.Context(), b, %s), query.ListRequest{Limit: limit, After: after, Order: order, Where: where}, func(ctx context.Context, request query.ListRequest, qh *query.Handle[struct{}]) (%sPage, error) {\n", q, q, c.camel)
 	w.f("\t\trepo, err := query.Repo(qh, data.Entity%sView())\n\t\tif err != nil {\n\t\t\treturn %sPage{}, err\n\t\t}\n", e.Name, c.camel)
 	w.f("\t\tresult, err := repo.List(ctx, request)\n\t\tif err != nil {\n\t\t\treturn %sPage{}, err\n\t\t}\n", c.camel)

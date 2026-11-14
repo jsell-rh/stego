@@ -78,6 +78,18 @@ const storeArchetype = "components:\n  - rest-api\n  - postgres-adapter\n  - ten
 // component of the test staged as ga, and the project files of the fixture into a new folder.
 func newWiringProject(t *testing.T, binary, components string) *wiringProject {
 	t.Helper()
+	p := newRegistryProject(t, binary, components)
+	if err := os.CopyFS(p.dir, os.DirFS(filepath.Join(wiringFixture, "project"))); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// newRegistryProject copies the registry of this repository with the components of the archetype given, each alpha
+// component of the test staged as ga, into a new folder, with a go.mod of the module wiringModule and no project
+// files.
+func newRegistryProject(t *testing.T, binary, components string) *wiringProject {
+	t.Helper()
 	p := &wiringProject{t: t, dir: t.TempDir(), binary: binary}
 	if err := os.CopyFS(filepath.Join(p.dir, "registry"), os.DirFS(filepath.Join("..", "..", "registry"))); err != nil {
 		t.Fatal(err)
@@ -92,9 +104,6 @@ func newWiringProject(t *testing.T, binary, components string) *wiringProject {
 		}
 		p.write(filepath.Join("registry", "components", name, "component.yaml"),
 			sunset.ReplaceAllString(strings.Replace(string(data), "stage: alpha\n", "stage: ga\n", 1), ""))
-	}
-	if err := os.CopyFS(p.dir, os.DirFS(filepath.Join(wiringFixture, "project"))); err != nil {
-		t.Fatal(err)
 	}
 	p.write("go.mod", "module "+wiringModule+"\n\ngo 1.26.11\n")
 	return p

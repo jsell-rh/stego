@@ -135,6 +135,7 @@ func run() (stegoErr error) {
 	mux.HandleFunc("GET /api/user-mgmt/v1/user-activity", userActivityHandler.List)
 	mux.HandleFunc("POST /api/user-mgmt/v1/org-activity", orgActivityHandler.Create)
 	mux.HandleFunc("GET /api/user-mgmt/v1/org-activity", orgActivityHandler.List)
+	mux.Handle("GET /authz/revocations/{id}", service.Routes())
 
 	port := os.Getenv("PORT")
 	if port == "" {

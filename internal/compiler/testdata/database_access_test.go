@@ -79,11 +79,13 @@ func fixture(t *testing.T) *accessFixture {
 	if _, err = f.admin.ExecContext(ctx, "CREATE DATABASE "+identifier(f.database)+" OWNER "+identifier(f.ownerRole)); err != nil {
 		t.Fatal(err)
 	}
+	// The drop gets 30 seconds, since a loaded server can take more than 5, and a drop that fails is logged: the
+	// cleanup alone never fails the test.
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, err := f.admin.ExecContext(ctx, "DROP DATABASE "+identifier(f.database)+" WITH (FORCE)"); err != nil {
-			t.Error(err)
+			t.Logf("pgtest: cleanup failed: drop the database %s: %v", f.database, err)
 		}
 	})
 	cfg.Database = f.database

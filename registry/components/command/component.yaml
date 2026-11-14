@@ -1,6 +1,8 @@
+# Version 1.1.0 gives, in the command contract, typed helpers that relate and unrelate a subject through each
+# relation that a command declares in relationships_written (ST-SUP-RC32-OC13).
 kind: component
 name: command
-version: 1.0.0
+version: 1.1.0
 stage: ga
 output_namespace: commands
 

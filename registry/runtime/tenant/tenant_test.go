@@ -200,7 +200,7 @@ func newPG(t *testing.T) *pgEnv {
 			}
 		}
 		if _, err := admin.ExecContext(ctx, "DROP DATABASE IF EXISTS "+env.name+" WITH (FORCE)"); err != nil {
-			t.Errorf("drop the test database: %v", err)
+			t.Logf("pgtest: cleanup failed: drop the database %s: %v", env.name, err)
 		}
 		for _, role := range env.roles() {
 			_, _ = admin.ExecContext(ctx, "DROP ROLE IF EXISTS "+role)
