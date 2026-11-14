@@ -293,6 +293,8 @@ func uniqueKeys(entity types.Entity, upsertKeys [][]string) [][]string {
 // differ (ST-SUP-RC01-OC41, ST-SUP-RC01-OC12). Names are not quoted.
 type tableModel struct {
 	name string
+	// entity is the entity whose table it is.
+	entity string
 	// owned tells that the table carries the tenant column of a pooled service, which leads the table, its
 	// primary key and every index (ST-SUP-RC01-OC40), and has the row-level security of the tenancy component.
 	owned bool
@@ -354,7 +356,7 @@ func tableModels(ctx gen.Context) ([]tableModel, error) {
 	}
 	var models []tableModel
 	for _, entity := range ordered {
-		table := tableModel{name: tableName(entity.Name), owned: owned[entity.Name]}
+		table := tableModel{name: tableName(entity.Name), entity: entity.Name, owned: owned[entity.Name]}
 		if table.owned {
 			table.lead = []string{key}
 			table.columns = append(table.columns, columnModel{name: key, typ: "text", notNull: true, defaultClause: " DEFAULT current_setting('app.tenant')",
@@ -410,46 +412,133 @@ func quoted(names []string) []string {
 	return out
 }
 
-// tablesSQL gives the SQL text of 001_initial on the runtime data path: one CREATE TABLE for each entity and one
-// CREATE UNIQUE INDEX for each of its unique keys, from the declaration alone (ST-SUP-RC01-OC41). In a pooled
-// service the tenant column leads the table, its primary key, every index and every foreign key to another owned
-// table (ST-SUP-RC01-OC40).
+// tablesSQL gives the SQL text of 001_initial on the runtime data path: one CREATE TABLE for each entity of the
+// baseline, the declaration with every schema step undone (gen.Context.AtSchemaStep), and one CREATE UNIQUE INDEX
+// for each of its unique keys, from the declaration alone (ST-SUP-RC01-OC41). The steps add the rest in migrations
+// of their own (schemaSteps), so the body and its ledger digest stay those of the first release. In a pooled service
+// the tenant column leads the table, its primary key, every index and every foreign key to another owned table
+// (ST-SUP-RC01-OC40).
 func tablesSQL(ctx gen.Context) (string, error) {
-	models, err := tableModels(ctx)
+	baseline, err := ctx.AtSchemaStep(0)
+	if err != nil {
+		return "", err
+	}
+	models, err := tableModels(baseline)
 	if err != nil {
 		return "", err
 	}
 	var out strings.Builder
 	for _, table := range models {
-		var lines []string
-		for _, column := range table.columns {
-			line := sqlIdentifier(column.name) + " " + column.typ
-			if column.notNull {
-				line += " NOT NULL"
-			}
-			lines = append(lines, line+column.defaultClause)
-		}
-		lines = append(lines, "CONSTRAINT "+sqlIdentifier(primaryName(table.name))+" PRIMARY KEY ("+strings.Join(quoted(append(append([]string{}, table.lead...), keyColumn)), ", ")+")")
-		for _, check := range table.checks {
-			lines = append(lines, "CONSTRAINT "+sqlIdentifier(check.name)+" CHECK ("+check.expression+")")
-		}
-		for _, fk := range table.foreign {
-			lines = append(lines, "CONSTRAINT "+sqlIdentifier(fk.name)+" FOREIGN KEY ("+strings.Join(quoted(fk.from), ", ")+
-				") REFERENCES public."+sqlIdentifier(fk.table)+" ("+strings.Join(quoted(fk.to), ", ")+")")
-		}
-		fmt.Fprintf(&out, "CREATE TABLE public.%s (\n  %s\n);\n", sqlIdentifier(table.name), strings.Join(lines, ",\n  "))
-		// A list filters a table on its scope field, its implicit fields and the fields of its search, each with the
-		// tenant: an index of each keeps a filtered list from scanning the tenant's whole table (ST-SUP-RP11-LC20).
-		for _, column := range table.search {
-			fmt.Fprintf(&out, "CREATE INDEX %s ON public.%s (%s);\n", sqlIdentifier(searchName(table.name, column)),
-				sqlIdentifier(table.name), strings.Join(quoted(append(append([]string{}, table.lead...), column)), ", "))
-		}
-		for _, columns := range table.unique {
-			fmt.Fprintf(&out, "CREATE UNIQUE INDEX %s ON public.%s (%s);\n", sqlIdentifier(uniqueName(table.name, columns)),
-				sqlIdentifier(table.name), strings.Join(quoted(append(append([]string{}, table.lead...), columns...)), ", "))
-		}
+		out.WriteString(createTableSQL(table))
 	}
 	return out.String(), nil
+}
+
+// BaselineTable is what the migration 001_initial holds for one table of the baseline: the entity whose table it is,
+// the name of the table, its CREATE TABLE statement and its indexes.
+type BaselineTable struct {
+	Entity, Table, Create, Indexes string
+}
+
+// Baseline gives what a release with the declaration of ctx writes for its baseline: each table of 001_initial in
+// its order (tablesSQL), and the digest of the stored shape that the schema marker holds (markerDefinitions). The
+// check against the base compares it for the base and the head (ST-GEN-INV33), so an edit that changes either one,
+// such as a new order of the fields or a field that leaves a search index, is refused before a release fails the
+// ledger or the marker check of a database with rows.
+func Baseline(ctx gen.Context) ([]BaselineTable, string, error) {
+	baseline, err := ctx.AtSchemaStep(0)
+	if err != nil {
+		return nil, "", err
+	}
+	models, err := tableModels(baseline)
+	if err != nil {
+		return nil, "", err
+	}
+	tables := make([]BaselineTable, len(models))
+	for i, table := range models {
+		tables[i] = BaselineTable{Entity: table.entity, Table: table.name, Create: tableSQL(table), Indexes: indexSQL(table)}
+	}
+	marker, _, err := markerDefinitions(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	return tables, marker, nil
+}
+
+// columnSQL gives the definition of one column, as CREATE TABLE and ADD COLUMN write it.
+func columnSQL(column columnModel) string {
+	line := sqlIdentifier(column.name) + " " + column.typ
+	if column.notNull {
+		line += " NOT NULL"
+	}
+	return line + column.defaultClause
+}
+
+// foreignSQL gives the FOREIGN KEY clause of one foreign key, after its CONSTRAINT name.
+func foreignSQL(fk foreignModel) string {
+	return "FOREIGN KEY (" + strings.Join(quoted(fk.from), ", ") + ") REFERENCES public." + sqlIdentifier(fk.table) + " (" + strings.Join(quoted(fk.to), ", ") + ")"
+}
+
+// searchIndexSQL and uniqueIndexSQL give the statements of a search index and of a unique index of a table.
+func searchIndexSQL(table tableModel, column string) string {
+	return fmt.Sprintf("CREATE INDEX %s ON public.%s (%s);\n", sqlIdentifier(searchName(table.name, column)),
+		sqlIdentifier(table.name), strings.Join(quoted(append(append([]string{}, table.lead...), column)), ", "))
+}
+
+func uniqueIndexSQL(table tableModel, columns []string) string {
+	return fmt.Sprintf("CREATE UNIQUE INDEX %s ON public.%s (%s);\n", sqlIdentifier(uniqueName(table.name, columns)),
+		sqlIdentifier(table.name), strings.Join(quoted(append(append([]string{}, table.lead...), columns...)), ", "))
+}
+
+// searchIndexDefinition and uniqueIndexDefinition give the definitions of a search index and of a unique index of a
+// table as pg_get_indexdef writes them, which the migration of a step that builds the index checks before its ledger
+// row (ST-SUP-RC01-OC38).
+func searchIndexDefinition(table tableModel, column string) string {
+	return "CREATE INDEX " + deparsedName(searchName(table.name, column)) + " ON public." + deparsedName(table.name) +
+		" USING btree (" + deparsedList(append(append([]string{}, table.lead...), column)) + ")"
+}
+
+func uniqueIndexDefinition(table tableModel, columns []string) string {
+	return "CREATE UNIQUE INDEX " + deparsedName(uniqueName(table.name, columns)) + " ON public." + deparsedName(table.name) +
+		" USING btree (" + deparsedList(append(append([]string{}, table.lead...), columns...)) + ")"
+}
+
+// createTableSQL gives the CREATE TABLE of one table and its indexes: the text of the table in 001_initial, and in
+// the step that adds its entity.
+func createTableSQL(table tableModel) string {
+	return tableSQL(table) + indexSQL(table)
+}
+
+// tableSQL gives the CREATE TABLE statement of one table, with its columns and constraints and no index.
+func tableSQL(table tableModel) string {
+	var out strings.Builder
+	var lines []string
+	for _, column := range table.columns {
+		lines = append(lines, columnSQL(column))
+	}
+	lines = append(lines, "CONSTRAINT "+sqlIdentifier(primaryName(table.name))+" PRIMARY KEY ("+strings.Join(quoted(append(append([]string{}, table.lead...), keyColumn)), ", ")+")")
+	for _, check := range table.checks {
+		lines = append(lines, "CONSTRAINT "+sqlIdentifier(check.name)+" CHECK ("+check.expression+")")
+	}
+	for _, fk := range table.foreign {
+		lines = append(lines, "CONSTRAINT "+sqlIdentifier(fk.name)+" "+foreignSQL(fk))
+	}
+	fmt.Fprintf(&out, "CREATE TABLE public.%s (\n  %s\n);\n", sqlIdentifier(table.name), strings.Join(lines, ",\n  "))
+	return out.String()
+}
+
+// indexSQL gives the indexes of one table: its search indexes and its unique indexes.
+func indexSQL(table tableModel) string {
+	var out strings.Builder
+	// A list filters a table on its scope field, its implicit fields and the fields of its search, each with the
+	// tenant: an index of each keeps a filtered list from scanning the tenant's whole table (ST-SUP-RP11-LC20).
+	for _, column := range table.search {
+		out.WriteString(searchIndexSQL(table, column))
+	}
+	for _, columns := range table.unique {
+		out.WriteString(uniqueIndexSQL(table, columns))
+	}
+	return out.String()
 }
 
 // searchColumns gives the columns of the entity that a list of a collection over it filters on, in the entity's
@@ -550,7 +639,12 @@ func generateRuntimeData(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	migrateFile, err := generateMigrate(ctx.OutputNamespace, rowSecurity)
+	steps, err := schemaSteps(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, generateSteps(ctx.OutputNamespace, steps)...)
+	migrateFile, err := generateMigrate(ctx.OutputNamespace, rowSecurity, steps)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating migrate: %w", err)
 	}

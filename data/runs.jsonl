@@ -41,6 +41,7 @@
 {"source_id":"ST-GEN-CH01","target_id":"ST-GEN-CLI02"}
 {"source_id":"ST-GEN-CH02","target_id":"ST-GEN-CLI04"}
 {"source_id":"ST-GEN-CH03","target_id":"ST-GEN-CLI05"}
+{"source_id":"ST-GEN-CH04","target_id":"ST-GEN-CLI07"}
 {"source_id":"ST-SUP-CH01","target_id":"ST-SUP-CLI01"}
 {"source_id":"ST-SUP-CH02","target_id":"ST-SUP-CLI04"}
 {"source_id":"ST-SUP-CH03","target_id":"ST-SUP-CLI05"}

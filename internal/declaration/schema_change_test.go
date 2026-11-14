@@ -80,6 +80,7 @@ func TestSchemaChangeEntity(t *testing.T) {
 		{"a drop with no field of Todo", renamed, "{id: todo-title-rename, kind: drop, entity: Todo, definition: \"summary: string\"}", ""},
 		{"a unique that names no declared invariant", renamed, "{id: todo-title-rename, kind: unique, entity: Todo, field: unique_summary}", "unique_summary"},
 		{"a unique that names a declared invariant of kind no_overlap", renamed, "{id: todo-title-rename, kind: unique, entity: Todo, field: summary_window}", "summary_window"},
+		{"a retype from the type that the field has now", renamed, "{id: todo-title-rename, kind: retype, entity: Todo, field: summary, from: string, conversion: text_to_text, inverse_conversion: text_to_text}", "summary"},
 	} {
 		t.Run("ST-DECL-INV58-T "+c.name+" is refused", func(t *testing.T) {
 			service := todoFields(c.fields, "", []string{c.change}, "todo-title-rename expand") + "invariants:\n  - {name: summary_window, kind: no_overlap, on: Todo, range: 'starts_at, ends_at', by: [summary]}\n"

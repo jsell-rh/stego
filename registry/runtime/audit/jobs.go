@@ -172,16 +172,29 @@ func Manifest(c Config) (manifest.Manifest, error) {
 		Returns: "TABLE(step_left boolean, checkpoint_tenant text, checkpoint_seq bigint, checkpoint_hash bytea)"}
 	return manifest.Manifest{Functions: []manifest.Function{maintain}, Tables: []manifest.Table{
 		{Schema: s, Name: EventsTable, Partitioned: true, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable),
+			// The primary key of the DDL: on a table with row-level security, each unique index is the manifest's.
+			Indexes: []manifest.Index{{Name: EventsTable + "_pkey", Columns: []string{"tenant_id", "seq", "recorded_at"}}},
+			// The check constraints of the DDL: on a table with row-level security, each one is the manifest's.
+			Constraints: []manifest.Constraint{
+				{Name: EventsTable + "_actor_kind_check", Kind: manifest.KindCheck,
+					Definition: "CHECK ((actor_kind = ANY (ARRAY['user'::text, 'service'::text, 'system'::text, 'impersonated_by'::text])))"},
+				{Name: EventsTable + "_outcome_check", Kind: manifest.KindCheck, Definition: "CHECK ((outcome = ANY (ARRAY['ok'::text, 'denied'::text, 'failed'::text])))"},
+				{Name: EventsTable + "_hash_version_check", Kind: manifest.KindCheck, Definition: "CHECK ((hash_version = ANY (ARRAY[1, 2, 3])))"},
+				{Name: EventsTable + "_check", Kind: manifest.KindCheck, Definition: "CHECK (((hash_version >= 2) OR (operation = ''::text)))"},
+				{Name: EventsTable + "_check1", Kind: manifest.KindCheck, Definition: "CHECK (((hash_version = 3) OR (on_behalf_of = ''::text)))"},
+			},
 			// The columns with a default of the DDL; Record writes every other column.
 			Columns: []manifest.Column{{Name: "operation", Type: "text", Default: "''::text"}, {Name: "on_behalf_of", Type: "text", Default: "''::text"},
 				{Name: "hash_version", Type: "smallint", Default: "1"}},
 			// audit_create_partition gives each partition a statement trigger of its own; the row triggers are clones.
 			PartitionTriggers: []manifest.Trigger{{Name: "_reject_statement", Timing: "BEFORE", Events: []string{"UPDATE", "DELETE", "TRUNCATE"},
 				Function: reject}}},
-		{Schema: s, Name: HeadsTable, RowSecurity: true, Policies: wall},
-		{Schema: s, Name: BoundariesTable, RowSecurity: true, Policies: wall, Triggers: []manifest.Trigger{
-			{Name: BoundariesTable + "_guard", Timing: "BEFORE", Row: true, Events: []string{"INSERT", "UPDATE"}, Function: guard}}},
+		{Schema: s, Name: HeadsTable, RowSecurity: true, Policies: wall, Indexes: []manifest.Index{{Name: HeadsTable + "_pkey", Columns: []string{"tenant_id"}}}},
+		{Schema: s, Name: BoundariesTable, RowSecurity: true, Policies: wall, Indexes: []manifest.Index{{Name: BoundariesTable + "_pkey", Columns: []string{"tenant_id"}}},
+			Triggers: []manifest.Trigger{
+				{Name: BoundariesTable + "_guard", Timing: "BEFORE", Row: true, Events: []string{"INSERT", "UPDATE"}, Function: guard}}},
 		{Schema: s, Name: CheckpointsTable, RowSecurity: true, Policies: wall, Triggers: rejecting(CheckpointsTable),
+			Indexes: []manifest.Index{{Name: CheckpointsTable + "_pkey", Columns: []string{"tenant_id", "seq"}}},
 			Columns: []manifest.Column{{Name: "written_at", Type: "timestamp with time zone", Default: "now()"}}},
 	}}, nil
 }
