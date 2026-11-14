@@ -847,6 +847,7 @@ func generateValidation(ns string) (gen.File, error) {
 	fmt.Fprintf(&buf, "\t\"bytes\"\n")
 	fmt.Fprintf(&buf, "\t\"context\"\n")
 	fmt.Fprintf(&buf, "\t_ \"embed\"\n")
+	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
 	fmt.Fprintf(&buf, "\t\"errors\"\n")
 	fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	fmt.Fprintf(&buf, "\t\"io\"\n")
@@ -916,6 +917,13 @@ func generateValidation(ns string) (gen.File, error) {
 	fmt.Fprintf(&buf, "\t\t\tr.Body.Close()\n")
 	fmt.Fprintf(&buf, "\t\t\tr.Body = io.NopCloser(bytes.NewReader(bodyBytes))\n\n")
 
+	// The schema check builds every failure before parseValidationErrors caps the list, so the count of tokens is
+	// bounded first (ST-SUP-RC20-OC21, CWE-770).
+	fmt.Fprintf(&buf, "\t\t\tif !withinTokenLimit(bodyBytes) {\n")
+	fmt.Fprintf(&buf, "\t\t\t\thandleError(w, r, Validation([]ValidationError{{Message: fmt.Sprintf(\"the request body holds more than %%d JSON values and member names\", MaxBodyTokens)}}))\n")
+	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n\n")
+
 	// Validate request body.
 	fmt.Fprintf(&buf, "\t\t\tinput := &openapi3filter.RequestValidationInput{\n")
 	fmt.Fprintf(&buf, "\t\t\t\tRequest:    r,\n")
@@ -946,6 +954,30 @@ func generateValidation(ns string) (gen.File, error) {
 	// MaxValidationErrors entries for failed members, and one more entry that counts the failures it does not list,
 	// so a large body cannot make a large problem (ST-SUP-RC20-OC05). An entry carries only the member path and the
 	// rule that failed, never the value of the request: an error's own text can quote the value, so it is not used.
+	fmt.Fprintf(&buf, "// MaxBodyTokens is the largest number of JSON values and member names that a\n")
+	fmt.Fprintf(&buf, "// validated body may hold. The schema check makes one failure for each bad\n")
+	fmt.Fprintf(&buf, "// value before the list is capped, so a body with more is refused first.\n")
+	fmt.Fprintf(&buf, "const MaxBodyTokens = 10000\n\n")
+	fmt.Fprintf(&buf, "// withinTokenLimit reports whether body holds at most MaxBodyTokens JSON values\n")
+	fmt.Fprintf(&buf, "// and member names. A body that is not JSON is within the limit: the schema check\n")
+	fmt.Fprintf(&buf, "// refuses it.\n")
+	fmt.Fprintf(&buf, "func withinTokenLimit(body []byte) bool {\n")
+	fmt.Fprintf(&buf, "\tdecoder := json.NewDecoder(bytes.NewReader(body))\n")
+	fmt.Fprintf(&buf, "\tcount := 0\n")
+	fmt.Fprintf(&buf, "\tfor {\n")
+	fmt.Fprintf(&buf, "\t\ttoken, err := decoder.Token()\n")
+	fmt.Fprintf(&buf, "\t\tif err != nil {\n")
+	fmt.Fprintf(&buf, "\t\t\treturn true\n")
+	fmt.Fprintf(&buf, "\t\t}\n")
+	fmt.Fprintf(&buf, "\t\tif delim, ok := token.(json.Delim); ok && (delim == ']' || delim == '}') {\n")
+	fmt.Fprintf(&buf, "\t\t\tcontinue\n")
+	fmt.Fprintf(&buf, "\t\t}\n")
+	fmt.Fprintf(&buf, "\t\tif count++; count > MaxBodyTokens {\n")
+	fmt.Fprintf(&buf, "\t\t\treturn false\n")
+	fmt.Fprintf(&buf, "\t\t}\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
 	fmt.Fprintf(&buf, "// MaxValidationErrors is the largest number of failed members that a validation problem lists.\n")
 	fmt.Fprintf(&buf, "const MaxValidationErrors = 50\n\n")
 	fmt.Fprintf(&buf, "// parseValidationErrors extracts per-field validation details from a\n")

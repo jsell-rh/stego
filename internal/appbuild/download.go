@@ -938,7 +938,7 @@ func prepareDownload(options DownloadOptions) (DownloadOptions, error) {
 	}
 	options.Source, err = filepath.EvalSymlinks(options.Source)
 	if err != nil {
-		return options, err
+		return options, fmt.Errorf("module cache download: %w", sourceUnreadable(err))
 	}
 	options.Go, err = filepath.EvalSymlinks(options.Go)
 	if err != nil {

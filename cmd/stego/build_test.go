@@ -510,7 +510,7 @@ func TestBuildDownloadChecksTargetAndSDKFirst(t *testing.T) {
 			"a target with ./":    {args(source, "./cmd/tiny"), []string{"is not the pinned official release"}},
 			"a file:// source":    {args("file://"+source, "cmd/tiny"), []string{"is not the pinned official release"}},
 			"a target out of it":  {args(source, "../cmd/tiny"), []string{`--target "../cmd/tiny"`, "clean relative path"}},
-			"a source URL":        {args("https://example.com/service.git", "cmd/tiny"), []string{`--source "https://example.com/service.git"`, "not a https URL"}},
+			"a source URL":        {args("https://example.com/service.git", "cmd/tiny"), []string{`--source "https://example.com"`, "not a https URL"}},
 			"a file URL any host": {args("file://host"+source, "cmd/tiny"), []string{"--source", "absolute path and no host"}},
 		} {
 			t.Run(name, func(t *testing.T) {
@@ -533,26 +533,37 @@ func TestBuildDownloadChecksTargetAndSDKFirst(t *testing.T) {
 }
 
 func TestBuildSourceRefusalHidesUserInfo(t *testing.T) {
-	t.Run("ST-BLD-UC02-R04-T03 A refused --source URL is quoted with its user info replaced, so no token is shown", func(t *testing.T) {
+	t.Run("ST-BLD-UC02-R04-T03 A refused --source names only the scheme and the host of a URL, so no token is shown", func(t *testing.T) {
 		root := t.TempDir()
 		revision := strings.Repeat("a", 40)
-		for _, source := range []string{
-			"https://someone:SECRET-TOKEN@example.com/service.git",
-			"https://SECRET-TOKEN@example.com/service.git",
-			"ssh://SECRET-TOKEN@example.com:22/service.git",
-			"file://SECRET-TOKEN@host/service",
-			"https://a@b:SECRET-TOKEN@example.com/service.git",
+		for _, testCase := range []struct{ source, shown string }{
+			{"https://someone:SECRET-TOKEN@example.com/service.git", "https://example.com"},
+			{"https://SECRET-TOKEN@example.com/service.git", "https://example.com"},
+			{"ssh://SECRET-TOKEN@example.com:22/service.git", "ssh://example.com:22"},
+			{"file://SECRET-TOKEN@host/service", "file://host"},
+			{"https://a@b:SECRET-TOKEN@example.com/service.git", "https://example.com"},
+			{"https://someone:SECRET/TOKEN@example.com/service.git", "https://"},
+			{"https://someone:SECRET?TOKEN@example.com/service.git", "https://"},
+			{"https://someone:SECRET#TOKEN@example.com/service.git", "https://"},
+			{"https://example.com/SECRET-TOKEN/service.git?token=SECRET-TOKEN#SECRET-TOKEN", "https://example.com"},
+			{"someone:SECRET-TOKEN@example.com:org/service.git", "--source: cannot read the local repository folder"},
 		} {
-			_, err := capture(t, runBuild, "download", "--source", source, "--revision", revision, "--target", "cmd/tiny", "--go", filepath.Join(root, "sdk", "bin", "go"),
-				"--output", filepath.Join(root, "cache"))
-			if err == nil {
-				t.Fatalf("the download from %s was not refused", source)
+			runs := map[string][]string{
+				"download": {"download", "--source", testCase.source, "--revision", revision, "--target", "cmd/tiny", "--go", filepath.Join(root, "sdk", "bin", "go"),
+					"--output", filepath.Join(root, "cache")},
+				"build": buildArgs(testCase.source, revision, filepath.Join(root, "sdk", "bin", "go"), filepath.Join(root, "work"), filepath.Join(root, "out"), filepath.Join(root, "cache")),
 			}
-			if strings.Contains(err.Error(), "SECRET-TOKEN") || strings.Contains(err.Error(), "someone") {
-				t.Fatalf("the refusal of %s shows its user info: %v", source, err)
-			}
-			if !strings.Contains(err.Error(), "--source") || !strings.Contains(err.Error(), "xxxxx@") {
-				t.Fatalf("the refusal of %s does not name the flag and the value with its user info replaced: %v", source, err)
+			for name, args := range runs {
+				_, err := capture(t, runBuild, args...)
+				if err == nil {
+					t.Fatalf("the %s from %s was not refused", name, testCase.source)
+				}
+				if strings.Contains(err.Error(), "SECRET") || strings.Contains(err.Error(), "TOKEN") || strings.Contains(err.Error(), "someone") {
+					t.Fatalf("the %s refusal of %s shows a part of the user info, path, query or fragment: %v", name, testCase.source, err)
+				}
+				if !strings.Contains(err.Error(), "--source") || !strings.Contains(err.Error(), testCase.shown) {
+					t.Fatalf("the %s refusal of %s does not name the flag and %q: %v", name, testCase.source, testCase.shown, err)
+				}
 			}
 		}
 	})

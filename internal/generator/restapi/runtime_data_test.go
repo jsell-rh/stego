@@ -784,6 +784,91 @@ func TestValidationBodyLimit(t *testing.T) {
 	})
 }
 
+func TestValidationTokenLimit(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC21-T05 A body with more JSON values than MaxBodyTokens is refused before the schema check builds its failures", func(t *testing.T) {
+		ctx := crudContext()
+		ctx.Conventions.RequestValidation = "openapi-schema"
+		files := crudFiles(t, ctx)
+		p := newCrudProject(t, ctx, files)
+		p.write("out/api/token_limit_test.go", []byte(tokenLimitCheck))
+		if output, err := p.goCommand(nil, "test", "-count=1", "-run", "^TestTokenLimit$", "./out/api"); err != nil {
+			t.Fatalf("the token limit check failed: %v\n%s", err, output)
+		}
+	})
+}
+
+// tokenLimitCheck is a test of the generated validation.go: a body of more than MaxBodyTokens values gets one
+// validation entry and no schema failures, and the schema check is not run for it.
+const tokenLimitCheck = `package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+func post(t *testing.T, body string) (*httptest.ResponseRecorder, bool) {
+	t.Helper()
+	called := false
+	handler := NewValidationMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/todos", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	answer := httptest.NewRecorder()
+	handler.ServeHTTP(answer, request)
+	return answer, called
+}
+
+func entries(t *testing.T, answer *httptest.ResponseRecorder) []map[string]any {
+	t.Helper()
+	var problem struct {
+		Errors []map[string]any ` + "`json:\"validation_errors\"`" + `
+	}
+	if err := json.Unmarshal(answer.Body.Bytes(), &problem); err != nil {
+		t.Fatalf("the answer is not a problem: %v: %s", err, answer.Body)
+	}
+	return problem.Errors
+}
+
+func TestTokenLimit(t *testing.T) {
+	// The object, the member name, the array and its items: one token more than the limit, each item a bad value: the schema check would make one failure for each.
+	over := "{\"title\":[" + strings.Repeat("0,", MaxBodyTokens-3) + "0]}"
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	answer, called := post(t, over)
+	runtime.ReadMemStats(&after)
+	if answer.Code != http.StatusBadRequest || called {
+		t.Fatalf("a body over the token limit got %d and called the handler %v: %s", answer.Code, called, answer.Body)
+	}
+	list := entries(t, answer)
+	if len(list) != 1 || !strings.Contains(list[0]["message"].(string), "more than 10000 JSON values") {
+		t.Fatalf("a body over the token limit got %v, want one entry that names the limit", list)
+	}
+	if grown := after.TotalAlloc - before.TotalAlloc; grown > 64<<20 {
+		t.Fatalf("a body over the token limit allocated %d bytes", grown)
+	}
+	// One item less is at the limit: the schema check runs and lists its failures.
+	at := "{\"title\":[" + strings.Repeat("0,", MaxBodyTokens-4) + "0]}"
+	answer, called = post(t, at)
+	if answer.Code != http.StatusBadRequest || called {
+		t.Fatalf("a bad body at the token limit got %d and called the handler %v: %s", answer.Code, called, answer.Body)
+	}
+	if list := entries(t, answer); len(list) == 1 && strings.Contains(list[0]["message"].(string), "JSON values") {
+		t.Fatalf("a body at the token limit was refused by the limit: %v", list)
+	}
+	// A body that is not JSON is left to the schema check.
+	if answer, called := post(t, "{"); answer.Code != http.StatusBadRequest || called {
+		t.Fatalf("a body that is not JSON got %d and called the handler %v", answer.Code, called)
+	}
+}
+`
+
 // corsCheck is a test of the generated cors.go alone, in a module of its own.
 const corsCheck = `package api
 
