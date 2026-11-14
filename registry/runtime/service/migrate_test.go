@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -56,7 +57,7 @@ func TestMigrate(t *testing.T) {
 		endpoint, key := startSpiceDB(t)
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
-		want := []string{StepOwnerRole, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepOutboxSequence, StepAuditTables, StepAuditSink,
+		want := []string{StepOwnerRole, StepJobLock, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepOutboxSequence, StepAuditTables, StepAuditSink,
 			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain, StepBackfill}
 		run := func(m Migration) (*steps, error) {
 			s := &steps{backends: map[int]bool{}}
@@ -776,6 +777,241 @@ func TestMigrateLedgerRole(t *testing.T) {
 		var elsewhere int
 		if err := f.admin.QueryRow("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1", f.owner).Scan(&elsewhere); err != nil || elsewhere != 0 {
 			t.Fatalf("the schema of the owner holds %d relations (%v), want none", elsewhere, err)
+		}
+	})
+}
+
+func TestMigrateLocks(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T07 A run again of the job waits at most the lock timeout behind a long transaction, and the reads of the table go on", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatal(err)
+		}
+		// A long transaction of the running release reads the key table and holds it.
+		long, err := f.admin.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = long.Rollback() }()
+		if _, err := long.Exec("SELECT count(*) FROM public.idempotency_keys"); err != nil {
+			t.Fatal(err)
+		}
+		waits := make(chan string, 64)
+		retried = func(step string) { waits <- step }
+		defer func() { retried = nil }()
+		m := f.migration(nil)
+		m.Timeout = 2 * time.Minute
+		ran := make(chan error, 1)
+		go func() { ran <- Migrate(context.Background(), settings, m) }()
+		reader, err := f.admin.Conn(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer reader.Close()
+		if _, err := reader.ExecContext(context.Background(), "SET statement_timeout = '2s'"); err != nil {
+			t.Fatal(err)
+		}
+		read := func(what string) {
+			var n int
+			if err := reader.QueryRowContext(context.Background(), "SELECT count(*) FROM public.idempotency_keys").Scan(&n); err != nil {
+				t.Fatalf("a read of the key table %s failed: %v", what, err)
+			}
+		}
+		// The reader reads the key table while the job waits for its lock, until the job's lock wait has ended at the
+		// lock timeout twice; the job that waited with no lock timeout would never get there, and each read would
+		// queue behind it until its statement timeout.
+		for seen := 0; seen < 2; {
+			select {
+			case step := <-waits:
+				if step != StepIdempotencyKeys {
+					t.Fatalf("the step %s waited for a lock, want the idempotency step", step)
+				}
+				seen++
+			case err := <-ran:
+				t.Fatalf("the job ended with %v while the long transaction held the key table, want it to wait", err)
+			case <-time.After(30 * time.Second):
+				t.Fatal("the job's lock wait did not end at the lock timeout within 30 s")
+			default:
+				read("while the job waits")
+			}
+		}
+		read("after two lock waits of the job")
+		// The long transaction ends, and the job runs the text again and passes.
+		if err := long.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err := <-ran:
+			if err != nil {
+				t.Fatalf("the job after the long transaction ended gave %v", err)
+			}
+		case <-time.After(60 * time.Second):
+			t.Fatal("the job did not end within 60 s after the long transaction ended")
+		}
+	})
+
+	t.Run("ST-SUP-RP14-LC03-T08 Two jobs started at once run one after the other, and both pass", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		// Both jobs wait at the start of their first step until both have started, so they reach the tables of a
+		// fresh database together when nothing orders them.
+		var started sync.WaitGroup
+		started.Add(2)
+		stepped = func(step string, _ *sql.Conn) {
+			if step == StepOwnerRole {
+				started.Done()
+				started.Wait()
+			}
+		}
+		defer func() { stepped = nil }()
+		errs := make(chan error, 2)
+		for range 2 {
+			go func() { errs <- Migrate(context.Background(), settings, f.migration(nil)) }()
+		}
+		for range 2 {
+			if err := <-errs; err != nil {
+				t.Fatalf("one of two jobs started at once gave %v at the stage %s, want both to pass", err, Stage(err))
+			}
+		}
+	})
+}
+
+func TestMigrateLockAndLease(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T09 Two jobs started at once run their schema steps one after the other and their backfills under the lease", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f, m, _ := renameJob(t)
+		runtimeGrants(t, f)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		var (
+			mu         sync.Mutex
+			started    sync.WaitGroup
+			afterLock  = map[*sql.Conn]time.Time{} // when each job passed the job lock
+			atBackfill = map[*sql.Conn]time.Time{} // when each job came to the backfill step
+		)
+		started.Add(2)
+		stepped = func(step string, conn *sql.Conn) {
+			switch step {
+			case StepOwnerRole:
+				started.Done()
+				started.Wait()
+			case StepLedgerCheck:
+				mu.Lock()
+				afterLock[conn] = time.Now()
+				mu.Unlock()
+			case StepBackfill:
+				mu.Lock()
+				atBackfill[conn] = time.Now()
+				mu.Unlock()
+				// Each job waits here until the other one also comes to its backfill, which it can only when the job
+				// lock is free while a backfill runs.
+				deadline := time.After(45 * time.Second)
+				for {
+					mu.Lock()
+					both := len(atBackfill) == 2
+					mu.Unlock()
+					if both {
+						return
+					}
+					select {
+					case <-deadline:
+						return
+					case <-time.After(50 * time.Millisecond):
+					}
+				}
+			}
+		}
+		defer func() { stepped = nil }()
+		errs := make(chan error, 2)
+		for i := range 2 {
+			job := m
+			job.Holder = fmt.Sprintf("job-%d", i)
+			go func() { errs <- Migrate(context.Background(), settings, job) }()
+		}
+		for range 2 {
+			if err := <-errs; err != nil {
+				t.Fatalf("one of two jobs started at once gave %v at the stage %s, want both to pass", err, Stage(err))
+			}
+		}
+		if len(atBackfill) != 2 || len(afterLock) != 2 {
+			t.Fatalf("%d jobs came to the backfill and %d passed the job lock, want 2 and 2", len(atBackfill), len(afterLock))
+		}
+		var first, second *sql.Conn
+		for conn := range afterLock {
+			if first == nil || afterLock[conn].Before(afterLock[first]) {
+				first, second = conn, first
+			} else {
+				second = conn
+			}
+		}
+		if afterLock[second].Before(atBackfill[first]) {
+			t.Errorf("the second job passed the job lock at %v, before the first job ended its schema steps at %v", afterLock[second], atBackfill[first])
+		}
+		if gap := atBackfill[second].Sub(atBackfill[first]); gap > 30*time.Second {
+			t.Errorf("the second job came to its backfill %v after the first, which waited for it: the job lock was held through the backfill", gap)
+		}
+		var moved int64
+		var completed bool
+		if err := f.admin.QueryRowContext(context.Background(), `SELECT rows_moved, completed_at IS NOT NULL FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`).Scan(&moved, &completed); err != nil || moved != 24 || !completed {
+			t.Fatalf("the checkpoint has %d moved, complete %v (error %v); want each of the 24 rows moved once, and complete", moved, completed, err)
+		}
+		var unmoved int
+		if err := f.admin.QueryRowContext(context.Background(), `SELECT count(*) FROM public.boards WHERE heading IS DISTINCT FROM title`).Scan(&unmoved); err != nil || unmoved != 0 {
+			t.Fatalf("%d rows have no new value equal to the old one (error %v)", unmoved, err)
+		}
+	})
+}
+
+func TestMigrateJobLockIndex(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T10 Two jobs pass while the first one builds an index concurrently, with no deadlock and no invalid index", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		var started sync.WaitGroup
+		started.Add(2)
+		var tries atomic.Int32
+		stepped = func(step string, _ *sql.Conn) {
+			if step == StepOwnerRole {
+				started.Done()
+				started.Wait()
+			}
+		}
+		waited = func() { tries.Add(1) }
+		defer func() { stepped, waited = nil, nil }()
+		m := f.migration(nil)
+		tables := m.Ledger
+		var building atomic.Bool
+		// The job that holds the job lock builds an index concurrently while the other job waits for the lock. A
+		// wait in pg_advisory_lock holds a snapshot, which CREATE INDEX CONCURRENTLY waits for: a deadlock.
+		m.Ledger = func(ctx context.Context, conn *sql.Conn) error {
+			if err := tables(ctx, conn); err != nil {
+				return err
+			}
+			if building.CompareAndSwap(false, true) {
+				// The other job tries the lock twice, or, with a blocking wait that never comes back to try again,
+				// waits in it for 2 s.
+				deadline := time.Now().Add(2 * time.Second)
+				for tries.Load() < 2 && time.Now().Before(deadline) {
+					time.Sleep(20 * time.Millisecond)
+				}
+			}
+			_, err := conn.ExecContext(ctx, "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_job_lock_probe ON public.orders (id)")
+			return err
+		}
+		errs := make(chan error, 2)
+		for range 2 {
+			go func() { errs <- Migrate(context.Background(), settings, m) }()
+		}
+		for range 2 {
+			if err := <-errs; err != nil {
+				t.Fatalf("one of two jobs gave %v at the stage %s, want both to pass", err, Stage(err))
+			}
+		}
+		var invalid int
+		if err := f.admin.QueryRowContext(context.Background(), `SELECT count(*) FROM pg_catalog.pg_index WHERE NOT indisvalid`).Scan(&invalid); err != nil || invalid != 0 {
+			t.Fatalf("%d indexes are not valid (error %v), want none", invalid, err)
 		}
 	})
 }

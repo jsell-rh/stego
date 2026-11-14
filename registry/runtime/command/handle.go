@@ -272,6 +272,24 @@ func (e *Entity[T]) relations() []authz.Relation {
 	return out
 }
 
+// runtimeRelations gives the relations that only the runtime writes for the rows of the entity: the relation of each
+// declared relationship and of each parent reference (ST-SUP-Q118). A command that declares one of them gets no
+// fill relation of it, so a fill cannot move an owner after create or relate a row to a parent with no permission
+// on the parent.
+func (e *Entity[T]) runtimeRelations() []authz.Relation {
+	if e.spec.ResourceType == "" {
+		return nil
+	}
+	var out []authz.Relation
+	for _, rel := range e.spec.Relationships {
+		out = append(out, authz.Relation{ResourceType: e.spec.ResourceType, Name: rel.Relation})
+	}
+	for _, ref := range e.spec.Parent {
+		out = append(out, authz.Relation{ResourceType: e.spec.ResourceType, Name: ref.Relation})
+	}
+	return out
+}
+
 // declaredTuple is the tuple of one declared relationship of a row before the row is written: its relation and its
 // checked subject. The resource is the row's, whose key the row statement gives.
 type declaredTuple struct {
@@ -423,6 +441,7 @@ type Declared interface {
 	entityName() string
 	register(rt *Runtime) error
 	relations() []authz.Relation
+	runtimeRelations() []authz.Relation
 }
 
 func (e *Entity[T]) entityName() string { return e.spec.Name }
