@@ -1383,8 +1383,11 @@ CREATE EVENT TRIGGER count_index ON ddl_command_start WHEN TAG IN ('CREATE INDEX
 			t.Run(c.name, func(t *testing.T) {
 				db, conn := slugJob(t)
 				// The event trigger of ST-SUP-RC01-OC38-T02 makes the unique build fail on a duplicate, and a second one
-				// refuses the first drops of an index; a sequence counts the drops, as it keeps its value when the
-				// statement fails.
+				// refuses the first drops of an index. It counts each drop with a session advisory lock of key
+				// (4242, n), which a rollback does not release. It does not count with nextval: after a checkpoint,
+				// nextval logs the sequence and gives the transaction of the drop an ID, and then DROP INDEX
+				// CONCURRENTLY fails as it is not the first action of its transaction, so a drop that the trigger
+				// let through failed and ran again.
 				if _, err := db.Exec(fmt.Sprintf(`CREATE FUNCTION public.dup_slug() RETURNS event_trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.boards'::pg_catalog.regclass AND attname = 'slug') THEN
@@ -1392,10 +1395,14 @@ BEGIN
   END IF;
 END $$;
 CREATE EVENT TRIGGER dup_slug ON ddl_command_end WHEN TAG IN ('ALTER TABLE') EXECUTE FUNCTION public.dup_slug();
-CREATE SEQUENCE public.drops;
 CREATE FUNCTION public.fail_drop() RETURNS event_trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  drop_number bigint;
 BEGIN
-  IF nextval('public.drops') <= %d THEN
+  SELECT count(*) + 1 INTO drop_number FROM pg_catalog.pg_locks
+    WHERE locktype = 'advisory' AND classid = 4242 AND objsubid = 2 AND pid = pg_catalog.pg_backend_pid();
+  PERFORM pg_catalog.pg_advisory_lock(4242, drop_number::integer);
+  IF drop_number <= %d THEN
     RAISE EXCEPTION 'the test refuses the drop';
   END IF;
 END $$;
@@ -1407,7 +1414,7 @@ CREATE EVENT TRIGGER fail_drop ON ddl_command_start WHEN TAG IN ('DROP INDEX') E
 					t.Fatalf("the migration job with a duplicate gives %v, want the failure of %s", err, slugUnique)
 				}
 				var drops int64
-				if err := db.QueryRow(`SELECT last_value FROM public.drops`).Scan(&drops); err != nil {
+				if err := db.QueryRow(`SELECT count(*) FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND classid = 4242 AND objsubid = 2`).Scan(&drops); err != nil {
 					t.Fatal(err)
 				}
 				present, valid := indexState(t, db, "boards_slug_key")
