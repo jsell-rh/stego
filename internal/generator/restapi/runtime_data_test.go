@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -313,7 +314,7 @@ func newCrudProject(t *testing.T, ctx gen.Context, files map[string][]byte) *cru
 		t.Fatal(err)
 	}
 	p.write("go.sum", sums)
-	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.89.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
+	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.91.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
 	p.mustGo("mod", "tidy")
 	return p
 }
@@ -338,7 +339,7 @@ func (run *crudRun) passed(t *testing.T, p *crudProject, endpoint, key, id strin
 		run.output, run.err = p.goCommand([]string{"STEGO_TEST_SPICEDB=" + endpoint, "STEGO_TEST_SPICEDB_KEY=" + key},
 			"test", "-count=1", "-timeout=300s", "-v", "-run", "^TestCrud$", "./check")
 	})
-	if !strings.Contains(run.output, "--- PASS: TestCrud/"+id+"_") {
+	if !ownPass(run.output, "TestCrud", id) {
 		t.Fatalf("the check %s of the generated service did not run and pass (go test: %v):\n%s", id, run.err, run.output)
 	}
 }
@@ -784,6 +785,109 @@ func TestValidationBodyLimit(t *testing.T) {
 	})
 }
 
+func TestValidationTokenLimit(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC21-T05 A body with more JSON values than MaxBodyTokens is refused before the schema check builds its failures", func(t *testing.T) {
+		ctx := crudContext()
+		ctx.Conventions.RequestValidation = "openapi-schema"
+		files := crudFiles(t, ctx)
+		p := newCrudProject(t, ctx, files)
+		p.write("out/api/token_limit_test.go", []byte(tokenLimitCheck))
+		if output, err := p.goCommand(nil, "test", "-count=1", "-run", "^TestTokenLimit$", "./out/api"); err != nil {
+			t.Fatalf("the token limit check failed: %v\n%s", err, output)
+		}
+	})
+}
+
+// tokenLimitCheck is a test of the generated validation.go: a body of more than MaxBodyTokens values gets one
+// validation entry and no schema failures, and the schema check is not run for it.
+const tokenLimitCheck = `package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+func post(t *testing.T, body string) (*httptest.ResponseRecorder, bool) {
+	t.Helper()
+	called := false
+	handler := NewValidationMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/todos", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	answer := httptest.NewRecorder()
+	handler.ServeHTTP(answer, request)
+	return answer, called
+}
+
+func entries(t *testing.T, answer *httptest.ResponseRecorder) []map[string]any {
+	t.Helper()
+	var problem struct {
+		Errors []map[string]any ` + "`json:\"validation_errors\"`" + `
+	}
+	if err := json.Unmarshal(answer.Body.Bytes(), &problem); err != nil {
+		t.Fatalf("the answer is not a problem: %v: %s", err, answer.Body)
+	}
+	return problem.Errors
+}
+
+func TestTokenLimit(t *testing.T) {
+	// A request schema with an array of integers whose items each fail, so the schema check would make one failure
+	// for each item of a body that the limit lets through.
+	openAPISpec = []byte(` + "`" + `{"openapi":"3.0.3","info":{"title":"t","version":"1"},"paths":{"/api/v1/todos":{"post":{"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"tags":{"type":"array","items":{"type":"integer","maximum":0}},"name":{"type":"string","maxLength":5}}}}}},"responses":{"200":{"description":"ok"}}}}}}` + "`" + `)
+	items := func(n int) string { return strings.Repeat("1,", n-1) + "1" }
+	// One MiB of items: about 524000 values.
+	many := (MaxRequestBody - 64) / 2
+	for name, body := range map[string]string{
+		"a one MiB array":                 "{\"tags\":[" + items(many) + "]}",
+		"1e400 first":                     "{\"tags\":[1e400," + items(many-1) + "]}",
+		"-1e400 first":                    "{\"tags\":[-1e400," + items(many-1) + "]}",
+		"1e400 last":                      "{\"tags\":[" + items(many-1) + ",1e400]}",
+		"1e400 in a member before":        "{\"name\":1e400,\"tags\":[" + items(many-1) + "]}",
+		"one token more than the limit":   "{\"tags\":[" + items(MaxBodyTokens-2) + "]}",
+	} {
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		answer, called := post(t, body)
+		runtime.ReadMemStats(&after)
+		if answer.Code != http.StatusBadRequest || called {
+			t.Fatalf("%s got %d and called the handler %v", name, answer.Code, called)
+		}
+		list := entries(t, answer)
+		if len(list) != 1 || !strings.Contains(list[0]["message"].(string), "more than 10000 JSON values") {
+			t.Fatalf("%s got %d entries %.200v, want one entry that names the limit", name, len(list), list)
+		}
+		if grown := after.TotalAlloc - before.TotalAlloc; grown > 32<<20 {
+			t.Fatalf("%s allocated %d bytes", name, grown)
+		}
+	}
+	// At the limit, the schema check runs and lists its failures, at most 50 and one entry that counts the rest.
+	answer, called := post(t, "{\"tags\":["+items(MaxBodyTokens-3)+"]}")
+	if answer.Code != http.StatusBadRequest || called {
+		t.Fatalf("a bad body at the token limit got %d and called the handler %v", answer.Code, called)
+	}
+	if list := entries(t, answer); len(list) != 51 {
+		t.Fatalf("a body at the token limit got %d entries, want 50 failures and one count", len(list))
+	}
+	// A body that is not JSON is refused, also when it is cut after a value.
+	for _, body := range []string{"{", "{\"tags\":[1,", "{\"tags\" 1}", "1e400 x"} {
+		// The limit refuses it itself: an error of the count never lets a body pass to the schema check.
+		if answer, called := post(t, body); answer.Code != http.StatusBadRequest || called || !strings.Contains(answer.Body.String(), "not valid JSON") {
+			t.Fatalf("the body %q got %d and called the handler %v: %s", body, answer.Code, called, answer.Body)
+		}
+	}
+	if answer, called := post(t, "{\"tags\":[0],\"name\":\"ok\"}"); answer.Code != http.StatusNoContent || !called {
+		t.Fatalf("a valid body got %d and called the handler %v", answer.Code, called)
+	}
+}
+`
+
 // corsCheck is a test of the generated cors.go alone, in a module of its own.
 const corsCheck = `package api
 
@@ -998,6 +1102,27 @@ func TestChangeEvents(t *testing.T) {
 			if files, _, err := new(Generator).Generate(c); err == nil || files != nil || !strings.Contains(err.Error(), "ST-SUP-RC20-OC40") {
 				t.Errorf("%s: generation gave %d files and %v, want a refusal that names ST-SUP-RC20-OC40", name, len(files), err)
 			}
+		}
+	})
+}
+
+// ownPass tells whether output, the text of go test -v, holds the pass line of the subtest of id itself, directly
+// under a test whose name matches parent, a regular expression. A subtest one level down has the same name prefix,
+// but go test indents its line four more spaces, so its pass never counts as the pass of its parent
+// (ST-STD-CODE-R07).
+func ownPass(output, parent, id string) bool {
+	return regexp.MustCompile(`(?m)^    --- PASS: ` + parent + `/` + regexp.QuoteMeta(id) + `_`).MatchString(output)
+}
+
+func TestOwnPass(t *testing.T) {
+	t.Run("ST-STD-CODE-R07-T02 In the restapi wrapper, a pass of a subtest under the subtest of a record is not its pass", func(t *testing.T) {
+		output := "=== RUN   TestCrud/ST-X-T01_a\n        --- PASS: TestCrud/ST-X-T01_a/child (0.00s)\n    --- FAIL: TestCrud/ST-X-T01_a (0.00s)\n" +
+			"    --- PASS: TestCrud/ST-X-T02_b (0.00s)\n        --- FAIL: TestCrud/ST-X-T02_b/child (0.00s)\n    --- PASS: TestCrud/ST-X-T03_c/d (0.00s)\n"
+		if ownPass(output, "TestCrud", "ST-X-T01") {
+			t.Fatal("a failed subtest counts as passed because a subtest under it passed")
+		}
+		if !ownPass(output, "TestCrud", "ST-X-T02") || !ownPass(output, "TestCrud", "ST-X-T03") {
+			t.Fatal("a passed subtest, also one whose title holds a slash, does not count as passed")
 		}
 	})
 }
