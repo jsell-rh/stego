@@ -156,11 +156,11 @@ func Migration(runtimeRole, relayRole, outboxRelayRole, workerRole string) (stri
 	}
 	worker := "\"" + strings.ReplaceAll(workerRole, "\"", "\"\"") + "\""
 	var statements strings.Builder
-	statements.WriteString("ALTER TABLE public.\"organizations\" ADD COLUMN IF NOT EXISTS authz_token text NOT NULL DEFAULT '' CHECK (octet_length(authz_token) <= 4096);\n")
+	statements.WriteString("DO $authz$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.\"organizations\"'::regclass AND attname = 'authz_token' AND NOT attisdropped) THEN ALTER TABLE public.\"organizations\" ADD COLUMN IF NOT EXISTS authz_token text NOT NULL DEFAULT '' CHECK (octet_length(authz_token) <= 4096); END IF; END $authz$;\n")
 	statements.WriteString("GRANT SELECT (tenant_id, id), UPDATE (authz_token) ON public.\"organizations\" TO " + worker + ";\n")
-	statements.WriteString("ALTER TABLE public.\"users\" ADD COLUMN IF NOT EXISTS authz_token text NOT NULL DEFAULT '' CHECK (octet_length(authz_token) <= 4096);\n")
+	statements.WriteString("DO $authz$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.\"users\"'::regclass AND attname = 'authz_token' AND NOT attisdropped) THEN ALTER TABLE public.\"users\" ADD COLUMN IF NOT EXISTS authz_token text NOT NULL DEFAULT '' CHECK (octet_length(authz_token) <= 4096); END IF; END $authz$;\n")
 	statements.WriteString("GRANT SELECT (tenant_id, id), UPDATE (authz_token) ON public.\"users\" TO " + worker + ";\n")
-	statements.WriteString("ALTER TABLE public.\"org_settings\" ADD COLUMN IF NOT EXISTS authz_token text NOT NULL DEFAULT '' CHECK (octet_length(authz_token) <= 4096);\n")
+	statements.WriteString("DO $authz$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.\"org_settings\"'::regclass AND attname = 'authz_token' AND NOT attisdropped) THEN ALTER TABLE public.\"org_settings\" ADD COLUMN IF NOT EXISTS authz_token text NOT NULL DEFAULT '' CHECK (octet_length(authz_token) <= 4096); END IF; END $authz$;\n")
 	statements.WriteString("GRANT SELECT (tenant_id, id), UPDATE (authz_token) ON public.\"org_settings\" TO " + worker + ";\n")
 	return text + statements.String(), nil
 }
