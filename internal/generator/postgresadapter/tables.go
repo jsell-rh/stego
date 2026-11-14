@@ -88,8 +88,8 @@ func validateRuntimeData(ctx gen.Context) error {
 			return fmt.Errorf("entity %s: the table name %s is longer than 63 bytes, which PostgreSQL cuts", entity.Name, table)
 		}
 		for _, field := range entity.Fields {
-			if len(field.Name) > 63 {
-				return fmt.Errorf("entity %s: the field name %s is longer than 63 bytes, which PostgreSQL cuts", entity.Name, field.Name)
+			if len(field.ColumnName()) > 63 {
+				return fmt.Errorf("entity %s: the field name %s is longer than 63 bytes, which PostgreSQL cuts", entity.Name, field.ColumnName())
 			}
 		}
 	}
@@ -208,8 +208,8 @@ type checkItem struct{ source, deparsed string }
 // numeric bounds, the finite value of a bounded float, and the declared values of an enum. A pattern stays with
 // request validation, because PostgreSQL's regular expressions are not the RE2 expressions that the API checks.
 func columnChecks(field types.Field, typ string) []checkItem {
-	column := sqlIdentifier(field.Name)
-	ref := deparsedName(field.Name)
+	column := sqlIdentifier(field.ColumnName())
+	ref := deparsedName(field.ColumnName())
 	var checks []checkItem
 	if field.MinLength != nil {
 		length := ref
@@ -274,7 +274,7 @@ func uniqueKeys(entity types.Entity, upsertKeys [][]string) [][]string {
 	}
 	for _, field := range entity.Fields {
 		if field.Unique {
-			add([]string{field.Name})
+			add([]string{field.ColumnName()})
 		}
 	}
 	for _, field := range entity.Fields {
@@ -372,10 +372,10 @@ func tableModels(ctx gen.Context) ([]tableModel, error) {
 			if err != nil {
 				return nil, fmt.Errorf("entity %s: %w", entity.Name, err)
 			}
-			table.columns = append(table.columns, columnModel{name: field.Name, typ: columnTypeName,
+			table.columns = append(table.columns, columnModel{name: field.ColumnName(), typ: columnTypeName,
 				notNull: !field.Optional && !field.Computed, defaultClause: fieldDefault, manifestDefault: literalDefault(field.Default, columnTypeName)})
 			if checks := columnChecks(field, columnTypeName); len(checks) > 0 {
-				table.checks = append(table.checks, checkModel{name: sqlName(table.name, field.Name, "check"),
+				table.checks = append(table.checks, checkModel{name: sqlName(table.name, field.ColumnName(), "check"),
 					expression: joinChecks(checks, false), definition: "CHECK (" + joinChecks(checks, true) + ")"})
 			}
 		}
@@ -390,11 +390,11 @@ func tableModels(ctx gen.Context) ([]tableModel, error) {
 			if field.Type != types.FieldTypeRef || field.To == "" {
 				continue
 			}
-			from, to := []string{field.Name}, []string{keyColumn}
+			from, to := []string{field.ColumnName()}, []string{keyColumn}
 			if table.owned && owned[field.To] {
 				from, to = append(append([]string{}, table.lead...), from...), append(append([]string{}, table.lead...), to...)
 			}
-			table.foreign = append(table.foreign, foreignModel{name: sqlName(table.name, field.Name, "fkey"), table: tableName(field.To), from: from, to: to})
+			table.foreign = append(table.foreign, foreignModel{name: sqlName(table.name, field.ColumnName(), "fkey"), table: tableName(field.To), from: from, to: to})
 		}
 		table.search = searchColumns(entity, ctx.Collections)
 		table.unique = uniqueKeys(entity, upsertKeys[entity.Name])
@@ -568,7 +568,7 @@ func searchColumns(entity types.Entity, collections []types.Collection) []string
 			f.Type == types.FieldTypeInt32 || f.Type == types.FieldTypeInt64 || f.Type == types.FieldTypeFloat ||
 			f.Type == types.FieldTypeDouble || f.Type == types.FieldTypeBool)
 		if filtered[f.Name] || searchable {
-			columns = append(columns, f.Name)
+			columns = append(columns, f.ColumnName())
 		}
 	}
 	return columns

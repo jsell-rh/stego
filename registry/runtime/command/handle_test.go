@@ -1480,3 +1480,36 @@ func jsonUnmarshal(raw []byte, v any) error { return json.Unmarshal(raw, v) }
 
 // versionOf is the resource version that a loaded value carries.
 func versionOf[T any](l Loaded[T]) int64 { return viewOf(l).meta.Version }
+
+func TestWriterMarker(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC23-T04 The command runtime of a release with an open change sets the writer marker in each transaction that writes, and a release with none sets none", func(t *testing.T) {
+		e := newEnv(t)
+		cmd := e.command("reserve", nil, e.reservationE)
+		read := func(rt *Runtime, key string) string {
+			t.Helper()
+			var marker string
+			if _, err := e.runOn(rt, cmd, e.request("t1", u7(t), key, `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+				return h.st.tx.QueryRowContext(ctx, "SELECT coalesce(pg_catalog.current_setting('stego.schema_step', true), '')").Scan(&marker)
+			})); err != nil {
+				t.Fatal(err)
+			}
+			return marker
+		}
+		if got := read(e.rt, "k-marker-none"); got != "" {
+			t.Errorf("a release with no open change sets the writer marker %q", got)
+		}
+		marked := e.runtime(func(c *Config) { c.SchemaSteps = []string{"user-email-rename", "board-title-rename"} })
+		if got := read(marked, "k-marker-two"); got != "user-email-rename,board-title-rename" {
+			t.Errorf("the writer marker is %q, want user-email-rename,board-title-rename", got)
+		}
+		// The marker is transaction-local: the next transaction on the pool does not hold it.
+		var after string
+		if err := e.pool.QueryRowContext(e.ctx, "SELECT coalesce(pg_catalog.current_setting('stego.schema_step', true), '')").Scan(&after); err != nil || after != "" {
+			t.Errorf("a later transaction holds the writer marker %q (error %v)", after, err)
+		}
+		if _, err := New(e.ctx, Config{DB: e.pool, AuditDB: e.auditDB, Authz: e.authz, Audit: e.writer, Outbox: e.queue, Probes: e.probes,
+			Service: "orders", SchemaSteps: []string{"Not An ID"}}); err == nil {
+			t.Error("New accepts a writer marker that is not a list of change IDs")
+		}
+	})
+}

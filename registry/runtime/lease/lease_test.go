@@ -83,7 +83,7 @@ func openDatabase(t *testing.T) *database {
 	config.Tracer = rec
 	d := &database{db: stdlib.OpenDB(*config), other: stdlib.OpenDB(*plain), rec: rec}
 	t.Cleanup(func() { _ = d.db.Close(); _ = d.other.Close() })
-	for _, ddl := range []string{LeasesTable, "CREATE SCHEMA stego_schema", BackfillsTable} {
+	for _, ddl := range []string{LeasesTable, "CREATE SCHEMA stego_schema", BackfillsTable, BackfillFunctions} {
 		if _, err := d.other.ExecContext(ctx, ddl); err != nil {
 			t.Fatal(err)
 		}

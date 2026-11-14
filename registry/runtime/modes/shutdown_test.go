@@ -88,7 +88,7 @@ func openDatabase(t *testing.T) *database {
 	config.Tracer = rec
 	d := &database{db: stdlib.OpenDB(*config), other: stdlib.OpenDB(*plain), proxy: p, rec: rec}
 	t.Cleanup(func() { _ = d.db.Close(); _ = d.other.Close() })
-	for _, ddl := range []string{lease.LeasesTable, "CREATE SCHEMA stego_schema", lease.BackfillsTable} {
+	for _, ddl := range []string{lease.LeasesTable, "CREATE SCHEMA stego_schema", lease.BackfillsTable, lease.BackfillFunctions} {
 		d.exec(t, ddl)
 	}
 	return d
@@ -619,7 +619,7 @@ func TestModeShutdown(t *testing.T) {
 		released, batchCommit, flushed := -1, -1, -1
 		for i, s := range d.rec.all() {
 			switch {
-			case strings.HasPrefix(s.sql, "UPDATE stego_schema.backfills"):
+			case strings.HasPrefix(s.sql, "SELECT stego_schema.backfill_checkpoint("):
 				if released >= 0 {
 					t.Fatalf("a checkpoint was written after the release: %s", s.sql)
 				}
