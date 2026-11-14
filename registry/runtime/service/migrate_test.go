@@ -136,12 +136,26 @@ func TestMigrate(t *testing.T) {
 	})
 }
 
+// boardsComplete is the completeness CHECK of the rename of title to heading, NOT VALID as the step adds it.
+const boardsComplete = "ALTER TABLE public.boards ADD CONSTRAINT boards_heading_complete CHECK ((heading IS NOT NULL) OR (title IS NULL)) NOT VALID"
+
+// unmove clears the new column of the rows of boards that where selects, with the sync trigger off, as for rows that
+// the release before wrote before the step, and adds the completeness CHECK again NOT VALID, as the step adds it.
+func unmove(t *testing.T, f *fixture, where string) {
+	t.Helper()
+	if _, err := f.admin.ExecContext(context.Background(), `ALTER TABLE public.boards DROP CONSTRAINT IF EXISTS boards_heading_complete;
+ALTER TABLE public.boards DISABLE TRIGGER boards_heading_sync; UPDATE public.boards SET heading = NULL WHERE `+where+`;
+ALTER TABLE public.boards ENABLE TRIGGER boards_heading_sync; `+boardsComplete); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // boardsDDL is the table of a rename at expand of title to heading, owned by tenants and under forced row-level
 // security, with the sync trigger of the change, the table of the backfill checkpoints, its functions and the row of
 // the change, as the migration of the step makes them as the owner role.
 func boardsDDL(t *testing.T, owner string) string {
 	t.Helper()
-	function, err := manifest.SyncFunction("stego_steps", "boards_heading_sync", 1, manifest.Sync{Change: "board-title-rename", Owner: owner, K: "title", U: "heading",
+	function, err := manifest.SyncFunction("stego_steps", "boards_heading_sync", manifest.SyncVersion, manifest.Sync{Change: "board-title-rename", Owner: owner, K: "title", U: "heading",
 		Conversion: manifest.Conversion{Name: "identity"}})
 	if err != nil {
 		t.Fatal(err)
@@ -214,11 +228,8 @@ func renameJob(t *testing.T) (*fixture, Migration, []Backfill) {
 	// The sync trigger of the release before copied each insert, so the backfill has rows to move only after the
 	// new column is cleared, as for rows that the release before wrote before the step.
 	// One row keeps the new value that the trigger gave it, so the backfill leaves it and moves the 24 others.
-	if _, err := f.admin.ExecContext(ctx, `ALTER TABLE public.boards DISABLE TRIGGER boards_heading_sync; UPDATE public.boards SET heading = NULL WHERE title <> 'tenant-c-03';
-ALTER TABLE public.boards ENABLE TRIGGER boards_heading_sync`); err != nil {
-		t.Fatal(err)
-	}
-	backfills, err := CopyBackfills([]lease.Copy{{Change: "board-title-rename", Table: "boards", TenantColumn: "tenant_id", From: "title", To: "heading"}}, "public")
+	unmove(t, f, "title <> 'tenant-c-03'")
+	backfills, err := CopyBackfills([]lease.Copy{{Change: "board-title-rename", Table: "boards", TenantColumn: "tenant_id", From: "title", To: "heading", Check: "boards_heading_complete"}}, "public")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,8 +277,8 @@ func TestMigrateBackfill(t *testing.T) {
 			t.Fatalf("there are %d leases stego.backfill.board-title-rename (error %v), want 1", leases, err)
 		}
 		// A job that stops after its first batches resumes from the checkpoint in the next run, and moves each row once.
-		if _, err := f.admin.ExecContext(ctx, `ALTER TABLE public.boards DISABLE TRIGGER boards_heading_sync; UPDATE public.boards SET heading = NULL;
-ALTER TABLE public.boards ENABLE TRIGGER boards_heading_sync; UPDATE stego_schema.backfills SET last_key = NULL, last_key_type = NULL, rows_moved = 0, completed_at = NULL`); err != nil {
+		unmove(t, f, "true")
+		if _, err := f.admin.ExecContext(ctx, `UPDATE stego_schema.backfills SET last_key = NULL, last_key_type = NULL, rows_moved = 0, completed_at = NULL`); err != nil {
 			t.Fatal(err)
 		}
 		stopCtx, stop := context.WithCancel(ctx)
@@ -355,6 +366,66 @@ func unmoved(t *testing.T, f *fixture) int {
 		t.Fatal(err)
 	}
 	return n
+}
+
+func TestMigrateBackfillComplete(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T11 A row of a tenant that the tenant list does not hold blocks completion, the job fails and names the change, and the next run completes once the row is fixed", func(t *testing.T) {
+		f, m, _ := renameJob(t)
+		ctx := context.Background()
+		// Two rows of tenant-d, which stego_tenants does not hold, as the release before wrote them before the step.
+		for i := range 2 {
+			if _, err := f.admin.ExecContext(ctx, `INSERT INTO public.boards (tenant_id, id, title) VALUES ('tenant-d', gen_random_uuid(), $1)`, fmt.Sprintf("tenant-d-%02d", i)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		unmove(t, f, "tenant_id = 'tenant-d'")
+		job := m
+		job.Holder = "job-1"
+		err := runBackfills(ctx, f.admin, job)
+		if !errors.Is(err, lease.ErrIncomplete) {
+			t.Fatalf("the job with unmoved rows of an unlisted tenant gave %v, want ErrIncomplete", err)
+		}
+		for _, want := range []string{"board-title-rename", "boards_heading_complete"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the failure %q does not name %s", err, want)
+			}
+		}
+		if strings.Contains(err.Error(), "tenant-d") {
+			t.Errorf("the failure %q holds a row value", err)
+		}
+		var completed, validated bool
+		read := func() {
+			t.Helper()
+			if err := f.admin.QueryRowContext(ctx, `SELECT (SELECT completed_at IS NOT NULL FROM stego_schema.backfills WHERE change_id = 'board-title-rename'),
+  (SELECT convalidated FROM pg_constraint WHERE conname = 'boards_heading_complete')`).Scan(&completed, &validated); err != nil {
+				t.Fatal(err)
+			}
+		}
+		read()
+		if completed || validated {
+			t.Fatalf("after the failed job the change is complete %v and its CHECK validated %v, want neither", completed, validated)
+		}
+		// The rows of the listed tenants moved; those of tenant-d did not.
+		var unmoved int
+		if err := f.admin.QueryRowContext(ctx, `SELECT count(*) FROM public.boards WHERE heading IS NULL`).Scan(&unmoved); err != nil || unmoved != 2 {
+			t.Fatalf("%d rows have no new value (error %v), want the 2 of tenant-d", unmoved, err)
+		}
+		// The fix: tenant-d is provisioned. The next run passes over the rows again and completes.
+		if _, err := f.admin.ExecContext(ctx, `INSERT INTO public.stego_tenants (tenant_id) VALUES ('tenant-d')`); err != nil {
+			t.Fatal(err)
+		}
+		job.Holder = "job-2"
+		if err := runBackfills(ctx, f.admin, job); err != nil {
+			t.Fatalf("the next run after the fix: %v", err)
+		}
+		read()
+		if !completed || !validated {
+			t.Fatalf("after the next run the change is complete %v and its CHECK validated %v, want both", completed, validated)
+		}
+		if err := f.admin.QueryRowContext(ctx, `SELECT count(*) FROM public.boards WHERE heading IS DISTINCT FROM title`).Scan(&unmoved); err != nil || unmoved != 0 {
+			t.Fatalf("%d rows have no new value equal to the old one (error %v)", unmoved, err)
+		}
+	})
 }
 
 func TestBackfillFunctions(t *testing.T) {
@@ -445,6 +516,10 @@ func TestBackfillFunctions(t *testing.T) {
 		if _, err := f.admin.Exec(`INSERT INTO public.leases (name, holder, expires_at, token) VALUES ($1, 'job-a', now() + interval '1 hour', 3)`, leaseName); err != nil {
 			t.Fatal(err)
 		}
+		// The lease of another change, held by the same holder with the same token (recheck of PR #291).
+		if _, err := f.admin.Exec(`INSERT INTO public.leases (name, holder, expires_at, token) VALUES ('stego.backfill.other-change', 'job-a', now() + interval '1 hour', 3)`); err != nil {
+			t.Fatal(err)
+		}
 		// checkpoint runs the function as the owner role and gives the count of rows it changed.
 		checkpoint := func(token int64, name, holder string) int64 {
 			t.Helper()
@@ -473,6 +548,7 @@ func TestBackfillFunctions(t *testing.T) {
 			{"a token above the lease row's", leaseName, "job-a", 4},
 			{"another holder", leaseName, "job-b", 3},
 			{"another lease row", "stego.backfill.other", "job-a", 3},
+			{"the lease of another change", "stego.backfill.other-change", "job-a", 3},
 		} {
 			if n := checkpoint(c.token, c.lease, c.holder); n != 0 {
 				t.Errorf("the checkpoint with %s changed %d rows, want 0", c.name, n)
@@ -857,7 +933,7 @@ func TestMigrateLocks(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP14-LC03-T11 A run again of the job with nothing to change takes no lock that conflicts with the writes of the running release, and a run after a change of the catalog makes the objects again", func(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T12 A run again of the job with nothing to change takes no lock that conflicts with the writes of the running release, and a run after a change of the catalog makes the objects again", func(t *testing.T) {
 		endpoint, key := startSpiceDB(t)
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}

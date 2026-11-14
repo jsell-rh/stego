@@ -567,8 +567,9 @@ func maintainAudit(ctx context.Context, conn *sql.Conn, owner string) error {
 func quote(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
 
 // CopyBackfills gives the backfill of each copy, the batch of a rename at expand, over the tenant list stego_tenants
-// in tenantSchema (empty is public), with the default batch settings of the lease runtime and a pause of
-// BackfillPause between batches.
+// in tenantSchema (empty is public), with the default batch settings of the lease runtime, a pause of
+// BackfillPause between batches, and the validation of the completeness CHECK of each before it is marked complete
+// (decision on ST-SUP-Q120 (c), orchestrator under the owner's delegation, 2026-11-14).
 func CopyBackfills(copies []lease.Copy, tenantSchema string) ([]Backfill, error) {
 	if tenantSchema == "" {
 		tenantSchema = "public"
@@ -581,7 +582,8 @@ func CopyBackfills(copies []lease.Copy, tenantSchema string) ([]Backfill, error)
 			return nil, err
 		}
 		key, parts := c.Settings()
-		out = append(out, Backfill{Change: c.Change, Step: step, Settings: lease.BackfillSettings{Key: key, KeyParts: parts, Pause: BackfillPause}})
+		out = append(out, Backfill{Change: c.Change, Step: step, Settings: lease.BackfillSettings{Key: key, KeyParts: parts, Pause: BackfillPause,
+			Validate: c.Validate(), Check: c.Check}})
 	}
 	return out, nil
 }

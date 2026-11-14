@@ -101,6 +101,11 @@ type Table struct {
 	// contract step drops: when the table has a trigger of that exact name, it must be the trigger of the manifest,
 	// as one of Triggers must; when it lacks it, that is no fault. A name matches only as a whole.
 	OptionalTriggers []Trigger
+	// OptionalConstraints are constraints that the table may lack, such as the completeness CHECK of a schema step
+	// at expand, which the contract step drops: when the table has a constraint of that exact name, it must be the
+	// constraint of the manifest, of its kind and definition and validated, as one of Constraints must; when it lacks
+	// it, that is no fault (decision on ST-SUP-Q120 (c), orchestrator under the owner's delegation, 2026-11-14).
+	OptionalConstraints []Constraint
 	// Entity tells that the table is the table of a declared entity, which later schema steps change: on it, and only
 	// on it, Check accepts a sync trigger, a foreign key, a CHECK, a unique index and a column default that the
 	// manifest does not name, each only in the exact form that a later step gives (ST-SUP-RP15-LC02, ST-SUP-RP15-LC03,
@@ -371,7 +376,7 @@ func (m Manifest) Validate() error {
 				return fmt.Errorf("manifest: table %s: the column %s has no type", id, c.Name)
 			}
 		}
-		for _, c := range t.Constraints {
+		for _, c := range slices.Concat(t.Constraints, t.OptionalConstraints) {
 			if err := named("constraint", c.Name); err != nil {
 				return err
 			}
@@ -1460,12 +1465,15 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 	if err := closed(rows); err != nil {
 		return nil, err
 	}
+	// completes are the CHECKs that the manifest does not name and that are not the CHECK of a later add step, by
+	// name with their definitions; each is a fault unless it is the completeness CHECK of the accepted sync trigger.
+	completes := map[string]string{}
 	if t.RowSecurity || t.CheckGrants {
 		// A referential action runs with the rights of the table owner and passes row-level security and the
 		// grants, and a check or exclusion constraint runs its expression or operators as the role that writes the
 		// row, so on a table with row-level security or that checks its grants each one is the manifest's.
 		namedConstraints := map[string]bool{}
-		for _, want := range t.Constraints {
+		for _, want := range slices.Concat(t.Constraints, t.OptionalConstraints) {
 			namedConstraints[want.Name] = true
 		}
 		var extra []string
@@ -1491,6 +1499,12 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 					return nil, err
 				}
 				if ok {
+					continue
+				}
+				// The completeness CHECK of a later step at expand is accepted only with the sync trigger of that
+				// step, which the triggers below find (ST-SUP-RP15-LC02 rule 8).
+				if kind == KindCheck {
+					completes[n] = constraints[n].definition
 					continue
 				}
 			}
@@ -1529,6 +1543,16 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 		switch {
 		case !ok:
 			fault("constraint %s is missing", want.Name)
+		case got.kind != want.Kind || strings.TrimSuffix(got.definition, " NOT VALID") != want.Definition:
+			fault("constraint %s is not the constraint of the manifest", want.Name)
+		case !got.validated:
+			fault("constraint %s is not validated", want.Name)
+		}
+	}
+	for _, want := range t.OptionalConstraints {
+		got, ok := constraints[want.Name]
+		switch {
+		case !ok:
 		case got.kind != want.Kind || strings.TrimSuffix(got.definition, " NOT VALID") != want.Definition:
 			fault("constraint %s is not the constraint of the manifest", want.Name)
 		case !got.validated:
@@ -1754,8 +1778,8 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 					}
 				}
 			}
-			if k, u, _, _, ok := syncPair(got.source, steps.owner, pairs, stepCols); ok {
-				used[k], used[u] = true, true
+			if match, ok := syncPair(got.source, steps.owner, pairs, stepCols); ok {
+				used[match.k], used[match.u] = true, true
 			}
 		}
 	}
@@ -1787,6 +1811,7 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 		// On the table of a declared entity, one sync trigger of a later step is accepted in its strict template form
 		// (ST-SUP-RP15-LC02); two or more are each refused.
 		accepted := map[string]uint32{}
+		matches := map[string]syncMatch{}
 		if t.Entity && plainTable {
 			var keys []stepKey
 			for n, i := range indexes {
@@ -1796,12 +1821,25 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 				}
 			}
 			for _, n := range extra {
-				function, _, ok, err := acceptSync(ctx, tx, t, oid, n, steps, stepCols, keys, used)
+				function, match, ok, err := acceptSync(ctx, tx, t, oid, n, steps, stepCols, keys, used)
 				if err != nil {
 					return nil, err
 				}
 				if ok {
 					accepted[n] = function
+					matches[n] = match
+				}
+			}
+		}
+		// The completeness CHECK of the accepted sync trigger, of template version 2 or later, is accepted in its exact
+		// form, NOT VALID as the step adds it or validated as the backfill leaves it (ST-SUP-RP15-LC02 rule 8; decision
+		// on ST-SUP-Q120 (c), orchestrator under the owner's delegation, 2026-11-14).
+		if len(accepted) == 1 {
+			for _, match := range matches {
+				n := CompleteName(t.Name, match.u)
+				if definition, ok := completes[n]; ok && match.version >= 2 &&
+					strings.TrimSuffix(definition, " NOT VALID") == CompleteDefinition(match.k, match.u, match.conversion, match.hasFill) {
+					delete(completes, n)
 				}
 			}
 		}
@@ -1816,6 +1854,14 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 			}
 			fault("trigger %s is a trigger that the manifest does not name", n)
 		}
+	}
+	var unnamed []string
+	for n := range completes {
+		unnamed = append(unnamed, n)
+	}
+	slices.Sort(unnamed)
+	for _, n := range unnamed {
+		fault("constraint %s is a check constraint that the manifest does not name", n)
 	}
 
 	// A rule rewrites each statement on the table, and can copy or drop its rows, so a table of the manifest has none.
