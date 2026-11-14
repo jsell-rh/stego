@@ -438,6 +438,24 @@ func TestMigration(t *testing.T) {
 	})
 }
 
+func TestTokenStatements(t *testing.T) {
+	t.Run("ST-SUP-RC29-OC06-T07 The migration quotes the table name as an identifier, and as a string literal in the regclass name", func(t *testing.T) {
+		// Review of PR #292, L1: the name was put raw into a quoted identifier and a string literal.
+		column, grant := tokenStatements(`a"b'c`)
+		want := `DO $authz$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public."a""b''c"'::regclass AND attname = 'authz_token' AND NOT attisdropped) THEN ALTER TABLE public."a""b'c" ADD COLUMN IF NOT EXISTS authz_token text NOT NULL DEFAULT '' CHECK (octet_length(authz_token) <= 4096); END IF; END $authz$;` + "\n"
+		if column != want {
+			t.Errorf("the statement of the column is\n%s\nwant\n%s", column, want)
+		}
+		if want := `GRANT SELECT (tenant_id, id), UPDATE (authz_token) ON public."a""b'c" TO `; grant != want {
+			t.Errorf("the grant is %q, want %q", grant, want)
+		}
+		// A plain name gives the text of the golden wiring.
+		if column, _ := tokenStatements("documents"); !strings.Contains(column, `attrelid = 'public."documents"'::regclass`) || !strings.Contains(column, `ALTER TABLE public."documents" ADD`) {
+			t.Errorf("the statement of a plain name is %s", column)
+		}
+	})
+}
+
 func TestTenancy(t *testing.T) {
 	t.Run("ST-SUP-RC29-OC06-T05 A service without pooled tenancy on tenant_id is refused", func(t *testing.T) {
 		ctx := documentContext(t)
