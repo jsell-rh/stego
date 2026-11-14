@@ -96,10 +96,16 @@ func NewValidationMiddleware() func(http.Handler) http.Handler {
 	}
 }
 
+// MaxValidationErrors is the largest number of failed members that a validation problem lists.
+const MaxValidationErrors = 50
+
 // parseValidationErrors extracts per-field validation details from a
-// kin-openapi validation error.
+// kin-openapi validation error. It lists at most MaxValidationErrors failures,
+// and then one entry that says how many more it does not list. No entry quotes
+// a value of the request.
 func parseValidationErrors(err error) []ValidationError {
 	var result []ValidationError
+	more := 0
 
 	// Unwrap RequestError to get the schema validation error.
 	var reqErr *openapi3filter.RequestError
@@ -107,32 +113,40 @@ func parseValidationErrors(err error) []ValidationError {
 		err = reqErr.Err
 	}
 
-	addSchemaErrors(&result, err)
+	addSchemaErrors(&result, &more, err)
 
 	if len(result) == 0 {
-		result = append(result, ValidationError{Message: err.Error()})
+		result = append(result, ValidationError{Message: "the request body is not valid"})
 	}
-
+	if more > 0 {
+		result = append(result, ValidationError{Message: fmt.Sprintf("%d more failures not listed", more)})
+	}
 	return result
 }
 
 // addSchemaErrors adds one entry for each schema failure in err. A MultiError, also one nested in another,
-// gives an entry for each failure it holds, so each failed member is listed (ST-SUP-RC20-OC05).
-func addSchemaErrors(result *[]ValidationError, err error) {
+// gives an entry for each failure it holds, so each failed member is listed (ST-SUP-RC20-OC05). Past
+// MaxValidationErrors entries, it only counts the failures in more.
+func addSchemaErrors(result *[]ValidationError, more *int, err error) {
 	var multi openapi3.MultiError
 	if errors.As(err, &multi) {
 		for _, e := range multi {
-			addSchemaErrors(result, e)
+			addSchemaErrors(result, more, e)
 		}
+		return
+	}
+	if len(*result) >= MaxValidationErrors {
+		*more++
 		return
 	}
 	var schemaErr *openapi3.SchemaError
 	if errors.As(err, &schemaErr) {
 		pointer := schemaErr.JSONPointer()
 		field := strings.Join(pointer, ".")
+		// The reason names the rule; the error text would also quote the value.
 		msg := schemaErr.Reason
 		if msg == "" {
-			msg = schemaErr.Error()
+			msg = "the value does not match the schema"
 		}
 		*result = append(*result, ValidationError{
 			Field:   field,
@@ -140,5 +154,11 @@ func addSchemaErrors(result *[]ValidationError, err error) {
 		})
 		return
 	}
-	*result = append(*result, ValidationError{Message: err.Error()})
+	// A body that cannot be decoded: the parse error text quotes the value, so only its reason is used.
+	var parseErr *openapi3filter.ParseError
+	if errors.As(err, &parseErr) && parseErr.Reason != "" {
+		*result = append(*result, ValidationError{Message: parseErr.Reason})
+		return
+	}
+	*result = append(*result, ValidationError{Message: "the request body is not valid"})
 }
