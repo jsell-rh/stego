@@ -369,7 +369,7 @@ func unmoved(t *testing.T, f *fixture) int {
 }
 
 func TestMigrateBackfillComplete(t *testing.T) {
-	t.Run("ST-SUP-RP14-LC03-T09 A row of a tenant that the tenant list does not hold blocks completion, the job fails and names the change, and the next run completes once the row is fixed", func(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T11 A row of a tenant that the tenant list does not hold blocks completion, the job fails and names the change, and the next run completes once the row is fixed", func(t *testing.T) {
 		f, m, _ := renameJob(t)
 		ctx := context.Background()
 		// Two rows of tenant-d, which stego_tenants does not hold, as the release before wrote them before the step.
