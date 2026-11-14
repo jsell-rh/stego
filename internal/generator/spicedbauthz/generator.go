@@ -86,6 +86,8 @@ type operationPlan struct {
 // entityPlan is one protected entity: its resource type and its table.
 type entityPlan struct {
 	Name, ResourceType, Table string
+	// Column and Grant are the statements of the migration for the table (tokenStatements).
+	Column, Grant string
 }
 
 // bindingPlan is one slot binding that names the relations its fills may write.
@@ -194,6 +196,11 @@ func read(ctx gen.Context) (plan, error) {
 		}
 		owners[entity.ResourceType] = entity.Name
 		e := entityPlan{Name: entity.Name, ResourceType: entity.ResourceType, Table: postgresadapter.TableName(entity.Name)}
+		column, grant, err := tokenStatements(e.Table)
+		if err != nil {
+			return plan{}, err
+		}
+		e.Column, e.Grant = column, grant
 		p.Entities = append(p.Entities, e)
 	}
 	for _, collection := range ctx.Collections {
@@ -342,14 +349,19 @@ func goText(text string) string {
 // only when the catalog does not hold it: ADD COLUMN IF NOT EXISTS takes ACCESS EXCLUSIVE on the table even when the
 // column is there, so a run again of the job would wait behind each long transaction of the running release, and
 // each read and write of the table would queue behind it. The catalog read and the regclass name take no lock on the
-// table. The table name is the snake case of an exported Go name, so it holds no $ that could end the dollar quote.
-func tokenStatements(table string) (column, grant string) {
+// table. The table name is the snake case of an exported Go name, so it holds no $ that could end the dollar quote;
+// tokenStatements still refuses a name with a $, so the body of the dollar quote $authz$ cannot end in the name
+// (review of PR #306, info, defense in depth).
+func tokenStatements(table string) (column, grant string, err error) {
+	if strings.Contains(table, "$") {
+		return "", "", fmt.Errorf("spicedb-authz: the table name %q holds a $, which could end the dollar quote $authz$ of the migration", table)
+	}
 	name := databaseSchema + "." + sqlIdentifier(table)
 	column = "DO $authz$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = " + sqlString(name) +
 		"::regclass AND attname = " + sqlString(TokenColumn) + " AND NOT attisdropped) THEN ALTER TABLE " + name +
 		" ADD COLUMN IF NOT EXISTS " + TokenColumn + " text NOT NULL DEFAULT '' CHECK (octet_length(" + TokenColumn + ") <= 4096); END IF; END $authz$;\n"
 	grant = "GRANT SELECT (" + TenantColumn + ", id), UPDATE (" + TokenColumn + ") ON " + name + " TO "
-	return column, grant
+	return column, grant, nil
 }
 
 // sqlIdentifier quotes a name as a PostgreSQL identifier.
@@ -442,9 +454,8 @@ func Migration(runtimeRole, relayRole, outboxRelayRole, workerRole string) (stri
 	var statements strings.Builder
 `)
 	for _, e := range p.Entities {
-		column, grant := tokenStatements(e.Table)
-		fmt.Fprintf(&b, "\tstatements.WriteString(%s)\n", strconv.Quote(column))
-		fmt.Fprintf(&b, "\tstatements.WriteString(%s + worker + \";\\n\")\n", strconv.Quote(grant))
+		fmt.Fprintf(&b, "\tstatements.WriteString(%s)\n", strconv.Quote(e.Column))
+		fmt.Fprintf(&b, "\tstatements.WriteString(%s + worker + \";\\n\")\n", strconv.Quote(e.Grant))
 	}
 	b.WriteString(`	return text + statements.String(), nil
 }
