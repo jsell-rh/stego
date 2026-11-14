@@ -27,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/jsell-rh/stego/registry/runtime/lease"
 	"github.com/jsell-rh/stego/registry/runtime/manifest"
 )
 
@@ -613,35 +614,60 @@ WHERE pronamespace = 'stego_schema'::regnamespace AND proname IN ('backfill_read
 			config != "search_path=pg_catalog, pg_temp|search_path=pg_catalog, pg_temp" {
 			t.Errorf("the checkpoint functions are SECURITY DEFINER %v with %q (error %v), want true and search_path=pg_catalog, pg_temp", definer, config, err)
 		}
-		var public bool
-		if err := up.QueryRow(`SELECT has_function_privilege('public', 'stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text)', 'EXECUTE')`).Scan(&public); err != nil || public {
-			t.Errorf("PUBLIC may run the checkpoint function: %v (error %v)", public, err)
+		// EXECUTE is the owner's alone: PUBLIC and the runtime role cannot run either function, so the runtime role
+		// cannot read, lock or change the row (decision on finding M1 of the security review of PR #291).
+		checkpointFunction := "stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text, text, text)"
+		for _, role := range []string{"public", tenancy.RuntimeRole} {
+			var may bool
+			if err := up.QueryRow(`SELECT has_function_privilege($1, 'stego_schema.backfill_read(text)', 'EXECUTE') OR has_function_privilege($1, $2, 'EXECUTE')`, role, checkpointFunction).Scan(&may); err != nil || may {
+				t.Errorf("%s may run a checkpoint function: %v (error %v)", role, may, err)
+			}
 		}
-		fenced := `SELECT stego_schema.backfill_checkpoint('board-title-rename', '\x01'::bytea, 5, 0, 0, '', false, $1, 'uuid')`
-		var changed int64
-		check := func(token int64) int64 {
+		leaseName := "stego.backfill.board-title-rename"
+		fenced := `SELECT stego_schema.backfill_checkpoint('board-title-rename', '\x01'::bytea, 5, 0, 0, '', false, $1, 'uuid', '` + leaseName + `', 'job-a')`
+		for _, statement := range []string{
+			`SELECT count(*) FROM stego_schema.backfill_read('board-title-rename')`,
+			strings.Replace(fenced, "$1", "7", 1),
+		} {
+			if code := write(t, up, "tenant-a", statement); code != "42501" {
+				t.Errorf("as the runtime role %q gives %q, want 42501", statement, code)
+			}
+		}
+		// asOwner runs the statements in one transaction as the owner role, the role of the backfill in the migration
+		// job, and gives the result of the last.
+		asOwner := func(statements ...string) int64 {
 			t.Helper()
 			tx, err := up.Begin()
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
-			if _, err := tx.Exec("SET LOCAL ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize()); err != nil {
+			if _, err := tx.Exec("SET LOCAL ROLE " + pgx.Identifier{tenancy.OwnerRole}.Sanitize()); err != nil {
 				t.Fatal(err)
 			}
-			if err := tx.QueryRow(fenced, token).Scan(&changed); err != nil {
-				t.Fatalf("the fenced checkpoint statement as the runtime role: %v", err)
+			var changed int64
+			for i, statement := range statements {
+				if i < len(statements)-1 {
+					if _, err := tx.Exec(statement); err != nil {
+						t.Fatalf("%.60s: %v", statement, err)
+					}
+					continue
+				}
+				if err := tx.QueryRow(statement).Scan(&changed); err != nil {
+					t.Fatalf("the fenced checkpoint statement as the owner role: %v", err)
+				}
 			}
 			if err := tx.Commit(); err != nil {
 				t.Fatal(err)
 			}
 			return changed
 		}
-		if got := check(7); got != 1 {
-			t.Errorf("the fenced statement with the token 7 changed %d rows, want 1", got)
+		asOwner(lease.LeasesTable, `INSERT INTO public.leases (name, holder, expires_at, token) VALUES ('`+leaseName+`', 'job-a', now() + interval '1 hour', 7) ON CONFLICT (name) DO NOTHING`, `SELECT 0`)
+		if got := asOwner(strings.Replace(fenced, "$1", "7", 1)); got != 1 {
+			t.Errorf("the fenced statement of the lease holder with the token 7 changed %d rows, want 1", got)
 		}
-		if got := check(3); got != 0 {
-			t.Errorf("the fenced statement with the lower token 3 changed %d rows, want 0", got)
+		if got := asOwner(strings.Replace(fenced, "$1", "3", 1)); got != 0 {
+			t.Errorf("the fenced statement with the stale token 3 changed %d rows, want 0", got)
 		}
 		if err := up.QueryRow(`SELECT rows_moved, token FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`).Scan(&moved, &token); err != nil || moved != 5 || token != 7 {
 			t.Errorf("after the fenced statements the row has %d moved and the token %d (error %v), want 5 and 7", moved, token, err)

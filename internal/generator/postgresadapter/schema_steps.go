@@ -380,11 +380,21 @@ const backfillFunctions = `CREATE OR REPLACE FUNCTION stego_schema.backfill_read
  LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
  AS $stego_backfill$SELECT b.last_key, b.last_key_type, b.rows_moved, b.failed_rows, b.duplicate_groups, b.fill_digest, b.token, b.completed_at IS NOT NULL
   FROM stego_schema.backfills b WHERE b.change_id = $1 FOR UPDATE$stego_backfill$;
-CREATE OR REPLACE FUNCTION stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text)
- RETURNS bigint LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
- AS $stego_backfill$WITH changed AS (UPDATE stego_schema.backfills b SET last_key = $2, last_key_type = $9, rows_moved = $3, failed_rows = $4,
-  duplicate_groups = $5, fill_digest = $6, completed_at = CASE WHEN $7 THEN coalesce(b.completed_at, pg_catalog.now()) END, token = $8
-  WHERE b.change_id = $1 AND b.token <= $8 RETURNING 1) SELECT pg_catalog.count(*) FROM changed$stego_backfill$;
+CREATE OR REPLACE FUNCTION stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text, text, text)
+ RETURNS bigint LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+ AS $stego_backfill$DECLARE n bigint;
+BEGIN
+  PERFORM 1 FROM public.leases l WHERE l.name = $10 AND l.holder = $11 AND l.token = $8 AND l.expires_at > pg_catalog.clock_timestamp() FOR SHARE;
+  IF NOT FOUND THEN
+    RETURN 0;
+  END IF;
+  WITH changed AS (UPDATE stego_schema.backfills b SET last_key = $2, last_key_type = $9, rows_moved = $3, failed_rows = $4,
+   duplicate_groups = $5, fill_digest = $6, completed_at = CASE WHEN $7 THEN coalesce(b.completed_at, pg_catalog.now()) END, token = $8
+   WHERE b.change_id = $1 AND b.token <= $8 RETURNING 1) SELECT pg_catalog.count(*) INTO n FROM changed;
+  RETURN n;
+END$stego_backfill$;
+REVOKE ALL ON FUNCTION stego_schema.backfill_read(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text, text, text) FROM PUBLIC;
 `
 
 // renameSQL gives the migrations of the expand step of a rename (ST-GEN-UC12-R02, ST-GEN-UC12-R03,
@@ -393,12 +403,12 @@ CREATE OR REPLACE FUNCTION stego_schema.backfill_checkpoint(text, bytea, bigint,
 // there, so the old column K keeps its type, NOT NULL, CHECK and indexes. It makes the schema StepSchema, the sync
 // function of the fixed template with the identity, which the release before accepts by its text
 // (ST-SUP-RP15-LC02), and the BEFORE row trigger on INSERT OR UPDATE that runs it. Then it makes the table of the
-// backfill checkpoints, its two SECURITY DEFINER functions, which alone change a row for a role other than the
-// owner, and the row of the change. The search index and the unique indexes of U are built CONCURRENTLY by
+// backfill checkpoints, its two SECURITY DEFINER functions, through which the backfill alone reads and changes a
+// row, with EXECUTE for no role other than the owner, and the row of the change. The search index and the unique indexes of U are built CONCURRENTLY by
 // migrations of their own (decision on finding F2, orchestrator under the owner's delegation, 2026-11-13). The
 // migration job runs it as the owner role, which owns each object it makes.
 func renameSQL(ctx gen.Context, before, after []tableModel, change types.SchemaChange) (*stepAddition, error) {
-	runtime, owner, err := serviceRoles(ctx)
+	_, owner, err := serviceRoles(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -452,11 +462,10 @@ func renameSQL(ctx gen.Context, before, after []tableModel, change types.SchemaC
 	out.sync.WriteString(syncFunction(trigger, syncSource(change.ID, owner, change.From, change.Field)) + ";\n")
 	fmt.Fprintf(&out.sync, "CREATE TRIGGER %s BEFORE INSERT OR UPDATE ON %s FOR EACH ROW EXECUTE FUNCTION %s.%s();\n",
 		sqlIdentifier(trigger), table, StepSchema, sqlIdentifier(trigger))
+	// The functions revoke EXECUTE from PUBLIC and grant it to no role: only the owner role, which runs the backfill
+	// in the migration job, reads and changes the row (decision on finding M1 of the security review of PR #291,
+	// orchestrator under the owner's delegation, 2026-11-14).
 	out.sync.WriteString(backfillsTable + ";\n" + backfillFunctions)
-	for _, function := range backfillFunctionSignatures {
-		fmt.Fprintf(&out.sync, "REVOKE ALL ON FUNCTION %s FROM PUBLIC;\nGRANT EXECUTE ON FUNCTION %s TO %s;\n", function, function, sqlIdentifier(runtime))
-	}
-	fmt.Fprintf(&out.sync, "GRANT USAGE ON SCHEMA stego_schema TO %s;\n", sqlIdentifier(runtime))
 	fmt.Fprintf(&out.sync, "INSERT INTO stego_schema.backfills (change_id) VALUES (%s) ON CONFLICT (change_id) DO NOTHING;\n", sqlString(change.ID))
 	if slices.Contains(next.search, change.Field) {
 		out.indexes = append(out.indexes, stepIndex{name: "public." + sqlIdentifier(searchName(next.name, change.Field)),
@@ -469,13 +478,6 @@ func renameSQL(ctx gen.Context, before, after []tableModel, change types.SchemaC
 		}
 	}
 	return out, nil
-}
-
-// backfillFunctionSignatures are the two functions of backfillFunctions with their argument types, as a GRANT names
-// them.
-var backfillFunctionSignatures = []string{
-	"stego_schema.backfill_read(text)",
-	"stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text)",
 }
 
 // validTriggerName tells whether a trigger name has 63 bytes at most and no control character.

@@ -29,8 +29,8 @@ const (
 )
 
 // BackfillsTable is the table of the backfill checkpoints, one row for each schema change. The migration of a step
-// at expand creates the table and the row of its change as the owner role (ST-SUP-RC01-OC25); the runtime role
-// changes the row only through BackfillFunctions.
+// at expand creates the table and the row of its change as the owner role (ST-SUP-RC01-OC25); the backfill, as the
+// owner role, changes the row only through BackfillFunctions.
 const BackfillsTable = `CREATE TABLE IF NOT EXISTS stego_schema.backfills (
 	change_id text PRIMARY KEY,
 	last_key bytea,
@@ -43,32 +43,47 @@ const BackfillsTable = `CREATE TABLE IF NOT EXISTS stego_schema.backfills (
 	completed_at timestamptz
 )`
 
-// BackfillFunctions are the two functions through which a role other than the owner reads and changes a row of
+// BackfillFunctions are the two functions through which the backfill reads and changes a row of
 // stego_schema.backfills: backfill_read reads the change's row and locks it FOR UPDATE for the batch, so the row
 // lock orders two writers; backfill_checkpoint is the fenced checkpoint statement of ST-SUP-RP09-LC07, which changes
-// the row only when its token is not higher than the holder's, sets the row's token to the holder's, and gives the
-// count of rows it changed. Both are SECURITY DEFINER functions of the owner role with the search path pg_catalog,
-// pg_temp, so a role that may only EXECUTE them can change the row in no other way, and no object of the caller's
-// search path runs in them (ST-SUP-RC01-OC25). The migration of a step at expand with a backfill makes them after
-// BackfillsTable, as the owner role, revokes EXECUTE from PUBLIC and grants it to the runtime role. Each statement
-// runs again with no error on a database that it made.
+// the row only when the lease row that its arguments name holds the holder with the holder's token and has not
+// expired, and the row's token is not higher than the holder's; it sets the row's token to the holder's and gives
+// the count of rows it changed. Both are SECURITY DEFINER functions of the owner role with the search path
+// pg_catalog, pg_temp, so no object of the caller's search path runs in them, and they name each table with its
+// schema. The text revokes EXECUTE from PUBLIC and grants it to no role, so only the owner role, which runs the
+// backfill in the migration job, can run them, and the runtime role cannot read, lock or change a row
+// (ST-SUP-RC01-OC25; decision on finding M1 of the security review of PR #291, orchestrator under the owner's
+// delegation, 2026-11-14). The migration of a step at expand with a backfill runs it after BackfillsTable, as the
+// owner role. backfill_checkpoint is PL/pgSQL, so it reads public.leases only when it runs, and a migration can make
+// it before the lease table. Each statement runs again with no error on a database that it made.
 const BackfillFunctions = `CREATE OR REPLACE FUNCTION stego_schema.backfill_read(text)
  RETURNS TABLE (last_key bytea, last_key_type text, rows_moved bigint, failed_rows bigint, duplicate_groups bigint, fill_digest text, token bigint, completed boolean)
  LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
  AS $stego_backfill$SELECT b.last_key, b.last_key_type, b.rows_moved, b.failed_rows, b.duplicate_groups, b.fill_digest, b.token, b.completed_at IS NOT NULL
   FROM stego_schema.backfills b WHERE b.change_id = $1 FOR UPDATE$stego_backfill$;
-CREATE OR REPLACE FUNCTION stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text)
- RETURNS bigint LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
- AS $stego_backfill$WITH changed AS (UPDATE stego_schema.backfills b SET last_key = $2, last_key_type = $9, rows_moved = $3, failed_rows = $4,
-  duplicate_groups = $5, fill_digest = $6, completed_at = CASE WHEN $7 THEN coalesce(b.completed_at, pg_catalog.now()) END, token = $8
-  WHERE b.change_id = $1 AND b.token <= $8 RETURNING 1) SELECT pg_catalog.count(*) FROM changed$stego_backfill$;
+CREATE OR REPLACE FUNCTION stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text, text, text)
+ RETURNS bigint LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+ AS $stego_backfill$DECLARE n bigint;
+BEGIN
+  PERFORM 1 FROM public.leases l WHERE l.name = $10 AND l.holder = $11 AND l.token = $8 AND l.expires_at > pg_catalog.clock_timestamp() FOR SHARE;
+  IF NOT FOUND THEN
+    RETURN 0;
+  END IF;
+  WITH changed AS (UPDATE stego_schema.backfills b SET last_key = $2, last_key_type = $9, rows_moved = $3, failed_rows = $4,
+   duplicate_groups = $5, fill_digest = $6, completed_at = CASE WHEN $7 THEN coalesce(b.completed_at, pg_catalog.now()) END, token = $8
+   WHERE b.change_id = $1 AND b.token <= $8 RETURNING 1) SELECT pg_catalog.count(*) INTO n FROM changed;
+  RETURN n;
+END$stego_backfill$;
+REVOKE ALL ON FUNCTION stego_schema.backfill_read(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text, text, text) FROM PUBLIC;
 `
 
 // readCheckpointStatement reads and locks the change's row through backfill_read.
 const readCheckpointStatement = `SELECT last_key, last_key_type, rows_moved, failed_rows, duplicate_groups, fill_digest, token, completed FROM stego_schema.backfill_read($1)`
 
-// checkpointStatement is the fenced checkpoint statement of ST-SUP-RP09-LC07, through backfill_checkpoint.
-const checkpointStatement = `SELECT stego_schema.backfill_checkpoint($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+// checkpointStatement is the fenced checkpoint statement of ST-SUP-RP09-LC07, through backfill_checkpoint, with the
+// lease name and the holder after the key type.
+const checkpointStatement = `SELECT stego_schema.backfill_checkpoint($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 
 // KeyType is the type of a checkpoint key (ST-SUP-RP09-LC09).
 type KeyType string
@@ -559,7 +574,8 @@ func (b *Backfill) inTx(ctx context.Context, change func(ctx context.Context, tx
 	}
 	// The lease row first: a holder whose lease another holder took writes nothing (ST-SUP-RP09-LC03). The
 	// checkpoint token below stays as the second guard (ST-SUP-RP09-LC07).
-	if _, err := held.Fence(ctx, tx); err != nil {
+	token, err := held.Fence(ctx, tx)
+	if err != nil {
 		return err
 	}
 	var row checkpoint
@@ -589,7 +605,7 @@ func (b *Backfill) inTx(ctx context.Context, change func(ctx context.Context, tx
 		return err
 	}
 	if write {
-		if next, err = b.checkpoint(ctx, tx, next); err != nil {
+		if next, err = b.checkpoint(ctx, tx, next, token); err != nil {
 			return err
 		}
 	}
@@ -603,9 +619,9 @@ func (b *Backfill) inTx(ctx context.Context, change func(ctx context.Context, tx
 	return nil
 }
 
-// checkpoint runs the fenced checkpoint statement with the holder's token (ST-SUP-RP09-LC07).
-func (b *Backfill) checkpoint(ctx context.Context, tx *sql.Tx, row checkpoint) (checkpoint, error) {
-	token := b.held.Token()
+// checkpoint runs the fenced checkpoint statement with the token that Fence read from the lease row in tx, the
+// lease name and the holder, so the function itself checks the lease row (ST-SUP-RP09-LC07).
+func (b *Backfill) checkpoint(ctx context.Context, tx *sql.Tx, row checkpoint, token int64) (checkpoint, error) {
 	var storedKey []byte
 	var storedType sql.NullString
 	if row.lastKey != nil {
@@ -613,11 +629,11 @@ func (b *Backfill) checkpoint(ctx context.Context, tx *sql.Tx, row checkpoint) (
 		storedType = sql.NullString{String: string(row.lastKey.Type), Valid: true}
 	}
 	var changed int64
-	if err := tx.QueryRowContext(ctx, checkpointStatement, b.change, storedKey, row.moved, row.failed, row.duplicates, row.fillDigest, row.completed, token, storedType).Scan(&changed); err != nil {
+	if err := tx.QueryRowContext(ctx, checkpointStatement, b.change, storedKey, row.moved, row.failed, row.duplicates, row.fillDigest, row.completed, token, storedType, b.held.client.name, b.held.client.holder).Scan(&changed); err != nil {
 		return row, fmt.Errorf("backfill %s: checkpoint: %w", b.change, err)
 	}
 	if changed != 1 {
-		err := fmt.Errorf("backfill %s: %w: the checkpoint row holds a token higher than %d", b.change, ErrFenced, token)
+		err := fmt.Errorf("backfill %s: %w: the lease row does not hold the holder with the token %d unexpired, or the checkpoint row holds a higher token", b.change, ErrFenced, token)
 		b.held.halt(err)
 		return row, err
 	}
