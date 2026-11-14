@@ -918,8 +918,14 @@ func TestRevocationWiring(t *testing.T) {
 		first, _ := s.create(t, bob, "k-oc41-1")
 		second, created := s.create(t, bob, "k-oc41-2")
 		path := location(t, created)
-		if listed := ids(t, s.do(t, &bob, http.MethodGet, basePath+"/documents", "")); listed[first] || listed[second] {
+		// A list with no Authz-Revocation-After waits for nothing, even with a pending write and Prefer: wait, and
+		// sends no Authz-Revocation header.
+		plain := s.do(t, &bob, http.MethodGet, basePath+"/documents", "", "Prefer", "wait=5")
+		if listed := ids(t, plain); listed[first] || listed[second] {
 			t.Fatalf("a list before the delivery shows %v, want neither create", listed)
+		}
+		if plain.code != http.StatusOK || plain.took > time.Second || len(plain.header.Values(authz.RevocationHeader)) != 0 {
+			t.Fatalf("a list with no %s answered %d %v after %s, want 200 at once with no %s", authz.RevocationAfterHeader, plain.code, plain.header, plain.took, authz.RevocationHeader)
 		}
 		stopped := make(chan func(), 1)
 		go func() { time.Sleep(300 * time.Millisecond); stopped <- s.startRelay(t) }()
