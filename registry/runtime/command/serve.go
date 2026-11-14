@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -356,6 +358,64 @@ func ServeRPC[Req, Res proto.Message, P any](rt *Runtime, s ServeSpec[Req, Res, 
 		}
 		return response, nil
 	}, nil
+}
+
+// ServeRevocationStatus gives the handler of the revocation status route, GET /authz/revocations/{id}
+// (ST-SUP-RP10-LC35, ST-SUP-RC29-OC17, ST-SUP-RC29-OC19). It binds the verified tenant and principal of subjectType
+// and answers 401 when it cannot. It reads the revocation only for that tenant and principal, with no decision call,
+// and answers 404, the same answer, to an identity that is not a revocation of theirs or is not an identity
+// (ST-SUP-RC29-OC18). It honors Prefer: wait=N through authz WaitFor, which holds no transaction and no pooled
+// connection while it waits, and sends Preference-Applied with the seconds it allowed. It answers 200 with the
+// identity, the state and, when complete, the token, with Cache-Control: no-store.
+func ServeRevocationStatus(rt *Runtime, subjectType string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			writeProblem(w, http.StatusMethodNotAllowed, "", "")
+			return
+		}
+		b, err := BindIdentity(r.Context(), subjectType)
+		if err != nil {
+			writeProblem(w, http.StatusUnauthorized, "", "")
+			return
+		}
+		text := r.PathValue("id")
+		if text == "" {
+			text = strings.TrimPrefix(r.URL.Path, authz.RevocationPath)
+		}
+		id, err := uuid.Parse(text)
+		if err != nil || id.String() != text {
+			writeProblem(w, http.StatusNotFound, "", ErrorCodeDenied)
+			return
+		}
+		wait, _ := authz.PreferWait(r.Header)
+		status, allowed, err := rt.cfg.Authz.WaitFor(r.Context(), b.Tenant, b.Principal, id, wait)
+		switch {
+		case errors.Is(err, authz.ErrRevocationNotFound):
+			writeProblem(w, http.StatusNotFound, "", ErrorCodeDenied)
+			return
+		case err != nil:
+			writeProblem(w, http.StatusInternalServerError, "", ErrorCodeInternal)
+			return
+		}
+		if allowed > 0 {
+			w.Header().Set("Preference-Applied", "wait="+strconv.Itoa(int(allowed/time.Second)))
+		}
+		body := map[string]string{"id": status.ID.String(), "state": string(status.State)}
+		if !status.Token.IsZero() {
+			body["token"] = status.Token.Text()
+		}
+		data, err := json.Marshal(body)
+		if err != nil {
+			writeProblem(w, http.StatusInternalServerError, "", ErrorCodeInternal)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(authz.RevocationHeader, string(status.State))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(data)
+	})
 }
 
 // RPCCode is the gRPC status code of an HTTP status of a command answer.

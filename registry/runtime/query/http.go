@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -318,3 +321,48 @@ func EncodePage(items any, next string) ([]byte, error) {
 
 // EncodeValue writes the response of a get query as JSON. It is the Encode of a get query.
 func EncodeValue[Res any](res Res, _ string) ([]byte, error) { return json.Marshal(res) }
+
+// RevocationUnknown is the state that AwaitWrite answers for a revocation that is not one of the caller's own: it
+// does not tell whether another tenant or principal made one with that identity.
+const RevocationUnknown = "unknown"
+
+// AwaitWrite waits for the revocation of the caller's own write that the request names in Authz-Revocation-After,
+// before the read opens its transaction (ST-SUP-RP11-LC21). The value is the identity of the revocation or the
+// path of Authz-Revocation-Location. It waits through authz WaitFor, at most the wait of Prefer: wait=N when the
+// request gives one and at most the wait cap, and holds no transaction and no pooled connection while it waits.
+// It sets the response header Authz-Revocation to the state it read last, and to unknown for a revocation that is
+// not one of tenant t and principal p. Once that state is complete, the read that follows runs at least as fresh as
+// the revocation's token, because the revocation floor that each check and list reads was raised before the
+// revocation became complete (ST-SUP-RP06-LC13, ST-SUP-RP06-LC15). A request with no such header waits for
+// nothing. A value that is not an identity is ErrBadRequest.
+func (rt *Runtime) AwaitWrite(w http.ResponseWriter, r *http.Request, t tenant.Tenant, p authz.Principal) error {
+	text := r.Header.Get(authz.RevocationAfterHeader)
+	if text == "" {
+		return nil
+	}
+	if len(r.Header.Values(authz.RevocationAfterHeader)) != 1 {
+		return fmt.Errorf("%w: more than one %s header", ErrBadRequest, authz.RevocationAfterHeader)
+	}
+	text = strings.TrimPrefix(text, authz.RevocationPath)
+	id, err := uuid.Parse(text)
+	if err != nil || id.String() != text {
+		return fmt.Errorf("%w: %s is not the identity of a revocation", ErrBadRequest, authz.RevocationAfterHeader)
+	}
+	if rt.authz == nil {
+		return errors.New("query: no authorization runtime to wait for a revocation")
+	}
+	wait, ok := authz.PreferWait(r.Header)
+	if !ok {
+		wait = math.MaxInt64
+	}
+	status, _, err := rt.authz.WaitFor(r.Context(), t, p, id, wait)
+	switch {
+	case errors.Is(err, authz.ErrRevocationNotFound):
+		w.Header().Set(authz.RevocationHeader, RevocationUnknown)
+		return nil
+	case err != nil:
+		return err
+	}
+	w.Header().Set(authz.RevocationHeader, string(status.State))
+	return nil
+}

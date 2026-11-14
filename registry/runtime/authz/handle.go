@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -54,6 +56,11 @@ type Config struct {
 	Retention time.Duration
 	// Clock is the clock of the retention. Nil is the system clock.
 	Clock Clock
+	// WaitCap is the longest wait of WaitFor (ST-SUP-RP06-LC24). Zero is DefaultWaitCap.
+	WaitCap time.Duration
+	// Waiters is the most calls of WaitFor that wait at one time; a call over it reads the status once and does not
+	// wait (ST-SUP-RP06-LC24). Zero is DefaultWaiters.
+	Waiters int
 	// Meter gives the metric of the search results that a handle drops because they name another tenant
 	// (ST-SUP-RP06-LC22). Nil records no metric; DroppedResults counts them still.
 	Meter metric.MeterProvider
@@ -68,6 +75,8 @@ type Runtime struct {
 	poll      time.Duration
 	retention time.Duration
 	clock     Clock
+	waitCap   time.Duration
+	waiters   chan struct{}
 
 	droppedMetric metric.Int64Counter
 	dropped       atomic.Int64
@@ -97,6 +106,10 @@ func New(cfg Config) (*Runtime, error) {
 		return nil, errors.New("authz: the poll time is negative")
 	case cfg.Retention != 0 && cfg.Retention < MinRetention:
 		return nil, errors.New("authz: the revocation retention is shorter than 30 days")
+	case cfg.WaitCap < 0:
+		return nil, errors.New("authz: the wait cap is negative")
+	case cfg.Waiters < 0:
+		return nil, errors.New("authz: the waiter limit is negative")
 	}
 	schema, err := quoteName("schema", cfg.Schema)
 	if err != nil {
@@ -113,6 +126,15 @@ func New(cfg Config) (*Runtime, error) {
 	if r.clock == nil {
 		r.clock = systemClock{}
 	}
+	r.waitCap = cfg.WaitCap
+	if r.waitCap == 0 {
+		r.waitCap = DefaultWaitCap
+	}
+	waiters := cfg.Waiters
+	if waiters == 0 {
+		waiters = DefaultWaiters
+	}
+	r.waiters = make(chan struct{}, waiters)
 	if cfg.Meter != nil {
 		r.droppedMetric, err = cfg.Meter.Meter(instrumentation).Int64Counter("authz.search.dropped",
 			metric.WithDescription("The resource search results that name another tenant or are not tenant-qualified, which a handle drops."))
@@ -731,6 +753,107 @@ func (r *Runtime) Status(ctx context.Context, t tenant.Tenant, p Principal, id u
 		}
 	}
 	return status, nil
+}
+
+// DefaultWaitCap is the longest wait of WaitFor when Config gives none (ST-SUP-RP06-LC24).
+const DefaultWaitCap = 10 * time.Second
+
+// DefaultWaiters is the most calls of WaitFor that wait at one time when Config gives none (ST-SUP-RP06-LC24).
+const DefaultWaiters = 100
+
+// The headers of a revocation in HTTP (ST-SUP-RC29-OC16, ST-SUP-RP10-LC35, ST-SUP-RP11-LC21).
+const (
+	// RevocationHeader is the response header that gives the state of a revocation: pending on the answer of a write.
+	RevocationHeader = "Authz-Revocation"
+	// RevocationLocationHeader is the response header of a write that gives the path of its revocation's status.
+	RevocationLocationHeader = "Authz-Revocation-Location"
+	// RevocationAfterHeader is the request header of a read that names the revocation of the caller's own write,
+	// which the read waits for (ST-SUP-RP11-LC21).
+	RevocationAfterHeader = "Authz-Revocation-After"
+	// RevocationPath is the path of the revocation status route, before the identity of the revocation.
+	RevocationPath = "/authz/revocations/"
+)
+
+// Current returns the revocation of the handle's transaction, and true, when a tuple write of any handle bound to the
+// transaction made one; it returns false when the transaction enqueued no tuple. It writes nothing, so a caller reads
+// it before the commit to answer the revocation's location (ST-SUP-RP10-LC35).
+func (h *Handle) Current(ctx context.Context) (Revocation, bool, error) {
+	var current sql.NullString
+	if err := h.tx.QueryRowContext(ctx, "SELECT pg_catalog.current_setting('"+revocationSetting+"', true)").Scan(&current); err != nil {
+		return Revocation{}, false, errors.New("authz: the revocation of the transaction cannot be read")
+	}
+	if current.String == "" {
+		return Revocation{}, false, nil
+	}
+	id, err := uuid.Parse(current.String)
+	if err != nil {
+		return Revocation{}, false, errors.New("authz: the revocation setting of the transaction is not an identity")
+	}
+	return Revocation{id: id}, true, nil
+}
+
+// WaitFor reads the status of the revocation id for tenant t and principal p, and while it is pending reads it again
+// until it is no longer pending, wait ends, the wait cap ends or ctx ends, whichever comes first
+// (ST-SUP-RP06-LC24). Each read is Status, in a short transaction of its own, so it holds no transaction and no
+// pooled connection between two reads. At most the waiter limit of calls wait at one time: a call over the limit
+// answers the first read at once. allowed is the wait that the call allowed, which is the cap when the cap cut wait;
+// it is zero when wait is not positive or the call is over the limit. It answers ErrRevocationNotFound to any other
+// tenant and principal, as Status does.
+func (r *Runtime) WaitFor(ctx context.Context, t tenant.Tenant, p Principal, id uuid.UUID, wait time.Duration) (status RevocationStatus, allowed time.Duration, err error) {
+	if wait <= 0 {
+		status, err = r.Status(ctx, t, p, id)
+		return status, 0, err
+	}
+	select {
+	case r.waiters <- struct{}{}:
+		defer func() { <-r.waiters }()
+	default:
+		status, err = r.Status(ctx, t, p, id)
+		return status, 0, err
+	}
+	allowed = min(wait, r.waitCap)
+	waitCtx, cancel := context.WithTimeout(ctx, allowed)
+	defer cancel()
+	for {
+		status, err = r.Status(waitCtx, t, p, id)
+		if err != nil {
+			if waitCtx.Err() != nil && ctx.Err() == nil {
+				// The wait ended during a read: the last answer is pending.
+				return RevocationStatus{ID: id, State: RevocationPending}, allowed, nil
+			}
+			return RevocationStatus{}, allowed, err
+		}
+		if status.State != RevocationPending {
+			return status, allowed, nil
+		}
+		timer := time.NewTimer(r.poll)
+		select {
+		case <-waitCtx.Done():
+			timer.Stop()
+			return status, allowed, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+// PreferWait reads the wait preference of RFC 7240 from the Prefer headers of a request: the seconds of the first
+// wait=N, and true; false when no Prefer header holds a wait of whole, non-negative seconds.
+func PreferWait(header http.Header) (time.Duration, bool) {
+	for _, value := range header.Values("Prefer") {
+		for _, preference := range strings.Split(value, ",") {
+			token, _, _ := strings.Cut(preference, ";")
+			name, seconds, ok := strings.Cut(strings.TrimSpace(token), "=")
+			if !ok || !strings.EqualFold(strings.TrimSpace(name), "wait") {
+				continue
+			}
+			n, err := strconv.Atoi(strings.Trim(strings.TrimSpace(seconds), `"`))
+			if err != nil || n < 0 || n > 3600 {
+				return 0, false
+			}
+			return time.Duration(n) * time.Second, true
+		}
+	}
+	return 0, false
 }
 
 // Wait is Status that waits until the state is no longer pending or ctx ends; when ctx ends it returns the pending

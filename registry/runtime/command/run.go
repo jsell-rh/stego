@@ -513,7 +513,10 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 		if err != nil {
 			return idempotency.Response{}, err
 		}
-		return response, nil
+		if transient(response) {
+			return response, nil
+		}
+		return answerRevocation(ctx, s, response)
 	}
 	var wrapped idempotency.Result
 	if req.Key == "" {
@@ -546,6 +549,29 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 	outcome = otel.OutcomeCommitted
 	call.Commit()
 	return Result{Response: wrapped.Response}, nil, false
+}
+
+// answerRevocation sets the revocation headers of a response that commits (ST-SUP-RP10-LC35, ST-SUP-RC29-OC16):
+// when the transaction enqueued a tuple, Authz-Revocation: pending and Authz-Revocation-Location with the path of the
+// revocation's status; otherwise neither header, also when the fill set one. It runs before the idempotency wrapper
+// stores the response, so a replay gives the same headers byte for byte.
+func answerRevocation(ctx context.Context, s *state, response idempotency.Response) (idempotency.Response, error) {
+	header := response.Header.Clone()
+	if header == nil {
+		header = http.Header{}
+	}
+	header.Del(authz.RevocationHeader)
+	header.Del(authz.RevocationLocationHeader)
+	revocation, ok, err := s.az.Current(ctx)
+	if err != nil {
+		return idempotency.Response{}, &fillFailure{err: internalf("the revocation of the transaction was not read")}
+	}
+	if ok {
+		header.Set(authz.RevocationHeader, string(authz.RevocationPending))
+		header.Set(authz.RevocationLocationHeader, authz.RevocationPath+revocation.ID().String())
+	}
+	response.Header = header
+	return response, nil
 }
 
 // decideCommand decides the command's declared permission on the resource id with the attempt's authorization
