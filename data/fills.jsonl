@@ -521,6 +521,7 @@
 {"source_id":"ST-SUP-INV01-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-INV03-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-INV10-RL","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-SUP-INV17-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-QRY01-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-QRY02-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-QRY03-H","target_id":"ST-PAT-GO-CODE-SL01"}
