@@ -63,6 +63,17 @@ func compileTD03(t *testing.T, schema string) *AuthzSchema {
 	return compiled
 }
 
+// compileUnbounded compiles a fixture schema with no shape bound (ST-DECL-INV88), for the tests that show that the
+// checks after the compiler stay linear on a schema far beyond the bounds.
+func compileUnbounded(t *testing.T, schema string) *AuthzSchema {
+	t.Helper()
+	compiled, err := compileSchema("authz/schema.zed", []byte(schema))
+	if err != nil {
+		t.Fatalf("the fixture schema does not compile: %v", err)
+	}
+	return compiled
+}
+
 // expectOneFault expects exactly one fault of the rule, and that it names each text in its found value, path or
 // message.
 func expectOneFault(t *testing.T, faults []ValidationError, rule string, texts ...string) ValidationError {

@@ -145,7 +145,7 @@ func TestTenantProvisioning(t *testing.T) {
 		for i := links - 1; i >= 0; i-- {
 			fmt.Fprintf(&text, "definition node%d {\n relation next: node%d\n permission perm = next->perm\n}\n", i, i+1)
 		}
-		compiled := compileTD03(t, text.String())
+		compiled := compileUnbounded(t, text.String())
 		start := time.Now()
 		reach := compiled.wildcardReach()
 		elapsed := time.Since(start)
@@ -206,7 +206,7 @@ func TestTenantProvisioning(t *testing.T) {
 			if len(text) > MaxSchemaBytes {
 				t.Fatalf("the schema has %d bytes, more than MaxSchemaBytes", len(text))
 			}
-			compiled := compileTD03(t, text)
+			compiled := compileUnbounded(t, text)
 			start := time.Now()
 			reach := compiled.wildcardReach()
 			elapsed := time.Since(start)
