@@ -1,5 +1,5 @@
 kind: archetype
-runtime: {module: github.com/jsell-rh/stego/registry/runtime, version: v0.1.0, sum: 'h1:wWOLm3vjS+mO2Uh2xoWaLkFc64Ezij4mVue9acAJGfk='}
+runtime: {module: github.com/jsell-rh/stego/registry/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: sample
 language: go
 version: 1.0.0

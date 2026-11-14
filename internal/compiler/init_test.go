@@ -28,7 +28,7 @@ func initTestFile(t *testing.T, project, name, content string) {
 
 func initTestRegistry(t *testing.T, project, directory, archetype string) {
 	t.Helper()
-	initTestFile(t, project, directory+"/archetypes/"+archetype+"/archetype.yaml", "kind: archetype\nruntime: {module: github.com/jsell-rh/stego/registry/runtime, version: v0.1.0, sum: 'h1:wWOLm3vjS+mO2Uh2xoWaLkFc64Ezij4mVue9acAJGfk='}\nname: "+archetype+"\nlanguage: go\nversion: 1.0.0\ncomponents: []\n")
+	initTestFile(t, project, directory+"/archetypes/"+archetype+"/archetype.yaml", "kind: archetype\nruntime: {module: github.com/jsell-rh/stego/registry/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: "+archetype+"\nlanguage: go\nversion: 1.0.0\ncomponents: []\n")
 }
 
 // initDefaultRegistry puts a registry with the archetype in the default local registry folder of a new home
