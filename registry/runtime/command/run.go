@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"maps"
 	"math/rand/v2"
 	"net/http"
 	"regexp"
@@ -261,14 +260,27 @@ func NewCommand[P any](spec CommandSpec[P]) (*Command[P], error) {
 }
 
 // boundRelations gives the relations of an authorization handle: the declared ones, which the fill may write, and
-// those that the runtime writes for the references of the written entities, which only the runtime writes.
+// those that the runtime writes for the references of the written entities, which only the runtime writes. A
+// declared relation that is the relation of a declared relationship or of a parent reference of a written entity is
+// bound but is not the fill's own, as defence in depth behind the generators (ST-SUP-Q118).
 func boundRelations(declared []authz.Relation, writes []Declared) ([]authz.Relation, map[authz.Relation]bool) {
+	runtimeOnly := map[authz.Relation]bool{}
+	for _, e := range writes {
+		for _, r := range e.runtimeRelations() {
+			runtimeOnly[r] = true
+		}
+	}
 	own := make(map[authz.Relation]bool, len(declared))
 	bound := slices.Clone(declared)
 	for _, r := range declared {
-		own[r] = true
+		if !runtimeOnly[r] {
+			own[r] = true
+		}
 	}
-	seen := maps.Clone(own)
+	seen := make(map[authz.Relation]bool, len(declared))
+	for _, r := range declared {
+		seen[r] = true
+	}
 	for _, e := range writes {
 		for _, r := range e.relations() {
 			if !seen[r] {
