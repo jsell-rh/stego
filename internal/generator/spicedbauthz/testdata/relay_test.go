@@ -174,6 +174,59 @@ func TestAuthorization(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RC29-OC06-T06 A run again of the migration takes no lock on a protected table", func(t *testing.T) {
+		f := newFixture(t)
+		migration, err := Migration(f.roles[0], f.roles[2], "authz_check"+outbox.RelaySuffix, f.roles[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A long transaction of the running release holds documents for the whole subtest.
+		long, err := f.admin.BeginTx(f.ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = long.Rollback() }()
+		if _, err := long.ExecContext(f.ctx, "SELECT count(*) FROM public.documents"); err != nil {
+			t.Fatal(err)
+		}
+		// The migration job runs the text again with no lock timeout, as a step that takes a lock on documents would
+		// wait behind the long transaction until the statement timeout, and a reader would queue behind it.
+		job, err := f.admin.Conn(f.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer job.Close()
+		if _, err := job.ExecContext(f.ctx, "SET statement_timeout = '5s'"); err != nil {
+			t.Fatal(err)
+		}
+		ran := make(chan error, 1)
+		go func() { _, err := job.ExecContext(f.ctx, migration); ran <- err }()
+		reader, err := f.admin.Conn(f.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer reader.Close()
+		if _, err := reader.ExecContext(f.ctx, "SET statement_timeout = '2s'"); err != nil {
+			t.Fatal(err)
+		}
+		// The reader reads documents until the job ends, and at least five times.
+		var jobErr error
+		for reads, done := 0, false; !done || reads < 5; reads++ {
+			var n int
+			if err := reader.QueryRowContext(f.ctx, "SELECT count(*) FROM public.documents").Scan(&n); err != nil {
+				t.Fatalf("a read of documents during the run again of the migration failed after %d reads: %v", reads, err)
+			}
+			select {
+			case jobErr = <-ran:
+				done = true
+			default:
+			}
+		}
+		if jobErr != nil {
+			t.Fatalf("the run again of the migration failed while a transaction held documents: %v", jobErr)
+		}
+	})
+
 	t.Run("ST-SUP-RC29-OC06-T03 The migration creates the floor table, owned by no tenant", func(t *testing.T) {
 		f := newFixture(t)
 		var rows, tenantColumns int

@@ -93,6 +93,18 @@ type Field struct {
 	Sensitivity string `yaml:"sensitivity,omitempty" json:"Sensitivity,omitempty"`
 	// Currency is the ISO 4217 code of a field of type money (ST-DECL-INV26).
 	Currency string `yaml:"currency,omitempty" json:"Currency,omitempty"`
+	// Column is the stored column of the field when it is not Name: generation names a renamed field in the API by
+	// its name before its first rename, and stores it in the column of its declared name (ST-GEN-UC12-R04). The
+	// declaration never sets it.
+	Column string `yaml:"-" json:"Column,omitempty"`
+}
+
+// ColumnName gives the stored column of the field: Column, else Name.
+func (f Field) ColumnName() string {
+	if f.Column != "" {
+		return f.Column
+	}
+	return f.Name
 }
 
 // Entity represents a domain entity with its fields.

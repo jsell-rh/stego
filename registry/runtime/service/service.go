@@ -37,6 +37,10 @@ type Parts struct {
 	// Service is the name of the service, and DeclarationVersion the SHA-256 of its declaration, which each audit row
 	// carries.
 	Service, DeclarationVersion string
+	// SchemaSteps are the IDs of the schema changes of this release whose last step is expand and that have a sync
+	// trigger; the command runtime sets the writer marker to them in each transaction that writes
+	// (ST-SUP-RC01-OC23).
+	SchemaSteps []string
 	// SubjectType is the subject type of the schema that a verified identity maps to, and TenantClaim the dotted path
 	// of the claim that names the caller's tenant.
 	SubjectType, TenantClaim string
@@ -185,7 +189,7 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 		Keys: svc.keys}); err != nil {
 		return nil, err
 	}
-	config := command.Config{DB: svc.pool, AuditDB: svc.auditDB, Authz: svc.authz, Audit: svc.writer,
+	config := command.Config{DB: svc.pool, AuditDB: svc.auditDB, Authz: svc.authz, Audit: svc.writer, SchemaSteps: p.SchemaSteps,
 		AuditSettings: p.AuditSettings, Outbox: svc.queue, Probes: svc.probes, Service: p.Service,
 		ServiceVersion: s.ServiceVersion, DeclarationVersion: p.DeclarationVersion}
 	if len(p.Commands) > 0 {

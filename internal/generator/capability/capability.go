@@ -91,7 +91,7 @@ func ValueOf(entity types.Entity) (Value, error) {
 		"updated_time": true}
 	goNames := map[string]bool{"ID": true, "CreatedTime": true, "UpdatedTime": true}
 	for _, f := range entity.Fields {
-		if !plainColumn.MatchString(f.Name) || reserved[f.Name] {
+		if !plainColumn.MatchString(f.Name) || reserved[f.Name] || !plainColumn.MatchString(f.ColumnName()) || reserved[f.ColumnName()] {
 			return Value{}, fmt.Errorf("the entity %s has the field %q, which is not a plain lower-case column name or is a column that the runtime keeps", entity.Name, f.Name)
 		}
 		if f.Sensitivity == "secret" {
@@ -106,7 +106,7 @@ func ValueOf(entity types.Entity) (Value, error) {
 			return Value{}, fmt.Errorf("the entity %s has two fields with the Go name %s", entity.Name, name)
 		}
 		goNames[name] = true
-		v.Fields = append(v.Fields, Field{Column: f.Name, GoName: name, GoType: goType, Read: read, Type: f.Type,
+		v.Fields = append(v.Fields, Field{Column: f.ColumnName(), GoName: name, GoType: goType, Read: read, Type: f.Type,
 			Sensitivity: f.Sensitivity})
 	}
 	v.Fields = append(v.Fields,

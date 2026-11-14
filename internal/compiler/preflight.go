@@ -141,12 +141,18 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	if input.CheckOnly && unbuiltSchemaChanges(svcDecl) != nil {
 		schemaChanges, schemaHistory = nil, nil
 	}
+	// A renamed field keeps its API name, the name before its first rename, and is stored in the column of its
+	// declared name (ST-GEN-UC12-R04).
+	entities, err := gen.StoredNames(svcDecl.Entities, svcDecl.Invariants, svcDecl.Collections, schemaChanges)
+	if err != nil {
+		return nil, err
+	}
 	for _, compName := range componentNames {
 		comp := components[compName]
 		generator := input.Generators[compName]
 		ctx := gen.Context{
 			Conventions:     conventions,
-			Entities:        svcDecl.Entities,
+			Entities:        entities,
 			Collections:     svcDecl.Collections,
 			SchemaChanges:   schemaChanges,
 			SchemaHistory:   schemaHistory,
