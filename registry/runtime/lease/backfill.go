@@ -3,6 +3,7 @@ package lease
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -40,6 +41,26 @@ var ErrValidate = errors.New("the completeness CHECK cannot be validated")
 // a serialization failure, a deadlock, and an administrator shutdown or a server that cannot take connections yet, as
 // at a failover (review of PR #305).
 var transientStates = map[string]bool{"55P03": true, "57014": true, "40001": true, "40P01": true, "57P01": true, "57P03": true}
+
+// ErrSession is the error of Run when the session of its batches breaks: an administrator shutdown (SQLSTATE 57P01),
+// a server that cannot take connections yet (57P03), a connection exception (class 08) or a connection that the
+// driver or database/sql marks as bad or done. A run again on the same session cannot pass, so Run returns it at once,
+// and the caller holds the lease again with new sessions, as after a lost lease (review of PR #305, L3, orchestrator
+// under the owner's delegation, 2026-11-14).
+var ErrSession = errors.New("the session of the backfill is broken")
+
+// brokenSession tells whether err ends the session of the backfill.
+func brokenSession(err error) bool {
+	if errors.Is(err, driver.ErrBadConn) || errors.Is(err, sql.ErrConnDone) {
+		return true
+	}
+	var state interface{ SQLState() string }
+	if errors.As(err, &state) {
+		code := state.SQLState()
+		return code == "57P01" || code == "57P03" || strings.HasPrefix(code, "08")
+	}
+	return false
+}
 
 // The reasons of schema.backfill.throttled: the backfill waited for a replica whose replay lag is above the
 // maximum, or it made its batches smaller because a batch took longer than the target batch time.
@@ -401,7 +422,7 @@ func (b *Backfill) Stalled() bool {
 // reads no row, and then it marks the change complete. When the declared fill digest differs from the row's, it
 // first clears the completed time and the key and records the new digest, so the step passes again over the rows
 // whose new value is unset (ST-SUP-RP09-LC11). A batch that fails, such as at the lock timeout, is rolled back
-// and run again after the retry period; a fenced batch or a stopped holder ends Run. A watcher marks the backfill
+// and run again after the retry period; a fenced batch, a stopped holder or a broken session (ErrSession) ends Run. A watcher marks the backfill
 // stalled when no batch commits for three lease durations, and emits the stall once.
 func (b *Backfill) Run(ctx context.Context, db DB, held *Held) (runErr error) {
 	b.mu.Lock()
@@ -479,6 +500,8 @@ func (b *Backfill) Run(ctx context.Context, db DB, held *Held) (runErr error) {
 			continue
 		case errors.Is(err, ErrFenced), errors.Is(err, ErrStopped), errors.Is(err, ErrIncomplete), errors.Is(err, ErrValidate), ctx.Err() != nil:
 			return err
+		case brokenSession(err):
+			return fmt.Errorf("backfill %s: %w: %w", b.change, ErrSession, err)
 		}
 		select {
 		case <-ctx.Done():
@@ -608,10 +631,11 @@ func (b *Backfill) batch(ctx context.Context) error {
 // table, and it proves that no row of any tenant has the old column set and the new column unset. When a row breaks
 // the CHECK (SQLSTATE 23514), finish sets the checkpoint key back to the start in a fenced checkpoint and fails with
 // ErrIncomplete, which names the change and the CHECK and no row value; the next Run passes over the rows again and
-// moves those that are unset. A lock timeout, a statement timeout, a serialization failure, a deadlock and an error
-// with no SQLSTATE, such as a broken connection, are a failed batch, which Run runs again (decision on ST-SUP-Q120
-// (c), orchestrator under the owner's delegation, 2026-11-14); any other SQL error fails with ErrValidate and its
-// cause, and Run returns it at once (review of PR #300, L1).
+// moves those that are unset. A lock timeout, a statement timeout, a serialization failure, a deadlock and another
+// error with no SQLSTATE are a failed batch, which Run runs again (decision on ST-SUP-Q120 (c), orchestrator under
+// the owner's delegation, 2026-11-14); a broken session, such as an administrator shutdown (57P01), ends Run with
+// ErrSession (review of PR #305, L3); any other SQL error fails with ErrValidate and its cause, and Run returns it at
+// once (review of PR #300, L1).
 func (b *Backfill) finish(ctx context.Context) error {
 	err := b.validateCheck(ctx)
 	var state interface{ SQLState() string }
@@ -624,7 +648,7 @@ func (b *Backfill) finish(ctx context.Context) error {
 		}
 		return fmt.Errorf("backfill %s: %w: the CHECK %s finds a row whose old column is set and whose new column is unset, such as a row of a tenant that the tenant list does not hold; the next run passes over the rows again from the start", b.change, ErrIncomplete, b.check)
 	}
-	if errors.As(err, &state) && !transientStates[state.SQLState()] {
+	if errors.As(err, &state) && !transientStates[state.SQLState()] && !brokenSession(err) {
 		return fmt.Errorf("backfill %s: %w %s: %w", b.change, ErrValidate, b.check, err)
 	}
 	if err != nil {

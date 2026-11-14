@@ -338,8 +338,9 @@ func BackfillLeaseName(change string) string { return "stego.backfill." + change
 // runBackfills runs the backfill of each schema change of m in turn, as the owner role, the backfill role of the
 // sync trigger (ST-SUP-RC01-OC32; decision on finding F4, orchestrator under the owner's delegation, 2026-11-13),
 // each under its own lease, so that of two jobs that run at the same time one moves rows and the other waits
-// (ST-GEN-UC13-R01). A job whose batch was fenced or whose lease was lost waits for the lease again, and finds the
-// change complete or resumes it from the checkpoint (ST-GEN-UC13-R04). The step ends when every change is complete,
+// (ST-GEN-UC13-R01). A job whose batch was fenced, whose lease was lost or whose batch session broke (lease.ErrSession,
+// such as an administrator shutdown of the backend; review of PR #305, L3) waits for the lease again with new
+// sessions, and finds the change complete or resumes it from the checkpoint (ST-GEN-UC13-R04). The step ends when every change is complete,
 // or at BackfillTimeout with an error, and the next run of the job resumes.
 func runBackfills(parent context.Context, db *sql.DB, m Migration) error {
 	if len(m.Backfills) == 0 {
@@ -432,7 +433,7 @@ func runBackfills(parent context.Context, db *sql.DB, m Migration) error {
 			if err == nil {
 				break
 			}
-			if !errors.Is(err, lease.ErrFenced) && !errors.Is(err, lease.ErrLost) && !errors.Is(err, lease.ErrStopped) {
+			if !errors.Is(err, lease.ErrFenced) && !errors.Is(err, lease.ErrLost) && !errors.Is(err, lease.ErrStopped) && !errors.Is(err, lease.ErrSession) {
 				return fmt.Errorf("backfill %s: %w", b.Change, err)
 			}
 			if ctx.Err() != nil {

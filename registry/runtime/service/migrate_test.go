@@ -426,6 +426,52 @@ func TestMigrateBackfillComplete(t *testing.T) {
 			t.Fatalf("%d rows have no new value equal to the old one (error %v)", unmoved, err)
 		}
 	})
+	t.Run("ST-SUP-RP14-LC03-T18 A backfill whose validation backend an administrator ends holds the lease again with new sessions and completes the change", func(t *testing.T) {
+		f, m, backfills := renameJob(t)
+		ctx := context.Background()
+		// A session holds SHARE UPDATE EXCLUSIVE on the table, so the validation waits; its backend is ended with
+		// pg_terminate_backend while it waits (SQLSTATE 57P01), which breaks the batch session of the hold (review
+		// of PR #305, L3).
+		hold, err := f.admin.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = hold.Rollback() }()
+		if _, err := hold.ExecContext(ctx, "LOCK TABLE public.boards IN SHARE UPDATE EXCLUSIVE MODE"); err != nil {
+			t.Fatal(err)
+		}
+		backfills[0].Settings.LockTimeout = 20 * time.Second
+		m.Backfills = backfills
+		m.BackfillTimeout = 40 * time.Second
+		ended := make(chan int, 1)
+		go func() {
+			defer close(ended)
+			for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+				var n int
+				_ = f.admin.QueryRowContext(ctx, `SELECT count(pg_catalog.pg_terminate_backend(pid)) FROM pg_catalog.pg_stat_activity
+  WHERE query LIKE '%VALIDATE CONSTRAINT%boards_heading_complete%' AND wait_event_type = 'Lock' AND pid <> pg_catalog.pg_backend_pid()`).Scan(&n)
+				if n > 0 {
+					_ = hold.Rollback()
+					ended <- n
+					return
+				}
+			}
+		}()
+		start := time.Now()
+		err = runBackfills(ctx, f.admin, m)
+		if n := <-ended; n == 0 {
+			t.Fatal("no validation was ended")
+		}
+		if err != nil {
+			t.Fatalf("the backfill after the validation was ended gave %v after %v, want the change complete", err, time.Since(start).Round(time.Millisecond))
+		}
+		if took := time.Since(start); took > 25*time.Second {
+			t.Fatalf("the backfill took %v, want it to hold the lease again at once and not to wait for its time limit", took)
+		}
+		if !boardsCompleted(t, f) {
+			t.Fatal("the change is not complete")
+		}
+	})
 }
 
 func TestBackfillFunctions(t *testing.T) {

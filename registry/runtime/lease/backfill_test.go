@@ -1002,7 +1002,7 @@ func TestBackfillComplete(t *testing.T) {
 			t.Fatal("the change is complete after a validation that failed")
 		}
 	})
-	t.Run("ST-SUP-RP09-LC10-T05 A validation whose session an administrator ends, as at a failover, runs again, and the change is complete", func(t *testing.T) {
+	t.Run("ST-SUP-RP09-LC10-T05 A validation whose session an administrator ends, as at a failover, ends Run with ErrSession at once, and a Run on a new session completes the change", func(t *testing.T) {
 		d := openDatabase(t)
 		it := newItems(t, d, 10, 0)
 		settings := withCompleteCheck(t, d, BackfillSettings{BatchSize: 20, LockTimeout: 20 * time.Second})
@@ -1033,12 +1033,22 @@ func TestBackfillComplete(t *testing.T) {
 				time.Sleep(50 * time.Millisecond)
 			}
 		}()
-		err = newBackfill(t, it, settings).Run(ctx, d.db, heldLease(t, d, "h1", Settings{}))
+		held := heldLease(t, d, "h1", Settings{})
+		b := newBackfill(t, it, settings)
+		err = b.Run(ctx, d.db, held)
 		if n := <-ended; n == 0 {
 			t.Fatal("no validation was ended")
 		}
-		if err != nil {
-			t.Fatalf("Run after the validation was ended gave %v, want the change complete", err)
+		// The session is broken: Run returns at once, and the caller holds the lease again with new sessions
+		// (review of PR #305, L3).
+		if !errors.Is(err, ErrSession) || errors.Is(err, ErrValidate) {
+			t.Fatalf("Run after the validation was ended gave %v, want ErrSession", err)
+		}
+		if got := checkpointRow(t, d); got.completed.Valid {
+			t.Fatal("the change is complete after the validation was ended")
+		}
+		if err := b.Run(ctx, d.db, held); err != nil {
+			t.Fatalf("the Run on a new session gave %v, want the change complete", err)
 		}
 		if got := checkpointRow(t, d); !got.completed.Valid {
 			t.Fatal("the change is not complete")
