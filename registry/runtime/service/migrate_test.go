@@ -443,6 +443,8 @@ func TestMigrateBackfillComplete(t *testing.T) {
 		backfills[0].Settings.LockTimeout = 20 * time.Second
 		m.Backfills = backfills
 		m.BackfillTimeout = 40 * time.Second
+		// The job waits the retry period of the lease after a broken session (review of PR #305, info).
+		m.BackfillLease.Retry = 3 * time.Second
 		ended := make(chan int, 1)
 		go func() {
 			defer close(ended)
@@ -465,8 +467,8 @@ func TestMigrateBackfillComplete(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the backfill after the validation was ended gave %v after %v, want the change complete", err, time.Since(start).Round(time.Millisecond))
 		}
-		if took := time.Since(start); took > 25*time.Second {
-			t.Fatalf("the backfill took %v, want it to hold the lease again at once and not to wait for its time limit", took)
+		if took := time.Since(start); took > 25*time.Second || took < m.BackfillLease.Retry {
+			t.Fatalf("the backfill took %v, want it to hold the lease again after the retry period %v and not to wait for its time limit", took, m.BackfillLease.Retry)
 		}
 		if !boardsCompleted(t, f) {
 			t.Fatal("the change is not complete")

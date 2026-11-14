@@ -439,6 +439,19 @@ func runBackfills(parent context.Context, db *sql.DB, m Migration) error {
 			if ctx.Err() != nil {
 				return fmt.Errorf("backfill %s: %w", b.Change, ctx.Err())
 			}
+			// After a broken session the job waits the retry period of the lease before it opens new sessions, so a
+			// failover that flaps does not make it open sessions in a tight loop (review of PR #305, info).
+			if errors.Is(err, lease.ErrSession) {
+				retry := m.BackfillLease.Retry
+				if retry <= 0 {
+					retry = lease.DefaultRetry
+				}
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("backfill %s: %w", b.Change, ctx.Err())
+				case <-time.After(retry):
+				}
+			}
 		}
 	}
 	return nil
