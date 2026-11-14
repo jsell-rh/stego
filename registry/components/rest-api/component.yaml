@@ -9,10 +9,11 @@
 # and refuses a body that is not JSON, so no error of the count lets a body pass. Version 4.3.0 makes a list that
 # names the caller's write in Authz-Revocation-After wait for it before it reads (ST-SUP-RC20-OC41). Version 4.4.0
 # makes a read wait the same way (ST-SUP-RC20-OC42), and its OpenAPI document describes the revocation headers and
-# the revocation status route (ST-SUP-RC20-OC43).
+# the revocation status route (ST-SUP-RC20-OC43). Version 4.4.1 lists the state expired of a revocation in its OpenAPI
+# document (ST-SUP-RC20-OC43).
 kind: component
 name: rest-api
-version: 4.4.0
+version: 4.4.1
 stage: ga
 output_namespace: internal/api
 
