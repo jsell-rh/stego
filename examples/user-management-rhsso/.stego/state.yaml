@@ -34,14 +34,14 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261114124301-d7c784096596
+        module_version: v0.0.0-20261114132721-523e5fd91ce2
         vcs: git
-        revision: d7c784096596ef3413b7927134fa51c0fd6c6708
+        revision: 523e5fd91ce23060fbdb94d06f019c6aabba97f3
         source_state: clean
     service_name: user-management
     service_hash: 59eb019ac9584302b5674f2fe6b6da7392c364b74e7d578e3e55c98f7eb227ca
     registry_sha: env-override
-    registry_content_sha256: 59385d337b30af41d8737ddb2b48064e8b4d6e2cd0e0d8563dbd1190a9ea2d65
+    registry_content_sha256: 691dd87ce02da830a629efb9061879ad1685e0e746f8e70ff99c563997994ecf
     components:
         audit-log:
             version: 1.1.1
@@ -77,8 +77,8 @@ last_applied:
             version: 2.1.0
             sha: e4603ffda52e0f41c2d8a71a46ebcd2303a8e4263854a76b209b0cc47e147fff
         spicedb-authz:
-            version: 1.1.4
-            sha: e3188814dcc7b9b1329069c717af7af28a85992c8d02272948cc359e2a713ab6
+            version: 1.1.5
+            sha: 43f57bb8cb74180c6a4b5f15948ad1befea67c391d0351d9a6808882408c172b
         tenancy:
             version: 1.1.0
             sha: 57e4b1a3b3685cc088047b654afd683399cc532e9b3913206796afd097cf4bc8
