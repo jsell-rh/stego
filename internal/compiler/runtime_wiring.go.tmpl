@@ -363,7 +363,8 @@ func (rt *Runtime) Close() error { return rt.svc.Close() }
 // Migrate is the migration job of the service (tenant.MigrationJob), which the service runtime runs in its fixed
 // order on one connection (ST-SUP-RP14-LC03): the ledger check and the ledger of the PostgreSQL adapter with the
 // tenant list of the tenant runtime, the schema of the authorization component, the outbox, audit, idempotency and authorization migrations of the runtime library,
-// the grants of the runtime role, the audit partitions and the backfills.
+// the grants of the runtime role, the audit partitions, the check of the schema manifest of the declared parts, which
+// a start only alerts, and the backfills.
 func Migrate(ctx context.Context) error {
 	settings, err := service.ReadMigrationSettings()
 	if err != nil {
@@ -386,6 +387,9 @@ func Migrate(ctx context.Context) error {
 	if err != nil {
 		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
+	// The job refuses at its end a database that does not hold the schema manifest of the parts that New checks
+	// (decision on finding F10 of the schema-change research, owner, 2026-11-13).
+	declaredParts := parts({{if .API}}nil{{end}})
 	return service.Migrate(ctx, settings, service.Migration{
 		OwnerRole: OwnerRole, RuntimeRole: RuntimeRole, WorkerRole: WorkerRole, PurgeRole: PurgeRole, OutboxRelayRole: OutboxRelayRole, TenantConfig: svcstorage.TenantConfig,
 		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error { return svcstorage.CheckLedger(ctx, conn) },
@@ -393,7 +397,7 @@ func Migrate(ctx context.Context) error {
 		Outbox:      queueText, Audit: auditText, Authorization: authzText,
 		WriteSchema: func(ctx context.Context, conn grpc.ClientConnInterface) error { return svcauthz.WriteSchema(ctx, conn) },
 		Grants:      grants, TenantSchema: tenantSchema,
-		Service:     Service, Backfills: backfills,
+		Service:     Service, Backfills: backfills, Parts: &declaredParts,
 	})
 }
 
