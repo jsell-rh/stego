@@ -44,8 +44,8 @@ last_applied:
     registry_content_sha256: 179920c4ff407de63a353cafa32761b5a733c83dbf7e2108dc1c633fd1ee10a4
     components:
         audit-log:
-            version: 1.1.0
-            sha: f16032b07588ef1b61f6e63cc0a5076eafee42cad6f876b9c1a92437f8d7475f
+            version: 1.1.1
+            sha: 74f40ccbc8e5a268528c3c762e698723d25d33076ab0b8209787224c092ef4e7
         command:
             version: 1.1.0
             sha: 7ce0af8ecdd872c586157b44348731c32275d472ed20510117e192199c0fcd03
@@ -77,8 +77,8 @@ last_applied:
             version: 4.4.1
             sha: 1a6cc02845448eb1472881740c03698df4e70ac0e758cf27046cd47164a2adf4
         spicedb-authz:
-            version: 1.1.2
-            sha: 7c4fe9dbf3d5ae5e27ae6f857e342230a4dd82af6f2b63058da06873f7c3abbd
+            version: 1.1.3
+            sha: 0c598b52bdbac237b646bfa292cbba217d0b0db9b616942d828a0bbc7dd59822
         tenancy:
             version: 1.1.0
             sha: 57e4b1a3b3685cc088047b654afd683399cc532e9b3913206796afd097cf4bc8

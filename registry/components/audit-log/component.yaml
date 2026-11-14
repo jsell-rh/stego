@@ -1,6 +1,8 @@
+# Version 1.1.1 refuses an anchor_period longer than 24h, so the anchor job publishes the head of each chain at least
+# once a day (ST-SUP-RC28-OC08).
 kind: component
 name: audit-log
-version: 1.1.0
+version: 1.1.1
 stage: ga
 output_namespace: internal/auditlog
 

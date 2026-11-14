@@ -617,6 +617,32 @@ func TestOwnPass(t *testing.T) {
 	})
 }
 
+func TestAlertSettings(t *testing.T) {
+	t.Run("ST-SUP-RC29-OC24-T01 The generator refuses an alert bound above 10m and a watch interval below 100ms or above the alert bound", func(t *testing.T) {
+		with := func(bound, interval string) gen.Context {
+			ctx := documentContext(t)
+			config := map[string]any{}
+			for k, v := range ctx.ComponentConfig {
+				config[k] = v
+			}
+			config["alert_bound"], config["watch_interval"] = bound, interval
+			ctx.ComponentConfig = config
+			return ctx
+		}
+		for _, c := range [][2]string{{"5s", "1s"}, {"10m", "100ms"}, {"10m", "10m"}, {"1s", "1s"}} {
+			if _, _, err := new(Generator).Generate(with(c[0], c[1])); err != nil {
+				t.Errorf("alert_bound %s and watch_interval %s: refused: %v", c[0], c[1], err)
+			}
+		}
+		for _, bound := range []string{"10m0.001s", "11m", "87600h"} {
+			refused(t, with(bound, "1s"), "alert_bound", "more than 10m")
+		}
+		for _, c := range [][2]string{{"5s", "99ms"}, {"5s", "1ms"}, {"5s", "6s"}, {"10m", "1h"}} {
+			refused(t, with(c[0], c[1]), "watch_interval", "100ms", "alert_bound")
+		}
+	})
+}
+
 func TestWaitSettings(t *testing.T) {
 	t.Run("ST-SUP-RC29-OC19-T04 The generator refuses a wait cap that is not above zero or is above the write timeout of the server", func(t *testing.T) {
 		with := func(cap string) gen.Context {
