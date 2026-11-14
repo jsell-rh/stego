@@ -7,8 +7,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,8 +15,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-
-	"github.com/jsell-rh/stego/registry/runtime/modes"
 )
 
 const backfillChange = "ST-CHG-01"
@@ -758,7 +754,7 @@ func TestBackfillRepair(t *testing.T) {
 }
 
 func TestBackfillStall(t *testing.T) {
-	t.Run("ST-SUP-RP09-LC12-T01 A stall makes the controller not ready and keeps it live", func(t *testing.T) {
+	t.Run("ST-SUP-RP09-LC12-T01 A stall emits schema.backfill.stalled once and keeps the backfill running", func(t *testing.T) {
 		d := openDatabase(t)
 		it := newItems(t, d, 250)
 		ctx, stop := context.WithCancel(context.Background())
@@ -797,11 +793,6 @@ func TestBackfillStall(t *testing.T) {
 		if err := Declare(ctx, d.db, c.Name()); err != nil {
 			t.Fatal(err)
 		}
-		readiness := modes.NewReadiness(d.other)
-		readiness.WatchQueue(readyQueue{})
-		readiness.Watch(b)
-		server := httptest.NewServer(readiness.Handler(modes.Selection{modes.Controller}))
-		defer server.Close()
 		result := make(chan error, 1)
 		go func() {
 			result <- c.Hold(ctx, func(ctx context.Context, h *Held) error { return b.Run(ctx, d.db, h) })
@@ -810,23 +801,16 @@ func TestBackfillStall(t *testing.T) {
 		commitMu.Lock()
 		stallFrom := lastCommit
 		commitMu.Unlock()
-		var notReadyAt time.Time
 		for time.Since(stallFrom) < 4*ttl {
 			select {
 			case err := <-result:
 				t.Fatalf("the holder stopped during the stall: %v", err)
 			default:
 			}
-			if probe(t, server.URL+"/livez") != http.StatusOK {
-				t.Fatal("the controller is not live during the stall")
-			}
-			if probe(t, server.URL+"/readyz") != http.StatusOK && notReadyAt.IsZero() {
-				notReadyAt = time.Now()
-			}
 			time.Sleep(200 * time.Millisecond)
 		}
-		if notReadyAt.IsZero() || notReadyAt.Sub(stallFrom) > 3*ttl+renew+200*time.Millisecond {
-			t.Fatalf("the backfill was stalled at %v after the last commit, want within three TTLs and one renew interval", notReadyAt.Sub(stallFrom))
+		if !b.Stalled() {
+			t.Fatal("the backfill is not stalled after four TTLs with no batch")
 		}
 		stalls := observed.stalls()
 		if len(stalls) != 1 || stalls[0].Sub(stallFrom) > 3*ttl+renew+200*time.Millisecond {
@@ -834,11 +818,10 @@ func TestBackfillStall(t *testing.T) {
 		}
 		_ = lock.Rollback()
 		within(t, nextBatch, "the next batch")
-		code := probe(t, server.URL+"/readyz")
-		complete := checkpointRow(t, d).completed.Valid
+		stalled := b.Stalled()
 		close(checked)
-		if code != http.StatusOK || complete {
-			t.Fatalf("after the next batch, with the change complete %v, readiness answered %d, want 200 before the change is complete", complete, code)
+		if stalled {
+			t.Fatal("the backfill is still stalled after the next batch committed")
 		}
 		select {
 		case err := <-result:
@@ -853,23 +836,6 @@ func TestBackfillStall(t *testing.T) {
 		}
 	})
 }
-
-// probe answers the status of one probe request.
-func probe(t *testing.T, url string) int {
-	t.Helper()
-	response, err := http.Get(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = response.Body.Close()
-	return response.StatusCode
-}
-
-// readyQueue is a controller queue that runs and is ready, so the readiness of the controller mode reads the
-// backfill only.
-type readyQueue struct{}
-
-func (readyQueue) QueueReady() bool { return true }
 
 func TestBackfillThrottle(t *testing.T) {
 	const id = "ST-SUP-RP09-LC09-T04 A backfill pauses between batches, halves a slow batch, waits for a lagging replica and bounds each statement"

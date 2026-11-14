@@ -41,10 +41,12 @@ type schemaStep struct {
 }
 
 // stepAddition is what an add step gives: the SQL of its own migration, each index that it builds on a table with
-// rows, and the statements that validate its constraints.
+// rows, the SQL of the migration after those indexes that adds the sync trigger of a rename, and the statements that
+// validate its constraints.
 type stepAddition struct {
 	body      strings.Builder
 	indexes   []stepIndex
+	sync      strings.Builder
 	validates []string
 }
 
@@ -60,6 +62,10 @@ func IndexMigrationName(name string, n int) string { return fmt.Sprintf("%s_inde
 // ValidateMigrationName gives the ledger name of the migration that validates the constraints of the step name.
 func ValidateMigrationName(name string) string { return name + "_validate" }
 
+// SyncMigrationName gives the ledger name of the migration that adds the sync trigger of the step name, after its
+// indexes and before the validation of its constraints.
+func SyncMigrationName(name string) string { return name + "_sync" }
+
 // maxStepIndexes is the most indexes that the two digits of an index migration name number.
 const maxStepIndexes = 99
 
@@ -70,7 +76,7 @@ func StepMigrationName(position int, change, phase string) string {
 }
 
 // stepName is the grammar of the ledger name of a step migration.
-var stepName = regexp.MustCompile(`^step_[0-9]{4}_[a-z0-9]+(-[a-z0-9]+)*_(expand|contract)(_index_[0-9]{2}|_validate)?$`)
+var stepName = regexp.MustCompile(`^step_[0-9]{4}_[a-z0-9]+(-[a-z0-9]+)*_(expand|contract)(_index_[0-9]{2}|_sync|_validate)?$`)
 
 // CheckLedgerName refuses a ledgered migration whose name is not 001_initial, 100_tenancy_row_security or the name of
 // a schema step (ST-SUP-RC01-OC43): the ledger applies and checks migrations in the byte order of their names, so a
@@ -149,6 +155,9 @@ func schemaSteps(ctx gen.Context) ([]schemaStep, error) {
 		steps = append(steps, schemaStep{Name: name, Change: change, Phase: step.Phase, Body: added.body.String()})
 		for n, index := range added.indexes {
 			steps = append(steps, schemaStep{Name: IndexMigrationName(name, n+1), Change: change, Phase: step.Phase, Body: index.statement, Index: index.name, Definition: index.definition})
+		}
+		if added.sync.Len() > 0 {
+			steps = append(steps, schemaStep{Name: SyncMigrationName(name), Change: change, Phase: step.Phase, Body: added.sync.String()})
 		}
 		if len(added.validates) > 0 {
 			steps = append(steps, schemaStep{Name: ValidateMigrationName(name), Change: change, Phase: step.Phase, Body: strings.Join(added.validates, ""), Validate: true})
@@ -407,11 +416,13 @@ func renameSQL(ctx gen.Context, before, after []tableModel, change types.SchemaC
 	if _, clash := findColumn(old, change.Field); clash {
 		return nil, fmt.Errorf("the table %s has a column %s already, so the rename cannot add it", name, change.Field)
 	}
-	// The schema check of the release before accepts the sync trigger only for a column K that is in no unique key
-	// (ST-SUP-RP15-LC02 rule 2); whether a rename of a unique field may keep its unique key is question ST-GEN-Q18.
+	// The schema check of the release before accepts the sync trigger for a column K in a unique key only when the
+	// key is K alone after the tenant column, and the step gives U the same unique key by CREATE UNIQUE INDEX
+	// CONCURRENTLY before the trigger (ST-SUP-RP15-LC02 rule 2, decision on ST-GEN-Q18 (a), orchestrator under the
+	// owner's delegation, 2026-11-13).
 	for _, columns := range old.unique {
-		if slices.Contains(columns, change.From) {
-			return nil, fmt.Errorf("the rename of %s.%s is of a field in a unique key, whose sync trigger the schema check of the release before refuses (ST-SUP-RP15-LC02); a rename of a unique field waits for ST-GEN-Q18", change.Entity, change.From)
+		if slices.Contains(columns, change.From) && len(columns) != 1 {
+			return nil, fmt.Errorf("the rename of %s.%s is of a field in a unique key of more than one field, whose sync trigger the schema check of the release before refuses (ST-SUP-RP15-LC02)", change.Entity, change.From)
 		}
 	}
 	for _, fk := range old.foreign {
@@ -435,16 +446,18 @@ func renameSQL(ctx gen.Context, before, after []tableModel, change types.SchemaC
 			out.validates = append(out.validates, fmt.Sprintf("ALTER TABLE %s VALIDATE CONSTRAINT %s;\n", table, sqlIdentifier(check.name)))
 		}
 	}
-	fmt.Fprintf(&out.body, "CREATE SCHEMA IF NOT EXISTS %s;\n", StepSchema)
-	out.body.WriteString(syncFunction(trigger, syncSource(change.ID, owner, change.From, change.Field)) + ";\n")
-	fmt.Fprintf(&out.body, "CREATE TRIGGER %s BEFORE INSERT OR UPDATE ON %s FOR EACH ROW EXECUTE FUNCTION %s.%s();\n",
+	// The sync function, its trigger and the backfill row come in a migration of their own after the indexes, so
+	// that U has its unique key, valid, before the trigger moves K into it (ST-SUP-RP15-LC02 rule 2).
+	fmt.Fprintf(&out.sync, "CREATE SCHEMA IF NOT EXISTS %s;\n", StepSchema)
+	out.sync.WriteString(syncFunction(trigger, syncSource(change.ID, owner, change.From, change.Field)) + ";\n")
+	fmt.Fprintf(&out.sync, "CREATE TRIGGER %s BEFORE INSERT OR UPDATE ON %s FOR EACH ROW EXECUTE FUNCTION %s.%s();\n",
 		sqlIdentifier(trigger), table, StepSchema, sqlIdentifier(trigger))
-	out.body.WriteString(backfillsTable + ";\n" + backfillFunctions)
+	out.sync.WriteString(backfillsTable + ";\n" + backfillFunctions)
 	for _, function := range backfillFunctionSignatures {
-		fmt.Fprintf(&out.body, "REVOKE ALL ON FUNCTION %s FROM PUBLIC;\nGRANT EXECUTE ON FUNCTION %s TO %s;\n", function, function, sqlIdentifier(runtime))
+		fmt.Fprintf(&out.sync, "REVOKE ALL ON FUNCTION %s FROM PUBLIC;\nGRANT EXECUTE ON FUNCTION %s TO %s;\n", function, function, sqlIdentifier(runtime))
 	}
-	fmt.Fprintf(&out.body, "GRANT USAGE ON SCHEMA stego_schema TO %s;\n", sqlIdentifier(runtime))
-	fmt.Fprintf(&out.body, "INSERT INTO stego_schema.backfills (change_id) VALUES (%s) ON CONFLICT (change_id) DO NOTHING;\n", sqlString(change.ID))
+	fmt.Fprintf(&out.sync, "GRANT USAGE ON SCHEMA stego_schema TO %s;\n", sqlIdentifier(runtime))
+	fmt.Fprintf(&out.sync, "INSERT INTO stego_schema.backfills (change_id) VALUES (%s) ON CONFLICT (change_id) DO NOTHING;\n", sqlString(change.ID))
 	if slices.Contains(next.search, change.Field) {
 		out.indexes = append(out.indexes, stepIndex{name: "public." + sqlIdentifier(searchName(next.name, change.Field)),
 			statement: concurrently(searchIndexSQL(next, change.Field)), definition: searchIndexDefinition(next, change.Field)})

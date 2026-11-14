@@ -512,6 +512,12 @@ WHERE a.attrelid = 'public.boards'::regclass AND a.attname = 'heading'`).Scan(&n
 				t.Errorf("the table has the indexes %v, with no search index of %s", indexes, column)
 			}
 		}
+		// title is unique: both columns have their unique key, valid, while both releases run (decision on ST-GEN-Q18 (a)).
+		var keys int
+		if err := up.QueryRow(`SELECT count(*) FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
+WHERE i.indrelid = 'public.boards'::regclass AND i.indisunique AND i.indisvalid AND c.relname IN ('boards_title_key', 'boards_heading_key')`).Scan(&keys); err != nil || keys != 2 {
+			t.Errorf("the table has %d valid unique keys of title and heading (error %v), want 2", keys, err)
+		}
 		var checks int
 		if err := up.QueryRow(`SELECT count(*) FROM pg_catalog.pg_constraint WHERE conrelid = 'public.boards'::regclass AND contype = 'c' AND convalidated AND pg_catalog.pg_get_constraintdef(oid) LIKE '%heading%'`).Scan(&checks); err != nil || checks != 1 {
 			t.Errorf("the new column has %d validated CHECK constraints (error %v), want 1", checks, err)

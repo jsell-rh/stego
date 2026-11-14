@@ -337,7 +337,7 @@ func NewBackfill(change string, step Step, settings BackfillSettings) (*Backfill
 func (b *Backfill) Change() string { return b.change }
 
 // Stalled tells if the backfill has rows left and committed no batch for three lease durations (ST-SUP-RP09-LC12).
-// The readiness of the controller mode reads it.
+// The readiness of the controller mode can read it; the migration job, which runs the backfills, emits the stall.
 func (b *Backfill) Stalled() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()

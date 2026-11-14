@@ -231,7 +231,7 @@
 {"id":"ST-GEN-UC13-FL-S03","title":"The replica repeats the batches, and the operator sees the counts of moved and failed rows","flow_id":"ST-GEN-UC13-FL","path":"main","position":3}
 {"id":"ST-GEN-UC13-FL-S04","title":"When no row is left, the replica marks the change complete","flow_id":"ST-GEN-UC13-FL","path":"main","position":4}
 {"id":"ST-GEN-UC13-FL-S05","title":"A replica that lost the lease finds its batch fenced and stops, and the new holder resumes from the checkpoint","flow_id":"ST-GEN-UC13-FL","path":"fenced","position":1}
-{"id":"ST-GEN-UC13-FL-S06","title":"A backfill that moves no batch for three lease TTLs makes the replica not ready, not dead, and the operator sees the stall","flow_id":"ST-GEN-UC13-FL","path":"stalled","position":1}
+{"id":"ST-GEN-UC13-FL-S06","title":"A backfill that moves no batch for three lease TTLs emits a stall, the job runs on until its time limit, and the operator sees the stall","flow_id":"ST-GEN-UC13-FL","path":"stalled","position":1}
 {"id":"ST-GEN-UC13-FL-S07","title":"The operator sees failed rows, the author declares a fill value for the retype and releases, and the backfill passes again and fills them","flow_id":"ST-GEN-UC13-FL","path":"repair","position":1}
 {"id":"ST-GEN-UC14-FL-S01","title":"The author changes the declaration and asks STEGO to check it against the base ref","flow_id":"ST-GEN-UC14-FL","path":"main","position":1}
 {"id":"ST-GEN-UC14-FL-S02","title":"STEGO names the base ref and its commit, finds that each change to a table with rows is a declared schema step, and accepts the declaration","flow_id":"ST-GEN-UC14-FL","path":"main","position":2}
