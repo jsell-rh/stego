@@ -50,3 +50,6 @@
 {"source_id":"ST-SUP-Q122","target_id":"ST-SUP-RP01-LC19"}
 {"source_id":"ST-SUP-Q122","target_id":"ST-SUP-RP14-LC03"}
 {"source_id":"ST-SUP-Q123","target_id":"ST-SUP-RC01-OC12"}
+{"source_id":"ST-SUP-Q124","target_id":"ST-SUP-Q120"}
+{"source_id":"ST-SUP-Q124","target_id":"ST-SUP-RC27-OC03"}
+{"source_id":"ST-SUP-Q124","target_id":"ST-SUP-RP04-LC07"}
