@@ -222,8 +222,9 @@ func validateModule(module Module, replacement bool) error {
 		return errors.New("invalid module path")
 	}
 	// Only the runtime library, as a remote module that nothing replaces, can
-	// come from the runtime folder of the source revision (ST-BLD-UC02-R05).
-	if module.Source != "" && (module.Source != RuntimeFolderSource || module.Path != RuntimeModule || replacement || module.Replacement != nil || module.LocalPath != "") {
+	// come from the runtime folder of the source revision or of a STEGO
+	// checkout (ST-BLD-UC02-R05).
+	if module.Source != "" && (!runtimeSource(module.Source) || module.Path != RuntimeModule || replacement || module.Replacement != nil || module.LocalPath != "") {
 		return errors.New("invalid module source")
 	}
 	if module.Replacement != nil {
