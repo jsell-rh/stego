@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/types"
@@ -43,7 +44,7 @@ func validateTenantColumn(ctx gen.Context) error {
 	}
 	for _, entity := range ctx.Entities {
 		for _, field := range entity.Fields {
-			if field.Name == key {
+			if field.Name == key || field.ColumnName() == key {
 				return fmt.Errorf("entity %s: field %q collides with the tenant column %q of pooled tenancy; remove the field, because the tenant comes from the verified identity", entity.Name, field.Name, key)
 			}
 			if field.Type == types.FieldTypeRef && !ownedEntity(entity) && owned[field.To] {
@@ -100,4 +101,28 @@ func TenantRowSecurity(entity, key string) string {
 		fmt.Sprintf("ALTER TABLE %s FORCE ROW LEVEL SECURITY;\n", table) +
 		fmt.Sprintf("DROP POLICY IF EXISTS %s ON %s;\n", TenantPolicy, table) +
 		fmt.Sprintf("CREATE POLICY %s ON %s USING (%s = %s) WITH CHECK (%s = %s);\n", TenantPolicy, table, column, setting, column, setting)
+}
+
+// roleName is the grammar of a role name of the service: a lower-case SQL name of at most 63 characters.
+var roleName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+
+// serviceRoles gives the runtime role and the owner role of a pooled service as the tenancy component names them:
+// its settings runtime_role and owner_role, or the service name in lower case with _runtime and _owner. The sync
+// function of a step names the owner role as the backfill role (ST-SUP-RC01-OC32), and the migration of a step
+// grants the backfill functions to the runtime role. It refuses a service without pooled tenancy.
+func serviceRoles(ctx gen.Context) (string, string, error) {
+	if ctx.Tenancy == nil {
+		return "", "", fmt.Errorf("a step with a sync trigger and a backfill needs the tenancy component, whose owner role runs the backfill")
+	}
+	base := strings.ToLower(strings.NewReplacer("-", "_", ".", "_").Replace(ctx.ServiceName))
+	runtime, owner := base+"_runtime", base+"_owner"
+	for name, value := range map[string]*string{"runtime_role": &runtime, "owner_role": &owner} {
+		if text, ok := ctx.PeerConfigs[gen.TenancyComponent][name].(string); ok {
+			*value = text
+		}
+	}
+	if !roleName.MatchString(runtime) || !roleName.MatchString(owner) {
+		return "", "", fmt.Errorf("the runtime role %q or the owner role %q is not a lower-case SQL name of at most 63 characters", runtime, owner)
+	}
+	return runtime, owner, nil
 }

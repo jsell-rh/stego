@@ -186,6 +186,9 @@ type fakeSpiceDB struct {
 	decisions int
 	// refuseDeletes makes the fake refuse each delete with INVALID_ARGUMENT, which the relay parks.
 	refuseDeletes bool
+	// hold, when it is not nil, makes each write wait until it is closed, so a test fixes the moment of a delivery
+	// without a race against the start of the relay.
+	hold chan struct{}
 }
 
 func (f *fakeSpiceDB) token() string {
@@ -286,6 +289,16 @@ func (f *fakeSpiceDB) WriteRelationships(ctx context.Context, request *v1.WriteR
 			c.deletes = append(c.deletes, r)
 		default:
 			return nil, status.Error(codes.InvalidArgument, "the fake takes TOUCH and DELETE only")
+		}
+	}
+	f.mu.Lock()
+	hold := f.hold
+	f.mu.Unlock()
+	if hold != nil {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
 	c.committed = f.committed(append(append([]relationship{}, c.touches...), c.deletes...), nil)
@@ -696,6 +709,24 @@ func (s *service) create(t *testing.T, c caller, key string) (string, reply) {
 	return created.ID, r
 }
 
+// viewer runs the command share-document, or unshare-document when remove is set, as c on the Document id for the
+// user, with the idempotency key of the name given, or a new key when the name is empty, and gives the answer.
+func (s *service) viewer(t *testing.T, c caller, id string, user caller, remove bool, key string) reply {
+	t.Helper()
+	path := basePath + "/documents/" + id + "/viewers"
+	if remove {
+		path = basePath + "/documents/" + id + "/unshare"
+	}
+	if key == "" {
+		key = "new-" + keyOf(path+user.subject+time.Now().String())
+	}
+	r := s.do(t, &c, http.MethodPost, path, `{"user_id":"`+user.subject+`"}`, "Idempotency-Key", keyOf(key))
+	if r.code != http.StatusOK && r.code != http.StatusCreated {
+		t.Fatalf("the command on %s answered %d, want 200 or 201: %s", path, r.code, r.body)
+	}
+	return r
+}
+
 // location is the Authz-Revocation-Location of a write that enqueued a tuple; it fails the test when the write does
 // not answer Authz-Revocation: pending with a location under /authz/revocations/.
 func location(t *testing.T, r reply) string {
@@ -757,16 +788,21 @@ func TestRevocationWiring(t *testing.T) {
 	alice, bob := s.as(t, "alice", "t1"), s.as(t, "bob", "t1")
 	aliceT2, carol := s.as(t, "alice", "t2"), s.as(t, "carol", "t2")
 
-	t.Run("ST-SUP-RC29-OC16-T01 A create that writes a tuple answers pending, and its replay is byte for byte", func(t *testing.T) {
-		id, first := s.create(t, alice, "k-oc16-1")
-		path := location(t, first)
+	t.Run("ST-SUP-RC29-OC16-T01 A revoking unshare answers pending, and its replay is byte for byte", func(t *testing.T) {
 		stop := s.startRelay(t)
+		id, created := s.create(t, alice, "k-oc16-1")
+		s.complete(t, alice, location(t, created))
+		s.complete(t, alice, location(t, s.viewer(t, alice, id, bob, false, "")))
+		stop()
+		first := s.viewer(t, alice, id, bob, true, "k-oc16-1u")
+		path := location(t, first)
+		stop = s.startRelay(t)
 		s.complete(t, alice, path)
 		stop()
-		replay := s.do(t, &alice, http.MethodPost, basePath+"/documents", `{"title":"document k-oc16-1"}`, "Idempotency-Key", keyOf("k-oc16-1"))
+		replay := s.viewer(t, alice, id, bob, true, "k-oc16-1u")
 		if replay.code != first.code || string(replay.body) != string(first.body) || replay.header.Get("Idempotent-Replayed") != "true" ||
 			replay.header.Get(authz.RevocationHeader) != "pending" || replay.header.Get(authz.RevocationLocationHeader) != path {
-			t.Fatalf("the replay of the create of %s answered %d %v %s, want the stored answer, still pending at %s", id, replay.code, replay.header, replay.body, path)
+			t.Fatalf("the replay of the unshare of %s answered %d %v %s, want the stored answer, still pending at %s", id, replay.code, replay.header, replay.body, path)
 		}
 	})
 
@@ -784,12 +820,17 @@ func TestRevocationWiring(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RC29-OC17-T01 The status route answers pending, then complete with no token", func(t *testing.T) {
-		_, created := s.create(t, alice, "k-oc17-1")
-		path := location(t, created)
+		stop := s.startRelay(t)
+		id, created := s.create(t, alice, "k-oc17-1")
+		s.complete(t, alice, location(t, created))
+		s.complete(t, alice, location(t, s.viewer(t, alice, id, bob, false, "")))
+		stop()
+		// The unshare revokes bob's viewer relation.
+		path := location(t, s.viewer(t, alice, id, bob, true, ""))
 		if r := s.do(t, &alice, http.MethodGet, path, ""); r.code != http.StatusOK || r.state(t) != "pending" {
 			t.Fatalf("the status before the delivery is %d %s, want 200 pending", r.code, r.body)
 		}
-		stop := s.startRelay(t)
+		stop = s.startRelay(t)
 		defer stop()
 		s.complete(t, alice, path)
 	})
@@ -871,17 +912,26 @@ func TestRevocationWiring(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RC29-OC19-T01 Prefer wait returns at the delivery, and the cap cuts a longer wait", func(t *testing.T) {
-		stopped := make(chan func(), 1)
-		go func() { time.Sleep(time.Second); stopped <- s.startRelay(t) }()
-		r := s.do(t, &alice, http.MethodGet, paths["t1/"+alice.subject], "", "Prefer", "wait=2")
-		stop := <-stopped
-		if r.state(t) != "complete" || r.header.Get("Preference-Applied") != "wait=2" || r.took < 900*time.Millisecond || r.took > 2*time.Second {
-			t.Fatalf("a wait of 2 s with the relay from 1 s answered %v %s after %s, want complete before 2 s with Preference-Applied: wait=2", r.header, r.body, r.took)
+		// The relay runs before the wait starts, but the fake holds its write until 300 ms into the wait, so the
+		// delivery cannot come before then, and the start of the relay under load is not in the time measured.
+		// The answer must come at the delivery: complete, after the release and before the cap of 3 s ends.
+		hold := make(chan struct{})
+		s.fake.mu.Lock()
+		s.fake.hold = hold
+		s.fake.mu.Unlock()
+		defer func() { s.fake.mu.Lock(); s.fake.hold = nil; s.fake.mu.Unlock() }()
+		stop := s.startRelay(t)
+		go func() { time.Sleep(300 * time.Millisecond); close(hold) }()
+		r := s.do(t, &alice, http.MethodGet, paths["t1/"+alice.subject], "", "Prefer", "wait=3")
+		if r.state(t) != "complete" || r.header.Get("Preference-Applied") != "wait=3" || r.took < 250*time.Millisecond || r.took >= 3*time.Second {
+			t.Fatalf("a wait of 3 s with the delivery from 300 ms answered %v %s after %s, want complete before the cap with Preference-Applied: wait=3", r.header, r.body, r.took)
 		}
 		stop()
+		// With no relay, a wait of 30 s ends at the cap of 3 s. The upper bound has headroom for load, and stays
+		// below the default cap of 10 s, which a cap setting not passed to the runtime would give.
 		_, created := s.create(t, alice, "k-oc19-1")
 		r = s.do(t, &alice, http.MethodGet, location(t, created), "", "Prefer", "wait=30")
-		if r.state(t) != "pending" || r.header.Get("Preference-Applied") != "wait=3" || r.took < 2500*time.Millisecond || r.took > 6*time.Second {
+		if r.state(t) != "pending" || r.header.Get("Preference-Applied") != "wait=3" || r.took < 2500*time.Millisecond || r.took > 9*time.Second {
 			t.Fatalf("a wait of 30 s with no relay answered %v %s after %s, want pending after the cap of 3 s with Preference-Applied: wait=3", r.header, r.body, r.took)
 		}
 	})
@@ -912,6 +962,140 @@ func TestRevocationWiring(t *testing.T) {
 		}
 		if r := s.do(t, &bob, http.MethodGet, basePath+"/documents", "", authz.RevocationAfterHeader, "not-an-id"); r.code != http.StatusBadRequest {
 			t.Fatalf("a list with a bad %s answered %d, want 400", authz.RevocationAfterHeader, r.code)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC42-T01 A read that names the caller's write waits for it and shows it", func(t *testing.T) {
+		id, created := s.create(t, bob, "k-oc42-1")
+		path := location(t, created)
+		item := basePath + "/documents/" + id
+		// With no header the read waits for nothing and does not see the create before the relay delivers it.
+		plain := s.do(t, &bob, http.MethodGet, item, "", "Prefer", "wait=5")
+		if plain.code != http.StatusNotFound || plain.took > time.Second || len(plain.header.Values(authz.RevocationHeader)) != 0 {
+			t.Fatalf("a read before the delivery with no %s answered %d %v after %s, want 404 at once with no %s", authz.RevocationAfterHeader, plain.code, plain.header, plain.took, authz.RevocationHeader)
+		}
+		stopped := make(chan func(), 1)
+		go func() { time.Sleep(300 * time.Millisecond); stopped <- s.startRelay(t) }()
+		r := s.do(t, &bob, http.MethodGet, item, "", authz.RevocationAfterHeader, path, "Prefer", "wait=5")
+		defer (<-stopped)()
+		if r.code != http.StatusOK || r.header.Get(authz.RevocationHeader) != "complete" || !strings.Contains(string(r.body), id) {
+			t.Fatalf("a read with %s answered %d %v %s, want 200 complete with the document", authz.RevocationAfterHeader, r.code, r.header, r.body)
+		}
+		// A revocation that is not the caller's is unknown, and a value that is no identity is a bad request.
+		if r := s.do(t, &bob, http.MethodGet, item, "", authz.RevocationAfterHeader, paths["t1/"+alice.subject]); r.code != http.StatusOK || r.header.Get(authz.RevocationHeader) != "unknown" {
+			t.Fatalf("a read with alice's revocation answered %d %v, want 200 unknown", r.code, r.header)
+		}
+		if r := s.do(t, &bob, http.MethodGet, item, "", authz.RevocationAfterHeader, "not-an-id"); r.code != http.StatusBadRequest {
+			t.Fatalf("a read with a bad %s answered %d, want 400", authz.RevocationAfterHeader, r.code)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC42-T02 A wait does not open a denied row, and reads and the status route share the waiter limit", func(t *testing.T) {
+		stop := s.startRelay(t)
+		denied, created := s.create(t, alice, "k-oc42-2a")
+		s.complete(t, alice, location(t, created))
+		shown, created := s.create(t, alice, "k-oc42-2b")
+		s.complete(t, alice, location(t, created))
+		stop()
+		// bob's own revocation stays pending, as no relay runs. A read of alice's document that names it waits to
+		// the cap of 3 s, and the check after the wait denies it with the same answer as a read with no header.
+		_, created = s.create(t, bob, "k-oc42-2c")
+		pending := location(t, created)
+		item := basePath + "/documents/" + denied
+		plain := s.do(t, &bob, http.MethodGet, item, "")
+		waited := s.do(t, &bob, http.MethodGet, item, "", authz.RevocationAfterHeader, pending, "Prefer", "wait=5")
+		// The two problem bodies are the same but for the time of each answer.
+		untimed := func(r reply) string {
+			var body map[string]any
+			if err := json.Unmarshal(r.body, &body); err != nil {
+				return "not JSON: " + string(r.body)
+			}
+			delete(body, "timestamp")
+			text, _ := json.Marshal(body)
+			return string(text)
+		}
+		if plain.code != http.StatusNotFound || waited.code != http.StatusNotFound || untimed(waited) != untimed(plain) ||
+			waited.header.Get(authz.RevocationHeader) != "pending" || waited.took < 2500*time.Millisecond {
+			t.Fatalf("a read of a denied document that names bob's pending revocation answered %d %v %s after %s; a plain read %d %s; want the plain 404 after the cap of 3 s with Authz-Revocation: pending",
+				waited.code, waited.header, waited.body, waited.took, plain.code, plain.body)
+		}
+		// A waited read of a document that does not exist answers as the waited read of the denied one: the same
+		// status, the same Authz-Revocation, the same wait to the cap, and the same body but for the time and the id.
+		missingID := "00000000-0000-4000-8000-0000000000a2"
+		missing := s.do(t, &bob, http.MethodGet, basePath+"/documents/"+missingID, "", authz.RevocationAfterHeader, pending, "Prefer", "wait=5")
+		unnamed := func(r reply, id string) string { return strings.ReplaceAll(untimed(r), id, "<id>") }
+		if missing.code != waited.code || unnamed(missing, missingID) != unnamed(waited, denied) ||
+			missing.header.Get(authz.RevocationHeader) != waited.header.Get(authz.RevocationHeader) || missing.took < 2500*time.Millisecond {
+			t.Fatalf("a waited read of a missing document answered %d %v %s after %s; the waited read of the denied document %d %v %s after %s; want the same answer after the cap of 3 s",
+				missing.code, missing.header, missing.body, missing.took, waited.code, waited.header, waited.body, waited.took)
+		}
+		// Two reads of tenant t1 hold its 2 places, so a status wait of t1 answers at once.
+		_, created = s.create(t, alice, "k-oc42-2d")
+		own := location(t, created)
+		mine := basePath + "/documents/" + shown
+		reads := make(chan reply, 2)
+		for range 2 {
+			go func() {
+				reads <- s.do(t, &alice, http.MethodGet, mine, "", authz.RevocationAfterHeader, own, "Prefer", "wait=5")
+			}()
+		}
+		time.Sleep(300 * time.Millisecond)
+		over := s.do(t, &alice, http.MethodGet, own, "", "Prefer", "wait=5")
+		if over.took > time.Second || over.header.Get("Preference-Applied") != "" || over.state(t) != "pending" {
+			t.Fatalf("a status wait while two reads hold the places of t1 answered %v %s after %s, want pending at once with no Preference-Applied", over.header, over.body, over.took)
+		}
+		for range 2 {
+			if r := <-reads; r.code != http.StatusOK || r.header.Get(authz.RevocationHeader) != "pending" || r.took < 2500*time.Millisecond {
+				t.Fatalf("a held read answered %d %v after %s, want 200 pending after the cap of 3 s", r.code, r.header, r.took)
+			}
+		}
+		// Two status waits of t1 hold its places, so a read that names the revocation answers at once.
+		statuses := s.waits(t, map[string]string{"t1/" + alice.subject: own}, alice, alice)
+		time.Sleep(300 * time.Millisecond)
+		overRead := s.do(t, &alice, http.MethodGet, mine, "", authz.RevocationAfterHeader, own, "Prefer", "wait=5")
+		if overRead.code != http.StatusOK || overRead.took > time.Second || overRead.header.Get(authz.RevocationHeader) != "pending" {
+			t.Fatalf("a read while two status waits hold the places of t1 answered %d %v after %s, want 200 pending at once", overRead.code, overRead.header, overRead.took)
+		}
+		for range 2 {
+			if r := <-statuses; r.took < 2500*time.Millisecond {
+				t.Fatalf("a held status wait answered after %s, want after the cap of 3 s", r.took)
+			}
+		}
+		stop = s.startRelay(t)
+		s.complete(t, bob, pending)
+		s.complete(t, alice, own)
+		stop()
+	})
+
+	t.Run("ST-SUP-RC32-OC13-T01 A fill shares and unshares a document through the typed relation helpers", func(t *testing.T) {
+		stop := s.startRelay(t)
+		defer stop()
+		id, created := s.create(t, alice, "k-oc13-1")
+		s.complete(t, alice, location(t, created))
+		read := func() int { return s.do(t, &bob, http.MethodGet, basePath+"/documents/"+id, "").code }
+		if code := read(); code != http.StatusNotFound {
+			t.Fatalf("bob read alice's document before the share: %d, want 404", code)
+		}
+		s.complete(t, alice, location(t, s.viewer(t, alice, id, bob, false, "")))
+		want := relationship{resourceType: "document", relation: "viewer", subjectType: "user", subjectID: bob.subject}
+		want.resourceID, _ = authz.ResourceID(alice.tenant, id)
+		if !s.fake.holds(want) {
+			t.Fatalf("the fake does not hold %s after the share", want)
+		}
+		if code := read(); code != http.StatusOK {
+			t.Fatalf("bob read the shared document: %d, want 200", code)
+		}
+		s.complete(t, alice, location(t, s.viewer(t, alice, id, bob, true, "")))
+		if s.fake.holds(want) {
+			t.Fatalf("the fake still holds %s after the unshare", want)
+		}
+		if code := read(); code != http.StatusNotFound {
+			t.Fatalf("bob read the document after the unshare: %d, want 404", code)
+		}
+		// Bob, a viewer only, may not share: the command decides edit on the row first.
+		r := s.do(t, &bob, http.MethodPost, basePath+"/documents/"+id+"/viewers", `{"user_id":"`+bob.subject+`"}`, "Idempotency-Key", keyOf("k-oc13-bob"))
+		if r.code != http.StatusNotFound {
+			t.Fatalf("bob shared alice's document: %d, want 404", r.code)
 		}
 	})
 

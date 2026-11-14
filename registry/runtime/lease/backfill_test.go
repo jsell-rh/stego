@@ -7,8 +7,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,8 +15,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-
-	"github.com/jsell-rh/stego/registry/runtime/modes"
 )
 
 const backfillChange = "ST-CHG-01"
@@ -34,6 +30,9 @@ type observations struct {
 	changes   []string
 	onRows    func(batch int)
 	batches   int
+	throttled []string
+	// onThrottle runs after each throttle with its count.
+	onThrottle func(n int)
 }
 
 func (o *observations) BackfillRows(change string, rows int64) {
@@ -74,6 +73,23 @@ func (o *observations) BackfillStalled(change string) {
 	defer o.mu.Unlock()
 	o.stalled = append(o.stalled, time.Now())
 	o.changes = append(o.changes, change)
+}
+
+func (o *observations) BackfillThrottled(change, reason string) {
+	o.mu.Lock()
+	o.throttled = append(o.throttled, reason)
+	o.changes = append(o.changes, change)
+	n, on := len(o.throttled), o.onThrottle
+	o.mu.Unlock()
+	if on != nil {
+		on(n)
+	}
+}
+
+func (o *observations) throttledReasons() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]string(nil), o.throttled...)
 }
 
 func (o *observations) stalls() []time.Time {
@@ -267,70 +283,26 @@ func TestBackfillCheckpoint(t *testing.T) {
 		ctx := context.Background()
 		a := heldLease(t, d, "a", Settings{})
 
-		// A commits one batch, then waits before its next batch until B has committed one.
-		bCommitted := make(chan struct{})
-		aStep := make(chan struct{})
-		aInStep := make(chan struct{})
+		// A commits one batch. Then a newer holder's checkpoint gives the row a higher token, while the lease row still
+		// holds A, so the lease fence of the batch (ST-SUP-RP09-LC03-T04) and the lease check of the function
+		// (ST-SUP-RP09-LC07-T02) do not stop A, and the token comparison is the only guard. The lease of the change is
+		// bound to its name, so two holders cannot hold two lease rows of one change (recheck of PR #291).
 		aObserved := &observations{onRows: func(batch int) {
 			if batch == 1 {
-				<-bCommitted
+				d.exec(t, "UPDATE stego_schema.backfills SET token = 1000 WHERE change_id = $1", backfillChange)
 			}
 		}}
-		it.gate = func(n int) {
-			if n == 2 {
-				close(aInStep)
-				<-aStep
-			}
-		}
 		aBackfill := newBackfill(t, it, BackfillSettings{BatchSize: 100, Observer: aObserved})
-		aResult := make(chan error, 1)
-		go func() { aResult <- aBackfill.Run(ctx, d.db, a) }()
-
-		// B commits one batch with a higher token. B holds another lease row than A, so that the lease fence of
-		// each batch does not stop A first: the checkpoint statement is then the only guard, and this test proves it.
-		deadline := time.Now().Add(10 * time.Second)
-		for checkpointRow(t, d).moved != 100 && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
-		}
-		const other = "stego.backfill." + backfillChange + ".other"
-		if err := Declare(ctx, d.db, other); err != nil {
-			t.Fatal(err)
-		}
-		d.exec(t, "UPDATE leases SET token=1000 WHERE name=$1", other)
-		b := acquire(t, newClient(t, d.db, other, "b", Settings{}))
-		bWaits := make(chan struct{})
-		bObserved := &observations{onRows: func(batch int) {
-			if batch == 1 {
-				close(bCommitted)
-				<-bWaits
-			}
-		}}
-		bBackfill := newBackfill(t, it, BackfillSettings{BatchSize: 100, Observer: bObserved})
-		bResult := make(chan error, 1)
-		go func() { bResult <- bBackfill.Run(ctx, d.db, b) }()
-
-		// A runs its next batch and holds the checkpoint row; then B's next batch waits on the row lock.
-		within(t, aInStep, "the next batch of A")
-		close(bWaits)
-		waitForLockWait(t, d)
-		close(aStep)
-
-		if err := within(t, aResult, "the end of A"); !errors.Is(err, ErrFenced) {
+		if err := aBackfill.Run(ctx, d.db, a); !errors.Is(err, ErrFenced) {
 			t.Fatalf("the batch of A gave %v, want ErrFenced", err)
 		}
-		if err := within(t, bResult, "the end of B"); err != nil {
-			t.Fatalf("the backfill of B gave %v", err)
-		}
 		got := checkpointRow(t, d)
-		if got.token != b.Token() {
-			t.Fatalf("the row holds token %d, want B's %d", got.token, b.Token())
-		}
-		if bObserved.batches < 2 {
-			t.Fatalf("B committed %d batches, want its waiting batch committed too", bObserved.batches)
+		if got.token != 1000 || got.moved != 100 {
+			t.Fatalf("the row holds token %d with %d rows moved, want the newer 1000 with A's first 100", got.token, got.moved)
 		}
 		var moved int
-		if err := d.other.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE new_value IS NOT NULL").Scan(&moved); err != nil || moved != 250 || got.moved != 250 {
-			t.Fatalf("%d rows hold the new value and the row counts %d moved (%v), want 250 each: A's batch rolled back", moved, got.moved, err)
+		if err := d.other.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE new_value IS NOT NULL").Scan(&moved); err != nil || moved != 100 {
+			t.Fatalf("%d rows hold the new value (%v), want 100: A's second batch rolled back", moved, err)
 		}
 	})
 }
@@ -619,7 +591,7 @@ func checkpointInTransaction(t *testing.T, statements []statement) {
 			if tx := open[s.conn]; tx != nil {
 				tx.moved = true
 			}
-		case strings.HasPrefix(text, "update stego_schema.backfills"):
+		case strings.HasPrefix(text, "select stego_schema.backfill_checkpoint("):
 			if tx := open[s.conn]; tx != nil {
 				tx.checkpoint = true
 			}
@@ -738,7 +710,7 @@ func TestBackfillRepair(t *testing.T) {
 }
 
 func TestBackfillStall(t *testing.T) {
-	t.Run("ST-SUP-RP09-LC12-T01 A stall makes the controller not ready and keeps it live", func(t *testing.T) {
+	t.Run("ST-SUP-RP09-LC12-T01 A stall emits schema.backfill.stalled once and keeps the backfill running", func(t *testing.T) {
 		d := openDatabase(t)
 		it := newItems(t, d, 250)
 		ctx, stop := context.WithCancel(context.Background())
@@ -777,11 +749,6 @@ func TestBackfillStall(t *testing.T) {
 		if err := Declare(ctx, d.db, c.Name()); err != nil {
 			t.Fatal(err)
 		}
-		readiness := modes.NewReadiness(d.other)
-		readiness.WatchQueue(readyQueue{})
-		readiness.Watch(b)
-		server := httptest.NewServer(readiness.Handler(modes.Selection{modes.Controller}))
-		defer server.Close()
 		result := make(chan error, 1)
 		go func() {
 			result <- c.Hold(ctx, func(ctx context.Context, h *Held) error { return b.Run(ctx, d.db, h) })
@@ -790,23 +757,16 @@ func TestBackfillStall(t *testing.T) {
 		commitMu.Lock()
 		stallFrom := lastCommit
 		commitMu.Unlock()
-		var notReadyAt time.Time
 		for time.Since(stallFrom) < 4*ttl {
 			select {
 			case err := <-result:
 				t.Fatalf("the holder stopped during the stall: %v", err)
 			default:
 			}
-			if probe(t, server.URL+"/livez") != http.StatusOK {
-				t.Fatal("the controller is not live during the stall")
-			}
-			if probe(t, server.URL+"/readyz") != http.StatusOK && notReadyAt.IsZero() {
-				notReadyAt = time.Now()
-			}
 			time.Sleep(200 * time.Millisecond)
 		}
-		if notReadyAt.IsZero() || notReadyAt.Sub(stallFrom) > 3*ttl+renew+200*time.Millisecond {
-			t.Fatalf("the backfill was stalled at %v after the last commit, want within three TTLs and one renew interval", notReadyAt.Sub(stallFrom))
+		if !b.Stalled() {
+			t.Fatal("the backfill is not stalled after four TTLs with no batch")
 		}
 		stalls := observed.stalls()
 		if len(stalls) != 1 || stalls[0].Sub(stallFrom) > 3*ttl+renew+200*time.Millisecond {
@@ -814,11 +774,10 @@ func TestBackfillStall(t *testing.T) {
 		}
 		_ = lock.Rollback()
 		within(t, nextBatch, "the next batch")
-		code := probe(t, server.URL+"/readyz")
-		complete := checkpointRow(t, d).completed.Valid
+		stalled := b.Stalled()
 		close(checked)
-		if code != http.StatusOK || complete {
-			t.Fatalf("after the next batch, with the change complete %v, readiness answered %d, want 200 before the change is complete", complete, code)
+		if stalled {
+			t.Fatal("the backfill is still stalled after the next batch committed")
 		}
 		select {
 		case err := <-result:
@@ -834,19 +793,263 @@ func TestBackfillStall(t *testing.T) {
 	})
 }
 
-// probe answers the status of one probe request.
-func probe(t *testing.T, url string) int {
-	t.Helper()
-	response, err := http.Get(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = response.Body.Close()
-	return response.StatusCode
+func TestBackfillThrottle(t *testing.T) {
+	const id = "ST-SUP-RP09-LC09-T04 A backfill pauses between batches, halves a slow batch, waits for a lagging replica and bounds each statement"
+	t.Run(id+": pause", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 30)
+		var mu sync.Mutex
+		var commits []time.Time
+		b := newBackfill(t, it, BackfillSettings{BatchSize: 10, Pause: 300 * time.Millisecond, Observer: &observations{onRows: func(int) {
+			mu.Lock()
+			commits = append(commits, time.Now())
+			mu.Unlock()
+		}}})
+		if err := b.Run(context.Background(), d.db, heldLease(t, d, "h1", Settings{})); err != nil {
+			t.Fatal(err)
+		}
+		if len(commits) != 3 {
+			t.Fatalf("%d batches committed, want 3", len(commits))
+		}
+		for i := 1; i < len(commits); i++ {
+			if gap := commits[i].Sub(commits[i-1]); gap < 300*time.Millisecond {
+				t.Fatalf("batch %d committed %s after the one before, less than the pause", i+1, gap)
+			}
+		}
+	})
+	t.Run(id+": target batch time", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 40)
+		var limits []int
+		slow := func(ctx context.Context, tx *sql.Tx, key *Key, limit int) (Batch, error) {
+			limits = append(limits, limit)
+			if len(limits) <= 2 {
+				if _, err := tx.ExecContext(ctx, "SELECT pg_sleep(0.3)"); err != nil {
+					return Batch{}, err
+				}
+			}
+			return it.step(ctx, tx, key, limit)
+		}
+		observed := &observations{}
+		b, err := NewBackfill(backfillChange, slow, BackfillSettings{Key: KeyInteger, BatchSize: 16, TargetBatchTime: 200 * time.Millisecond, Observer: observed})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := b.Run(context.Background(), d.db, heldLease(t, d, "h1", Settings{})); err != nil {
+			t.Fatal(err)
+		}
+		if len(limits) < 4 || limits[0] != 16 || limits[1] != 8 || limits[2] != 4 || limits[3] != 8 {
+			t.Fatalf("the batch sizes were %v, want 16, 8, 4 and then 8 after a fast batch", limits)
+		}
+		if got := observed.throttledReasons(); len(got) != 2 || got[0] != ThrottleBatchTime {
+			t.Fatalf("schema.backfill.throttled was %v, want batch_time twice", got)
+		}
+	})
+	t.Run(id+": maximum replica lag", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 20)
+		lagging := "SELECT 5000::bigint"
+		saved := replicaLagStatement
+		replicaLagStatement = lagging
+		defer func() { replicaLagStatement = saved }()
+		observed := &observations{}
+		var once sync.Once
+		observed.onThrottle = func(n int) {
+			if n == 3 {
+				once.Do(func() { replicaLagStatement = "SELECT 10::bigint" })
+			}
+		}
+		b := newBackfill(t, it, BackfillSettings{BatchSize: 10, MaxReplicaLag: time.Second, Observer: observed})
+		if err := b.Run(context.Background(), d.db, heldLease(t, d, "h1", Settings{Retry: 50 * time.Millisecond})); err != nil {
+			t.Fatal(err)
+		}
+		calls := it.allCalls()
+		if got := observed.throttledReasons(); len(got) != 3 || got[0] != ThrottleReplicaLag {
+			t.Fatalf("schema.backfill.throttled was %v, want replica_lag three times before the first batch", got)
+		}
+		if len(calls) != 3 || observed.rows != 20 {
+			t.Fatalf("the step ran %d times and moved %d rows, want 3 runs and 20 rows after the lag dropped", len(calls), observed.rows)
+		}
+	})
+	t.Run(id+": statement timeout", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 10)
+		var runs int
+		hang := func(ctx context.Context, tx *sql.Tx, key *Key, limit int) (Batch, error) {
+			runs++
+			if runs == 1 {
+				if _, err := tx.ExecContext(ctx, "SELECT pg_sleep(2)"); err != nil {
+					return Batch{}, err
+				}
+			}
+			return it.step(ctx, tx, key, limit)
+		}
+		var first error
+		check := func(ctx context.Context, tx *sql.Tx, key *Key, limit int) (Batch, error) {
+			b, err := hang(ctx, tx, key, limit)
+			if runs == 1 {
+				first = err
+			}
+			return b, err
+		}
+		b, err := NewBackfill(backfillChange, check, BackfillSettings{Key: KeyInteger, BatchSize: 10, StatementTimeout: 200 * time.Millisecond})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := b.Run(context.Background(), d.db, heldLease(t, d, "h1", Settings{Retry: 50 * time.Millisecond})); err != nil {
+			t.Fatal(err)
+		}
+		var pgErr *pgconn.PgError
+		if !errors.As(first, &pgErr) || pgErr.Code != "57014" {
+			t.Fatalf("the first batch gave %v, want the statement timeout 57014", first)
+		}
+		if r := checkpointRow(t, d); r.moved != 10 || !r.completed.Valid {
+			t.Fatalf("the checkpoint moved %d rows, complete %v; want 10 and complete after the retry", r.moved, r.completed.Valid)
+		}
+	})
 }
 
-// readyQueue is a controller queue that runs and is ready, so the readiness of the controller mode reads the
-// backfill only.
-type readyQueue struct{}
+// completeCheck is the completeness CHECK of the items table, which the step adds NOT VALID: the new value is set
+// wherever the old value is set (decision on ST-SUP-Q120 (c)).
+const completeCheck = "items_new_value_complete"
 
-func (readyQueue) QueueReady() bool { return true }
+func withCompleteCheck(t *testing.T, d *database, settings BackfillSettings) BackfillSettings {
+	t.Helper()
+	d.exec(t, "ALTER TABLE items ADD CONSTRAINT "+completeCheck+" CHECK ((new_value IS NOT NULL) OR (old IS NULL)) NOT VALID")
+	settings.Validate, settings.Check = "ALTER TABLE public.items VALIDATE CONSTRAINT "+completeCheck, completeCheck
+	return settings
+}
+
+func TestBackfillComplete(t *testing.T) {
+	t.Run("ST-SUP-RP09-LC10-T02 A row left unset blocks completion, fails Run with a message that names the change, and the next Run completes after the row is fixed", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 50, 7)
+		settings := withCompleteCheck(t, d, BackfillSettings{BatchSize: 20})
+		observed := &observations{}
+		settings.Observer = observed
+		first := newBackfill(t, it, settings)
+		err := first.Run(context.Background(), d.db, heldLease(t, d, "h1", Settings{}))
+		if !errors.Is(err, ErrIncomplete) {
+			t.Fatalf("Run with a row left unset gave %v, want ErrIncomplete", err)
+		}
+		for _, want := range []string{backfillChange, completeCheck} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the error %q does not name %s", err, want)
+			}
+		}
+		if strings.Contains(err.Error(), "not a number") {
+			t.Errorf("the error %q holds a row value", err)
+		}
+		got := checkpointRow(t, d)
+		if got.completed.Valid || got.lastKey.Valid {
+			t.Fatalf("after the failed validation the checkpoint is %v, complete %v, want no key and not complete", got.lastKey, got.completed.Valid)
+		}
+		var validated bool
+		if err := d.other.QueryRow("SELECT convalidated FROM pg_constraint WHERE conname = $1", completeCheck).Scan(&validated); err != nil || validated {
+			t.Fatalf("the CHECK is validated %v (%v), want not validated", validated, err)
+		}
+		if observed.completed != 0 {
+			t.Fatalf("the backfill emitted completion %d times, want none", observed.completed)
+		}
+		// The row is fixed: the declaration now gives a fill value, so the row moves. The next Run passes over the
+		// rows again from the start.
+		fill := int64(0)
+		it.fill = &fill
+		started := len(it.allCalls())
+		d.expire(t, "stego.backfill."+backfillChange)
+		second := newBackfill(t, it, settings)
+		if err := second.Run(context.Background(), d.db, heldLease(t, d, "h2", Settings{})); err != nil {
+			t.Fatalf("the next Run after the fix: %v", err)
+		}
+		if calls := it.allCalls()[started:]; len(calls) == 0 || calls[0].after.Valid {
+			t.Fatalf("the next Run started after %v, want the start", calls)
+		}
+		got = checkpointRow(t, d)
+		if !got.completed.Valid {
+			t.Fatal("the change is not complete after the fix")
+		}
+		if err := d.other.QueryRow("SELECT convalidated FROM pg_constraint WHERE conname = $1", completeCheck).Scan(&validated); err != nil || !validated {
+			t.Fatalf("the CHECK is validated %v (%v), want validated", validated, err)
+		}
+		if observed.completed != 1 {
+			t.Fatalf("the backfill emitted completion %d times, want once", observed.completed)
+		}
+	})
+	t.Run("ST-SUP-RP09-LC10-T04 A validation that fails with an error that a run again cannot fix ends Run at once with its cause, and the change stays open", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 10, 0)
+		settings := withCompleteCheck(t, d, BackfillSettings{BatchSize: 20})
+		// The validate statement names a constraint that the table does not have: SQLSTATE 42704, which no run again
+		// can fix.
+		settings.Validate = "ALTER TABLE public.items VALIDATE CONSTRAINT items_no_such_check"
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		start := time.Now()
+		err := newBackfill(t, it, settings).Run(ctx, d.db, heldLease(t, d, "h1", Settings{}))
+		var pgErr interface{ SQLState() string }
+		if !errors.Is(err, ErrValidate) || !errors.As(err, &pgErr) || pgErr.SQLState() != "42704" {
+			t.Fatalf("Run with a validate statement that cannot pass gave %v, want ErrValidate with the cause 42704", err)
+		}
+		if elapsed := time.Since(start); elapsed > 10*time.Second {
+			t.Fatalf("Run returned after %v, want at once", elapsed)
+		}
+		for _, want := range []string{backfillChange, completeCheck} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the error %q does not name %s", err, want)
+			}
+		}
+		if got := checkpointRow(t, d); got.completed.Valid {
+			t.Fatal("the change is complete after a validation that failed")
+		}
+	})
+	t.Run("ST-SUP-RP09-LC10-T03 The validation takes no lock stronger than SHARE UPDATE EXCLUSIVE, blocks no write, and the change is complete only after it", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 30)
+		settings := withCompleteCheck(t, d, BackfillSettings{BatchSize: 10, LockTimeout: 20 * time.Second})
+		ctx := context.Background()
+		// A session holds SHARE UPDATE EXCLUSIVE on the table, as a VACUUM or another VALIDATE does, so the validation
+		// waits and its lock request can be read.
+		holder, err := d.other.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer holder.Close()
+		if _, err := holder.ExecContext(ctx, "BEGIN; LOCK TABLE items IN SHARE UPDATE EXCLUSIVE MODE"); err != nil {
+			t.Fatal(err)
+		}
+		b := newBackfill(t, it, settings)
+		done := make(chan error, 1)
+		go func() { done <- b.Run(ctx, d.db, heldLease(t, d, "h1", Settings{})) }()
+		var mode string
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			err := d.other.QueryRowContext(ctx, "SELECT mode FROM pg_locks WHERE relation = 'public.items'::regclass AND NOT granted").Scan(&mode)
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				t.Fatal(err)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if mode != "ShareUpdateExclusiveLock" {
+			t.Fatalf("the validation waits for %q, want ShareUpdateExclusiveLock", mode)
+		}
+		if got := checkpointRow(t, d); got.completed.Valid || got.moved != 30 {
+			t.Fatalf("while the validation waits the checkpoint is complete %v with %d rows moved, want not complete with 30", got.completed.Valid, got.moved)
+		}
+		// A write of the running release takes ROW EXCLUSIVE, which the waiting validation does not block.
+		if _, err := d.other.ExecContext(ctx, "SET lock_timeout = '1s'; INSERT INTO items (id, old, new_value) VALUES (1000, '1000', 1000); RESET lock_timeout"); err != nil {
+			t.Fatalf("a write while the validation waits: %v", err)
+		}
+		if _, err := holder.ExecContext(ctx, "COMMIT"); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; err != nil {
+			t.Fatalf("Run after the lock is released: %v", err)
+		}
+		if got := checkpointRow(t, d); !got.completed.Valid {
+			t.Fatal("the change is not complete after the validation")
+		}
+	})
+}

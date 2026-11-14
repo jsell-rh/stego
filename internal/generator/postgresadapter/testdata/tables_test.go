@@ -15,6 +15,8 @@ import (
 	"example.com/tables-check/boards"
 	"example.com/tables-check/boardsbase"
 	"example.com/tables-check/boardsnote"
+	"example.com/tables-check/boardsrn"
+	"example.com/tables-check/boardsrnbase"
 	"example.com/tables-check/boardsslug"
 	"example.com/tables-check/bounds"
 	"example.com/tables-check/previous"
@@ -25,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/jsell-rh/stego/registry/runtime/lease"
 	"github.com/jsell-rh/stego/registry/runtime/manifest"
 )
 
@@ -268,6 +271,34 @@ func write(t *testing.T, db *sql.DB, tenant, statement string, args ...any) stri
 	return ""
 }
 
+// writeMarked runs one statement as write does, in a transaction of the release of a schema step, which sets the
+// writer marker stego.schema_step to the open changes of the release first (ST-SUP-RC01-OC23).
+func writeMarked(t *testing.T, db *sql.DB, tenant, marker, statement string, args ...any) string {
+	t.Helper()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("SET LOCAL ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec("SELECT pg_catalog.set_config('app.tenant', $1, true), pg_catalog.set_config('stego.schema_step', $2, true)", tenant, marker); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(statement, args...); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			return pgErr.Code
+		}
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	return ""
+}
+
 // longField is a field whose check constraint name is longer than PostgreSQL keeps.
 const longField = "a_long_field_name_that_pushes_the_check_name_past_the_limit"
 
@@ -425,6 +456,363 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		if err := manifest.Check(ctx, reader, owned(widgets.SchemaManifest)); !errors.Is(err, manifest.ErrNotSatisfied) ||
 			!strings.Contains(err.Error(), "table public.orders: constraint orders_widget_id_fkey is missing") {
 			t.Fatalf("a dropped foreign key gave %v, want the fault that names it", err)
+		}
+	})
+
+	// renamed migrates the release before the rename, writes the board first with the title "first" as that
+	// release, and migrates the rename at expand; it gives the database and the ID of the board.
+	renamed := func(t *testing.T) (*pgx.ConnConfig, *sql.DB, string) {
+		t.Helper()
+		upCfg, up := database(t, cfg, admin)
+		migrate(t, upCfg, up, func(ctx context.Context, conn *sql.Conn) error { return boardsrnbase.Migrate(ctx, conn) }, "boardsrnbase_access.json")
+		first := uuid.Must(uuid.NewV7()).String()
+		if code := write(t, up, "tenant-a", `INSERT INTO public."boards" ("id", "title") VALUES ($1, 'first')`, first); code != "" {
+			t.Fatalf("the release before writes no board: %s", code)
+		}
+		migrate(t, upCfg, up, func(ctx context.Context, conn *sql.Conn) error { return boardsrn.Migrate(ctx, conn) }, "boardsrn_access.json")
+		return upCfg, up, first
+	}
+	// pair reads the old and the new column of the board id.
+	pair := func(t *testing.T, db *sql.DB, id string) (sql.NullString, sql.NullString) {
+		t.Helper()
+		var title, heading sql.NullString
+		if err := db.QueryRow(`SELECT "title", "heading" FROM public."boards" WHERE "id" = $1`, id).Scan(&title, &heading); err != nil {
+			t.Fatal(err)
+		}
+		return title, heading
+	}
+	// backfill moves the rows of tenant-a whose new column is unset as the backfill batch does, as the owner role with
+	// the backfill setting of the change, and gives the SQLSTATE of the validation of the completeness CHECK of the
+	// generated copy that follows it, or empty when it passes.
+	backfill := func(t *testing.T, db *sql.DB, move bool) string {
+		t.Helper()
+		copy := boardsrn.BackfillCopies[0]
+		if move {
+			tx, err := db.Begin()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			for _, statement := range []string{"SET LOCAL ROLE " + pgx.Identifier{tenancy.OwnerRole}.Sanitize(),
+				"SELECT pg_catalog.set_config('stego.backfill_change', '" + copy.Change + "', true), pg_catalog.set_config('app.tenant', 'tenant-a', true)",
+				`UPDATE public."boards" SET "heading" = "title" WHERE "heading" IS NULL`} {
+				if _, err := tx.Exec(statement); err != nil {
+					t.Fatalf("%.60s: %v", statement, err)
+				}
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := db.Exec(copy.Validate()); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) {
+				return pgErr.Code
+			}
+			t.Fatal(err)
+		}
+		return ""
+	}
+	// next is a write of the release of the rename: its transactions set the writer marker to its open changes.
+	next := func(t *testing.T, db *sql.DB, statement string, args ...any) string {
+		t.Helper()
+		return writeMarked(t, db, "tenant-a", strings.Join(boardsrn.SchemaSteps, ","), statement, args...)
+	}
+
+	t.Run("ST-GEN-UC12-R02-T02 The expand migration of a rename keeps the old column and adds the new one nullable, with its CHECK, its indexes and the sync trigger", func(t *testing.T) {
+		_, up, _ := renamed(t)
+		var notNull, newNotNull bool
+		var newDefault sql.NullString
+		if err := up.QueryRow(`SELECT a.attnotnull FROM pg_catalog.pg_attribute a WHERE a.attrelid = 'public.boards'::regclass AND a.attname = 'title'`).Scan(&notNull); err != nil || !notNull {
+			t.Errorf("the old column title is not NOT NULL any more (%v)", err)
+		}
+		if err := up.QueryRow(`SELECT a.attnotnull, pg_catalog.pg_get_expr(d.adbin, d.adrelid) FROM pg_catalog.pg_attribute a LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+WHERE a.attrelid = 'public.boards'::regclass AND a.attname = 'heading'`).Scan(&newNotNull, &newDefault); err != nil || newNotNull || newDefault.Valid {
+			t.Errorf("the new column heading is NOT NULL %v with the default %v (error %v), want nullable with no default", newNotNull, newDefault, err)
+		}
+		var indexes []string
+		rows, err := up.Query(`SELECT indexname FROM pg_catalog.pg_indexes WHERE schemaname = 'public' AND tablename = 'boards' ORDER BY 1`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				t.Fatal(err)
+			}
+			indexes = append(indexes, name)
+		}
+		rows.Close()
+		for _, column := range []string{"title", "heading"} {
+			if !slices.ContainsFunc(indexes, func(n string) bool { return strings.Contains(n, column) }) {
+				t.Errorf("the table has the indexes %v, with no search index of %s", indexes, column)
+			}
+		}
+		// title is unique: both columns have their unique key, valid, while both releases run (decision on ST-GEN-Q18 (a)).
+		var keys int
+		if err := up.QueryRow(`SELECT count(*) FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
+WHERE i.indrelid = 'public.boards'::regclass AND i.indisunique AND i.indisvalid AND c.relname IN ('boards_title_key', 'boards_heading_key')`).Scan(&keys); err != nil || keys != 2 {
+			t.Errorf("the table has %d valid unique keys of title and heading (error %v), want 2", keys, err)
+		}
+		var checks int
+		if err := up.QueryRow(`SELECT count(*) FROM pg_catalog.pg_constraint WHERE conrelid = 'public.boards'::regclass AND contype = 'c' AND convalidated AND pg_catalog.pg_get_constraintdef(oid) LIKE '%heading%'`).Scan(&checks); err != nil || checks != 1 {
+			t.Errorf("the new column has %d validated CHECK constraints (error %v), want 1", checks, err)
+		}
+		var triggers int
+		if err := up.QueryRow(`SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid = 'public.boards'::regclass AND NOT tgisinternal AND tgname = 'boards_heading_sync'`).Scan(&triggers); err != nil || triggers != 1 {
+			t.Errorf("the table has %d sync triggers boards_heading_sync (error %v), want 1", triggers, err)
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC23-T01 The sync trigger copies from the column that changed and refuses only two changes that differ", func(t *testing.T) {
+		_, up, first := renamed(t)
+		if title, heading := pair(t, up, first); title.String != "first" || heading.Valid {
+			t.Fatalf("before the backfill the board of the release before is %v, %v; want first and no new value", title, heading)
+		}
+		before, after := uuid.Must(uuid.NewV7()).String(), uuid.Must(uuid.NewV7()).String()
+		// The release before writes only the old column; the trigger copies it into the new one.
+		if code := write(t, up, "tenant-a", `INSERT INTO public."boards" ("id", "title") VALUES ($1, 'old-only')`, before); code != "" {
+			t.Fatalf("an insert of the release before: %s", code)
+		}
+		if title, heading := pair(t, up, before); title.String != "old-only" || heading.String != "old-only" {
+			t.Errorf("an insert of the release before gives %v, %v; want old-only in both", title, heading)
+		}
+		// The release of the rename writes only the new column; the trigger copies it into the old one.
+		if code := next(t, up, `INSERT INTO public."boards" ("id", "heading") VALUES ($1, 'new-only')`, after); code != "" {
+			t.Fatalf("an insert of the release of the rename: %s", code)
+		}
+		if title, heading := pair(t, up, after); title.String != "new-only" || heading.String != "new-only" {
+			t.Errorf("an insert of the release of the rename gives %v, %v; want new-only in both", title, heading)
+		}
+		both := uuid.Must(uuid.NewV7()).String()
+		if code := next(t, up, `INSERT INTO public."boards" ("id", "title", "heading") VALUES ($1, 'same', 'same')`, both); code != "" {
+			t.Errorf("an insert with both columns equal: %s", code)
+		}
+		if code := write(t, up, "tenant-a", `UPDATE public."boards" SET "title" = 'old-changed' WHERE "id" = $1`, after); code != "" {
+			t.Fatalf("an update of the old column: %s", code)
+		}
+		if title, heading := pair(t, up, after); title.String != "old-changed" || heading.String != "old-changed" {
+			t.Errorf("an update of the old column gives %v, %v; want old-changed in both", title, heading)
+		}
+		if code := next(t, up, `UPDATE public."boards" SET "heading" = 'new-changed' WHERE "id" = $1`, before); code != "" {
+			t.Fatalf("an update of the new column: %s", code)
+		}
+		if title, heading := pair(t, up, before); title.String != "new-changed" || heading.String != "new-changed" {
+			t.Errorf("an update of the new column gives %v, %v; want new-changed in both", title, heading)
+		}
+		if code := write(t, up, "tenant-a", `UPDATE public."boards" SET "title" = 'agree', "heading" = 'agree' WHERE "id" = $1`, before); code != "" {
+			t.Errorf("an update of both columns to values that agree: %s", code)
+		}
+		for _, writer := range []func(*testing.T, *sql.DB, string, ...any) string{
+			func(t *testing.T, db *sql.DB, s string, args ...any) string {
+				return write(t, db, "tenant-a", s, args...)
+			}, next,
+		} {
+			if code := writer(t, up, `UPDATE public."boards" SET "title" = 'one', "heading" = 'two' WHERE "id" = $1`, before); code != "23514" {
+				t.Errorf("an update of both columns to values that differ gives %q, want 23514", code)
+			}
+		}
+		if code := write(t, up, "tenant-a", `UPDATE public."boards" SET "note" = 'a note' WHERE "id" = $1`, before); code != "" {
+			t.Fatalf("an update of a third column: %s", code)
+		}
+		if title, heading := pair(t, up, before); title.String != "agree" || heading.String != "agree" {
+			t.Errorf("an update of a third column changed the pair to %v, %v", title, heading)
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC25-T01 The checkpoint row is the owner's and changes only by the fenced statement", func(t *testing.T) {
+		_, up, _ := renamed(t)
+		var owner string
+		var moved, token int64
+		if err := up.QueryRow(`SELECT pg_catalog.pg_get_userbyid(c.relowner), b.rows_moved, b.token FROM stego_schema.backfills b, pg_catalog.pg_class c
+WHERE c.oid = 'stego_schema.backfills'::regclass AND b.change_id = 'board-title-rename'`).Scan(&owner, &moved, &token); err != nil || owner != tenancy.OwnerRole || moved != 0 || token != 0 {
+			t.Fatalf("the checkpoint row is owned by %q with %d moved and the token %d (error %v); want the owner role, 0 and 0", owner, moved, token, err)
+		}
+		for _, statement := range []string{
+			`UPDATE stego_schema.backfills SET rows_moved = 99 WHERE change_id = 'board-title-rename'`,
+			`DELETE FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`,
+			`INSERT INTO stego_schema.backfills (change_id) VALUES ('other')`,
+		} {
+			if code := write(t, up, "tenant-a", statement); code != "42501" {
+				t.Errorf("as the runtime role %q gives %q, want 42501", statement, code)
+			}
+		}
+		// The definer functions run with their own search path: a function of the caller's schema does not stand in
+		// for one that they call.
+		var definer bool
+		var config string
+		if err := up.QueryRow(`SELECT bool_and(prosecdef), string_agg(coalesce(array_to_string(proconfig, ';'), 'none'), '|' ORDER BY proname) FROM pg_catalog.pg_proc
+WHERE pronamespace = 'stego_schema'::regnamespace AND proname IN ('backfill_read', 'backfill_checkpoint')`).Scan(&definer, &config); err != nil || !definer ||
+			config != "search_path=pg_catalog, pg_temp|search_path=pg_catalog, pg_temp" {
+			t.Errorf("the checkpoint functions are SECURITY DEFINER %v with %q (error %v), want true and search_path=pg_catalog, pg_temp", definer, config, err)
+		}
+		// EXECUTE is the owner's alone: PUBLIC and the runtime role cannot run either function, so the runtime role
+		// cannot read, lock or change the row (decision on finding M1 of the security review of PR #291).
+		checkpointFunction := "stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text, text, text)"
+		for _, role := range []string{"public", tenancy.RuntimeRole} {
+			var may bool
+			if err := up.QueryRow(`SELECT has_function_privilege($1, 'stego_schema.backfill_read(text)', 'EXECUTE') OR has_function_privilege($1, $2, 'EXECUTE')`, role, checkpointFunction).Scan(&may); err != nil || may {
+				t.Errorf("%s may run a checkpoint function: %v (error %v)", role, may, err)
+			}
+		}
+		leaseName := "stego.backfill.board-title-rename"
+		fenced := `SELECT stego_schema.backfill_checkpoint('board-title-rename', '\x01'::bytea, 5, 0, 0, '', false, $1, 'uuid', '` + leaseName + `', 'job-a')`
+		for _, statement := range []string{
+			`SELECT count(*) FROM stego_schema.backfill_read('board-title-rename')`,
+			strings.Replace(fenced, "$1", "7", 1),
+		} {
+			if code := write(t, up, "tenant-a", statement); code != "42501" {
+				t.Errorf("as the runtime role %q gives %q, want 42501", statement, code)
+			}
+		}
+		// asOwner runs the statements in one transaction as the owner role, the role of the backfill in the migration
+		// job, and gives the result of the last.
+		asOwner := func(statements ...string) int64 {
+			t.Helper()
+			tx, err := up.Begin()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			if _, err := tx.Exec("SET LOCAL ROLE " + pgx.Identifier{tenancy.OwnerRole}.Sanitize()); err != nil {
+				t.Fatal(err)
+			}
+			var changed int64
+			for i, statement := range statements {
+				if i < len(statements)-1 {
+					if _, err := tx.Exec(statement); err != nil {
+						t.Fatalf("%.60s: %v", statement, err)
+					}
+					continue
+				}
+				if err := tx.QueryRow(statement).Scan(&changed); err != nil {
+					t.Fatalf("the fenced checkpoint statement as the owner role: %v", err)
+				}
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			return changed
+		}
+		asOwner(lease.LeasesTable, `INSERT INTO public.leases (name, holder, expires_at, token) VALUES ('`+leaseName+`', 'job-a', now() + interval '1 hour', 7) ON CONFLICT (name) DO NOTHING`, `SELECT 0`)
+		if got := asOwner(strings.Replace(fenced, "$1", "7", 1)); got != 1 {
+			t.Errorf("the fenced statement of the lease holder with the token 7 changed %d rows, want 1", got)
+		}
+		if got := asOwner(strings.Replace(fenced, "$1", "3", 1)); got != 0 {
+			t.Errorf("the fenced statement with the stale token 3 changed %d rows, want 0", got)
+		}
+		if err := up.QueryRow(`SELECT rows_moved, token FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`).Scan(&moved, &token); err != nil || moved != 5 || token != 7 {
+			t.Errorf("after the fenced statements the row has %d moved and the token %d (error %v), want 5 and 7", moved, token, err)
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC23-T05 The completeness CHECK comes NOT VALID with the sync trigger, the release before restarts after each phase, and the release of the rename only after the validation", func(t *testing.T) {
+		ctx := context.Background()
+		upCfg, up, first := renamed(t)
+		if _, err := up.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
+			t.Fatal(err)
+		}
+		runtime := upCfg.Copy()
+		runtime.User, runtime.Password = tenancy.RuntimeRole, "tables-check"
+		reader := stdlib.OpenDB(*runtime)
+		defer reader.Close()
+		copy := boardsrn.BackfillCopies[0]
+		var definition string
+		var validated bool
+		read := func() {
+			t.Helper()
+			if err := up.QueryRow(`SELECT pg_catalog.pg_get_constraintdef(oid), convalidated FROM pg_catalog.pg_constraint WHERE conrelid = 'public.boards'::regclass AND conname = $1`, copy.Check).Scan(&definition, &validated); err != nil {
+				t.Fatalf("the completeness CHECK %s: %v", copy.Check, err)
+			}
+		}
+		read()
+		if want := "CHECK (((heading IS NOT NULL) OR (title IS NULL))) NOT VALID"; definition != want || validated {
+			t.Fatalf("after the expand migrations the CHECK is %q, validated %v; want %q", definition, validated, want)
+		}
+		accepts := func(phase string, wantRename bool) {
+			t.Helper()
+			if err := manifest.Check(ctx, reader, owned(boardsrnbase.SchemaManifest)); err != nil {
+				t.Errorf("%s: the schema manifest of the release before refuses the database: %v", phase, err)
+			}
+			err := manifest.Check(ctx, reader, owned(boardsrn.SchemaManifest))
+			if wantRename && err != nil {
+				t.Errorf("%s: the schema manifest of the release of the rename refuses the database: %v", phase, err)
+			}
+			if !wantRename && err == nil {
+				t.Errorf("%s: the schema manifest of the release of the rename accepts the completeness CHECK NOT VALID", phase)
+			}
+		}
+		accepts("at expand", false)
+		// The row that the release before wrote before the step has no new value: the validation fails, and the
+		// CHECK stays NOT VALID.
+		if code := backfill(t, up, false); code != "23514" {
+			t.Fatalf("the validation with an unmoved row gives %q, want 23514", code)
+		}
+		read()
+		if validated {
+			t.Fatal("the CHECK is validated after a failed validation")
+		}
+		accepts("after a failed validation", false)
+		// A write of the release before to another column of the unmoved row meets the CHECK: the trigger of
+		// version 2 sets the new column.
+		if code := write(t, up, "tenant-a", `UPDATE public."boards" SET "note" = 'a note' WHERE "id" = $1`, first); code != "" {
+			t.Fatalf("an update of a third column of an unmoved row by the release before: %s", code)
+		}
+		if title, heading := pair(t, up, first); heading.String != title.String {
+			t.Fatalf("after an update of a third column the pair is %v, %v; want the new column set from the old", title, heading)
+		}
+		// An insert of the release before and one of the release of the rename each meet the CHECK.
+		if code := write(t, up, "tenant-a", `INSERT INTO public."boards" ("id", "title") VALUES ($1, 'old-only')`, uuid.Must(uuid.NewV7()).String()); code != "" {
+			t.Fatalf("an insert of the release before: %s", code)
+		}
+		if code := next(t, up, `INSERT INTO public."boards" ("id", "heading") VALUES ($1, 'new-only')`, uuid.Must(uuid.NewV7()).String()); code != "" {
+			t.Fatalf("an insert of the release of the rename: %s", code)
+		}
+		if code := backfill(t, up, true); code != "" {
+			t.Fatalf("the validation after the backfill gives %s", code)
+		}
+		read()
+		if !validated {
+			t.Fatal("the CHECK is not validated after the validation passed")
+		}
+		accepts("after the backfill", true)
+	})
+
+	t.Run("ST-GEN-UC12-R03-T02 Each release accepts the schema of a rename at expand by its own manifest, and the release before refuses a changed sync function", func(t *testing.T) {
+		ctx := context.Background()
+		upCfg, up, _ := renamed(t)
+		if _, err := up.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
+			t.Fatal(err)
+		}
+		runtime := upCfg.Copy()
+		runtime.User, runtime.Password = tenancy.RuntimeRole, "tables-check"
+		reader := stdlib.OpenDB(*runtime)
+		defer reader.Close()
+		if err := boardsrnbase.CheckLedger(ctx, up); err != nil {
+			t.Errorf("the ledger check of the release before refuses the rename: %v", err)
+		}
+		if err := manifest.Check(ctx, reader, owned(boardsrnbase.SchemaManifest)); err != nil {
+			t.Errorf("the schema manifest of the release before refuses the rename at expand: %v", err)
+		}
+		// The release of the rename runs after its backfill, which validates the completeness CHECK (decision on
+		// ST-SUP-Q120 (c)).
+		if code := backfill(t, up, true); code != "" {
+			t.Fatalf("the validation of the completeness CHECK after the backfill gives %s", code)
+		}
+		if err := manifest.Check(ctx, reader, owned(boardsrnbase.SchemaManifest)); err != nil {
+			t.Errorf("the schema manifest of the release before refuses the rename after its backfill: %v", err)
+		}
+		if err := manifest.Check(ctx, reader, owned(boardsrn.SchemaManifest)); err != nil {
+			t.Errorf("the schema manifest of the release of the rename refuses its own expand step after its backfill: %v", err)
+		}
+		// A sync function that is not the template's text is refused by both.
+		if _, err := up.Exec(`CREATE OR REPLACE FUNCTION stego_steps.boards_heading_sync() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER VOLATILE SET search_path = pg_catalog, pg_temp AS $f$BEGIN RETURN NEW; END;$f$`); err != nil {
+			t.Fatal(err)
+		}
+		for name, m := range map[string]manifest.Manifest{"before": boardsrnbase.SchemaManifest, "rename": boardsrn.SchemaManifest} {
+			if err := manifest.Check(ctx, reader, owned(m)); err == nil {
+				t.Errorf("the schema manifest of the release %s accepts a sync function that is not the template's", name)
+			}
 		}
 	})
 
@@ -842,9 +1230,11 @@ CREATE EVENT TRIGGER dup_slug ON ddl_command_end WHEN TAG IN ('ALTER TABLE') EXE
 		if !ledger(step) || ledger(build) {
 			t.Errorf("after the failed build the ledger holds the step %v and the build %v; want the step only", ledger(step), ledger(build))
 		}
-		// The job holds no lock after it ends: neither the ledger lock of its session nor a transaction.
+		// The job holds no lock after it ends: neither the ledger lock of its session nor a transaction. Only the
+		// locks of this test's database count: the jobs of other tests run on the same server at the same time.
 		var held int
-		if err := slugged.QueryRow(`SELECT count(*) FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND granted`).Scan(&held); err != nil || held != 0 {
+		if err := slugged.QueryRow(`SELECT count(*) FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND granted
+  AND database = (SELECT oid FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database())`).Scan(&held); err != nil || held != 0 {
 			t.Errorf("after the failed build %d advisory locks are held (error %v), want none", held, err)
 		}
 		// An invalid index of the same name that a build which stopped part way left is dropped before the next build.
@@ -993,8 +1383,11 @@ CREATE EVENT TRIGGER count_index ON ddl_command_start WHEN TAG IN ('CREATE INDEX
 			t.Run(c.name, func(t *testing.T) {
 				db, conn := slugJob(t)
 				// The event trigger of ST-SUP-RC01-OC38-T02 makes the unique build fail on a duplicate, and a second one
-				// refuses the first drops of an index; a sequence counts the drops, as it keeps its value when the
-				// statement fails.
+				// refuses the first drops of an index. It counts each drop with a session advisory lock of key
+				// (4242, n), which a rollback does not release. It does not count with nextval: after a checkpoint,
+				// nextval logs the sequence and gives the transaction of the drop an ID, and then DROP INDEX
+				// CONCURRENTLY fails as it is not the first action of its transaction, so a drop that the trigger
+				// let through failed and ran again.
 				if _, err := db.Exec(fmt.Sprintf(`CREATE FUNCTION public.dup_slug() RETURNS event_trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.boards'::pg_catalog.regclass AND attname = 'slug') THEN
@@ -1002,10 +1395,14 @@ BEGIN
   END IF;
 END $$;
 CREATE EVENT TRIGGER dup_slug ON ddl_command_end WHEN TAG IN ('ALTER TABLE') EXECUTE FUNCTION public.dup_slug();
-CREATE SEQUENCE public.drops;
 CREATE FUNCTION public.fail_drop() RETURNS event_trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  drop_number bigint;
 BEGIN
-  IF nextval('public.drops') <= %d THEN
+  SELECT count(*) + 1 INTO drop_number FROM pg_catalog.pg_locks
+    WHERE locktype = 'advisory' AND classid = 4242 AND objsubid = 2 AND pid = pg_catalog.pg_backend_pid();
+  PERFORM pg_catalog.pg_advisory_lock(4242, drop_number::integer);
+  IF drop_number <= %d THEN
     RAISE EXCEPTION 'the test refuses the drop';
   END IF;
 END $$;
@@ -1017,7 +1414,7 @@ CREATE EVENT TRIGGER fail_drop ON ddl_command_start WHEN TAG IN ('DROP INDEX') E
 					t.Fatalf("the migration job with a duplicate gives %v, want the failure of %s", err, slugUnique)
 				}
 				var drops int64
-				if err := db.QueryRow(`SELECT last_value FROM public.drops`).Scan(&drops); err != nil {
+				if err := db.QueryRow(`SELECT count(*) FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND classid = 4242 AND objsubid = 2`).Scan(&drops); err != nil {
 					t.Fatal(err)
 				}
 				present, valid := indexState(t, db, "boards_slug_key")

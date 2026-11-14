@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/jsell-rh/stego/registry/runtime/internal/catalogfirst"
 	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
@@ -85,7 +86,7 @@ func Migration(relayRole, runtimeRole, workerRole string) (string, error) {
 		return "", errors.New("outbox: the relay, runtime and worker roles must be three roles")
 	}
 	return strings.NewReplacer("{{relay}}", `"`+relayRole+`"`, "{{relay_text}}", "'"+relayRole+"'",
-		"{{runtime}}", `"`+runtimeRole+`"`, "{{worker}}", `"`+workerRole+`"`).Replace(migration), nil
+		"{{runtime}}", `"`+runtimeRole+`"`, "{{worker}}", `"`+workerRole+`"`).Replace(migrationHead + queueObjects + migrationTail), nil
 }
 
 // Manifest gives what the code of the outbox needs of the database that Migration makes for the same roles
@@ -157,7 +158,7 @@ func Manifest(relayRole, runtimeRole, workerRole string) (manifest.Manifest, err
 	}
 	wall := "(tenant_id = current_setting('app.tenant'::text, true))"
 	policies := []manifest.Policy{
-		{Name: "messages_tenant", Command: "*", Using: wall, WithCheck: wall, Roles: []string{runtimeRole, workerRole}},
+		{Name: "messages_tenant", Command: catalogfirst.EveryCommand, Using: wall, WithCheck: wall, Roles: []string{runtimeRole, workerRole}},
 		{Name: "messages_relay_select", Command: "r", Using: "true", Roles: []string{relayRole}},
 		{Name: "messages_relay_update", Command: "w", Using: "true", WithCheck: "true", Roles: []string{relayRole}},
 		{Name: "messages_relay_delete", Command: "d", Using: "true", Roles: []string{relayRole}},
@@ -238,7 +239,7 @@ var relayFunctions = []string{
 	"stego_outbox.resolve(timestamptz, uuid, text, text, text)",
 }
 
-const migration = `CREATE SCHEMA IF NOT EXISTS stego_outbox;
+const migrationHead = `CREATE SCHEMA IF NOT EXISTS stego_outbox;
 
 DO $do$ BEGIN
 	-- Only a role with CREATEROLE can run CREATE ROLE, even for a role that exists, so the text creates the role
@@ -255,6 +256,18 @@ DO $do$ BEGIN
 	IF NOT pg_catalog.pg_has_role(CURRENT_USER, {{relay_text}}, 'SET') THEN
 		RAISE EXCEPTION 'outbox: the migration role % needs membership in % WITH SET TRUE', CURRENT_USER, {{relay_text}}
 			USING HINT = 'GRANT ' || pg_catalog.quote_ident({{relay_text}}) || ' TO ' || pg_catalog.quote_ident(CURRENT_USER) || ' WITH SET TRUE, INHERIT FALSE';
+	END IF;
+END $do$;
+
+DO $do$ BEGIN
+	-- Before v0.31.0 the relay functions belonged to the shared role stego_outbox_relay. This release has no upgrade
+	-- path from it (ST-SUP-Q121 (b)): the text refuses such a queue with the remedy, before it makes anything, instead
+	-- of failing on a function that it may not replace.
+	IF {{relay_text}} <> 'stego_outbox_relay' AND EXISTS (SELECT 1 FROM pg_catalog.pg_proc AS p
+		JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace JOIN pg_catalog.pg_roles AS r ON r.oid = p.proowner
+		WHERE n.nspname = 'stego_outbox' AND r.rolname = 'stego_outbox_relay') THEN
+		RAISE EXCEPTION 'outbox: the relay functions of stego_outbox belong to the shared role stego_outbox_relay of a runtime before v0.31.0, and this release has no upgrade path from it; as a superuser, run DROP OWNED BY stego_outbox_relay and DROP ROLE stego_outbox_relay in this database, then run the migration job again'
+			USING ERRCODE = 'object_not_in_prerequisite_state';
 	END IF;
 END $do$;
 
@@ -294,7 +307,15 @@ CREATE TABLE IF NOT EXISTS stego_outbox.messages (
 	CHECK ((state = 'parked') = (parked_from IS NOT NULL))
 );
 
-ALTER TABLE stego_outbox.messages ADD COLUMN IF NOT EXISTS idempotent boolean NOT NULL DEFAULT false;
+-- A queue of an earlier migration gets the column idempotent. The catalog is read first, because ADD COLUMN IF NOT
+-- EXISTS takes ACCESS EXCLUSIVE on the queue even when the column is there, and the job runs this text at each run.
+DO $do$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = 'stego_outbox.messages'::regclass
+		AND a.attname = 'idempotent' AND NOT a.attisdropped) THEN
+		ALTER TABLE stego_outbox.messages ADD COLUMN IF NOT EXISTS idempotent boolean NOT NULL DEFAULT false;
+	END IF;
+END $do$;
 
 -- The payload is stored as bytea, exactly the bytes that Enqueue checked, and a destination may carry up to 1 MiB
 -- (MaxDestinationPayloadBytes) of them (ST-SUP-RP01-LC28). A table of an earlier migration with a jsonb payload
@@ -305,7 +326,7 @@ DECLARE
 	want constant text := 'CHECK (((octet_length(payload) >= 1) AND (octet_length(payload) <= 1048576)))';
 	have text;
 BEGIN
-	PERFORM pg_catalog.set_config('lock_timeout', '5s', true);
+	PERFORM pg_catalog.set_config('lock_timeout', '1s', true);
 	IF (SELECT pg_catalog.format_type(a.atttypid, a.atttypmod) FROM pg_catalog.pg_attribute AS a
 		WHERE a.attrelid = 'stego_outbox.messages'::regclass AND a.attname = 'payload') = 'jsonb' THEN
 		-- jsonb kept the values of a payload but not its bytes, so an audit-sink message stored before this change
@@ -335,25 +356,41 @@ BEGIN
 	END IF;
 END $do$;
 
-CREATE INDEX IF NOT EXISTS messages_open_order ON stego_outbox.messages (tenant_id, destination, resource_key, sequence)
-	WHERE state NOT IN ('done', 'discarded');
-CREATE INDEX IF NOT EXISTS messages_due ON stego_outbox.messages (available_at, sequence)
-	WHERE state IN ('pending', 'dispatching', 'outcome_unknown', 'reconciling');
-CREATE INDEX IF NOT EXISTS messages_done ON stego_outbox.messages (done_at) WHERE state = 'done';
+`
 
-ALTER TABLE stego_outbox.messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stego_outbox.messages FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS messages_tenant ON stego_outbox.messages;
-CREATE POLICY messages_tenant ON stego_outbox.messages TO {{runtime}}, {{worker}}
+// queueObjects are the indexes, the row-level security and the four policies of the queue, each read in the catalog
+// first, so a run of the migration job that changes nothing takes no lock on the queue that conflicts with an
+// enqueue or a claim of the running release; a missing or changed object is made again.
+var queueObjects = func() string {
+	const queue = "'stego_outbox.messages'"
+	index := func(name, create string) string {
+		return catalogfirst.Unless(catalogfirst.Exists("'stego_outbox."+name+"'"), create)
+	}
+	policy := func(p catalogfirst.Policy, create string) string {
+		p.Relation = queue
+		return catalogfirst.Unless(p.Holds(), "DROP POLICY IF EXISTS "+p.Name+" ON stego_outbox.messages;\n"+create)
+	}
+	relay := []string{"{{relay_text}}"}
+	return index("messages_open_order", `CREATE INDEX IF NOT EXISTS messages_open_order ON stego_outbox.messages (tenant_id, destination, resource_key, sequence)
+	WHERE state NOT IN ('done', 'discarded');`) +
+		index("messages_due", `CREATE INDEX IF NOT EXISTS messages_due ON stego_outbox.messages (available_at, sequence)
+	WHERE state IN ('pending', 'dispatching', 'outcome_unknown', 'reconciling');`) +
+		index("messages_done", `CREATE INDEX IF NOT EXISTS messages_done ON stego_outbox.messages (done_at) WHERE state = 'done';`) +
+		"\n" + catalogfirst.Unless(catalogfirst.RowSecurity(queue), `ALTER TABLE stego_outbox.messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stego_outbox.messages FORCE ROW LEVEL SECURITY;`) +
+		policy(catalogfirst.Policy{Name: "messages_tenant", Command: catalogfirst.EveryCommand, Roles: []string{"'{{runtime}}'", "'{{worker}}'"},
+			Using: catalogfirst.TenantForm, Check: catalogfirst.TenantForm}, `CREATE POLICY messages_tenant ON stego_outbox.messages TO {{runtime}}, {{worker}}
 	USING (tenant_id = pg_catalog.current_setting('app.tenant', true))
-	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
-DROP POLICY IF EXISTS messages_relay_select ON stego_outbox.messages;
-CREATE POLICY messages_relay_select ON stego_outbox.messages FOR SELECT TO {{relay}} USING (true);
-DROP POLICY IF EXISTS messages_relay_update ON stego_outbox.messages;
-CREATE POLICY messages_relay_update ON stego_outbox.messages FOR UPDATE TO {{relay}} USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS messages_relay_delete ON stego_outbox.messages;
-CREATE POLICY messages_relay_delete ON stego_outbox.messages FOR DELETE TO {{relay}} USING (true);
+	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));`) +
+		policy(catalogfirst.Policy{Name: "messages_relay_select", Command: "r", Roles: relay, Using: catalogfirst.TrueForm},
+			`CREATE POLICY messages_relay_select ON stego_outbox.messages FOR SELECT TO {{relay}} USING (true);`) +
+		policy(catalogfirst.Policy{Name: "messages_relay_update", Command: "w", Roles: relay, Using: catalogfirst.TrueForm, Check: catalogfirst.TrueForm},
+			`CREATE POLICY messages_relay_update ON stego_outbox.messages FOR UPDATE TO {{relay}} USING (true) WITH CHECK (true);`) +
+		policy(catalogfirst.Policy{Name: "messages_relay_delete", Command: "d", Roles: relay, Using: catalogfirst.TrueForm},
+			`CREATE POLICY messages_relay_delete ON stego_outbox.messages FOR DELETE TO {{relay}} USING (true);`)
+}()
 
+const migrationTail = `
 REVOKE ALL ON stego_outbox.messages FROM PUBLIC;
 GRANT USAGE ON SCHEMA stego_outbox TO {{runtime}}, {{worker}};
 GRANT USAGE, CREATE ON SCHEMA stego_outbox TO {{relay}};

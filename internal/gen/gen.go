@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -219,8 +220,9 @@ type Context struct {
 // history: each schema change whose first step is at the position steps or after it is undone, the change whose
 // step is last first. AtSchemaStep(0) is the baseline, the shape of the first release, and AtSchemaStep with the
 // length of the schema history is the context itself. An add of an entity is undone with the entity and each
-// collection over it, and an add of a field with the field. Generation carries out no other kind of schema change
-// yet, so AtSchemaStep refuses one, and a change with no step.
+// collection over it, an add of a field with the field, and a rename by giving the field the column From, with its
+// API name kept (StoredNames). Generation carries out no other kind of schema change yet, so AtSchemaStep refuses
+// one, and a change with no step.
 func (c Context) AtSchemaStep(steps int) (Context, error) {
 	first := map[string]int{}
 	for i, step := range c.SchemaHistory {
@@ -234,7 +236,7 @@ func (c Context) AtSchemaStep(steps int) (Context, error) {
 		if !stepped {
 			return Context{}, fmt.Errorf("schema change %q has no step in the schema history", change.ID)
 		}
-		if change.Kind != "add" {
+		if change.Kind != "add" && change.Kind != "rename" {
 			return Context{}, fmt.Errorf("schema change %q has the kind %s, which generation does not carry out yet", change.ID, change.Kind)
 		}
 		if at >= steps {
@@ -262,6 +264,19 @@ func (c Context) AtSchemaStep(steps int) (Context, error) {
 		if at < 0 {
 			return Context{}, fmt.Errorf("schema change %q adds to the entity %s, which the declaration does not have", change.ID, change.Entity)
 		}
+		if change.Kind == "rename" {
+			// A rename is undone by giving the field its column before the change; its API name stays.
+			fields := shaped.Entities[at].Fields
+			found := slices.IndexFunc(fields, func(f types.Field) bool { return f.ColumnName() == change.Field })
+			if found < 0 {
+				return Context{}, fmt.Errorf("schema change %q renames the column %s.%s, which the declaration does not have", change.ID, change.Entity, change.Field)
+			}
+			fields[found].Column = change.From
+			if fields[found].Column == fields[found].Name {
+				fields[found].Column = ""
+			}
+			continue
+		}
 		if change.Field == "" {
 			shaped.Entities = append(shaped.Entities[:at:at], shaped.Entities[at+1:]...)
 			var kept []types.Collection
@@ -286,6 +301,86 @@ func (c Context) AtSchemaStep(steps int) (Context, error) {
 		shaped.Entities[at].Fields = append(fields[:found:found], fields[found+1:]...)
 	}
 	return shaped, nil
+}
+
+// StoredNames gives a copy of the entities in which each field that a schema change of kind rename names has the
+// API name of the field before its first rename and the column of its declared name (ST-GEN-UC12-R04): a rename
+// does not rename the field in the API, so every generator of an API, a client or a fill reads Name, and the
+// generators of the tables and the statements read ColumnName. A chain of renames on one entity, From of one being
+// Field of an earlier one, gives the first From. It refuses a rename of a field that something other than the field
+// names, by the declared name, because those names are not mapped yet: a reference field, a unique_composite, an
+// invariant, the scope, implicit fields, upsert key or patchable fields of a collection, the context fields or the
+// generation fields of the entity.
+func StoredNames(entities []types.Entity, invariants []types.DeclaredInvariant, collections []types.Collection, changes []types.SchemaChange) ([]types.Entity, error) {
+	renamed := map[[2]string]string{}
+	for _, change := range changes {
+		if change.Kind == "rename" {
+			renamed[[2]string{change.Entity, change.Field}] = change.From
+		}
+	}
+	if len(renamed) == 0 {
+		return entities, nil
+	}
+	out := make([]types.Entity, len(entities))
+	for i, entity := range entities {
+		entity.Fields = append([]types.Field(nil), entity.Fields...)
+		for j, field := range entity.Fields {
+			from, ok := renamed[[2]string{entity.Name, field.Name}]
+			if !ok {
+				continue
+			}
+			for steps := 0; steps <= len(changes); steps++ {
+				earlier, again := renamed[[2]string{entity.Name, from}]
+				if !again {
+					break
+				}
+				from = earlier
+			}
+			if reason := namedElsewhere(entity, field.Name, invariants, collections); reason != "" {
+				return nil, fmt.Errorf("the entity %s: generation does not rename the field %s yet, because %s names it by its declared name; STEGO does not map that name to the column yet", entity.Name, field.Name, reason)
+			}
+			if slices.ContainsFunc(entities[i].Fields, func(f types.Field) bool { return f.Name == from }) {
+				return nil, fmt.Errorf("the entity %s declares a field %s, which is the API name of the renamed field %s; give the new field another name", entity.Name, from, field.Name)
+			}
+			entity.Fields[j].Name, entity.Fields[j].Column = from, field.Name
+		}
+		out[i] = entity
+	}
+	return out, nil
+}
+
+// namedElsewhere tells what, other than the field itself, names the field of the entity, or empty.
+func namedElsewhere(entity types.Entity, field string, invariants []types.DeclaredInvariant, collections []types.Collection) string {
+	if _, ok := entity.References[field]; ok {
+		return "a reference"
+	}
+	for _, f := range entity.Fields {
+		if f.Type == types.FieldTypeRef && f.Name == field {
+			return "a reference"
+		}
+		if slices.Contains(f.UniqueComposite, field) || (f.Name == field && len(f.UniqueComposite) > 0) {
+			return "a unique_composite"
+		}
+	}
+	if slices.Contains(entity.ContextFields, field) || slices.Contains(entity.GenerationFields, field) {
+		return "a context or generation field of the entity"
+	}
+	for _, invariant := range invariants {
+		if invariant.On == entity.Name && (slices.Contains(invariant.By, field) || strings.Contains(invariant.Where, field)) {
+			return "the invariant " + invariant.Name
+		}
+	}
+	for _, collection := range collections {
+		if collection.Entity != entity.Name {
+			continue
+		}
+		_, scope := collection.Scope[field]
+		_, implicit := collection.Implicit[field]
+		if scope || implicit || slices.Contains(collection.UpsertKey, field) || slices.Contains(collection.Patchable, field) {
+			return "the collection " + collection.Name
+		}
+	}
+	return ""
 }
 
 // Destination is one outbox destination that a component declares in its setting destinations: its name, the

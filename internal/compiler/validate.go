@@ -194,7 +194,11 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	}
 
 	if !result.HasErrors() {
-		resolved, err := prepareComponents(input, source, baselineNames, components)
+		// Validate writes nothing, so its generators get the stored shape with no schema step when generation does
+		// not carry out a declared change yet, as for a check-only plan (ST-DECL-UC09-R06).
+		checked := input
+		checked.CheckOnly = true
+		resolved, err := prepareComponents(checked, source, baselineNames, components)
 		if err != nil {
 			result.Errors = append(result.Errors, ValidationError{Category: "generator", Rule: "generator-input", Path: "archetype", Found: svcDecl.Archetype, Message: err.Error()})
 		} else {

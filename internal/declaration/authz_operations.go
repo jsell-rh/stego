@@ -59,18 +59,28 @@ func validateCommandAuthorization(commands []types.Command, schema *AuthzSchema)
 }
 
 // validateCommandRelations checks that each relation in a command's Relationships written is a relation of the
-// schema under the resource type of an entity the command writes (ST-DECL-INV41).
+// schema under the resource type of an entity the command writes, and is no relation that the runtime writes alone
+// for that entity: the relation of a declared relationship or of a reference. A fill that could relate or unrelate
+// such a relation could move an owner after create, or relate a row to a parent with no permission on the parent
+// (ST-DECL-INV41, ST-SUP-Q118).
 func validateCommandRelations(service *types.ServiceDeclaration, schema *AuthzSchema) []ValidationError {
 	var faults []ValidationError
 	for i, command := range service.Commands {
 		written := map[string]bool{}
+		runtimeWritten := map[string]string{}
 		for _, name := range command.Writes {
 			if _, entity := entityIndex(service.Entities, name); entity != nil && entity.ResourceType != "" {
 				written[entity.ResourceType] = true
+				for relation, why := range RuntimeRelations(*entity) {
+					runtimeWritten[entity.ResourceType+"#"+relation] = why
+				}
 			}
 		}
 		for ri, relation := range command.RelationshipsWritten {
 			message := writtenRelationUnknown(relation, written, schema, "the command writes")
+			if why, ok := runtimeWritten[relation]; ok && message == "" {
+				message = fmt.Sprintf("which is %s; the runtime writes it alone, so a command may not relate or unrelate it", why)
+			}
 			if message == "" {
 				continue
 			}
@@ -110,4 +120,23 @@ func operationsAuthorization(service *types.ServiceDeclaration, schema *AuthzSch
 	faults = append(faults, validateQueryAuthorization(service.Queries, schema)...)
 	faults = append(faults, validateReferences(service.Entities, schema)...)
 	return append(faults, validateWorkerAuthorization(service.Workers, schema)...)
+}
+
+// RuntimeRelations gives the relations that the runtime writes alone for the rows of the entity, each with what
+// declares it: the relation of each declared relationship, of the subject source field or caller, and the relation
+// of each reference (ST-DECL-EN02, ST-DECL-EN12). No command lists one of them in Relationships written
+// (ST-DECL-INV41).
+func RuntimeRelations(e types.Entity) map[string]string {
+	relations := map[string]string{}
+	for _, r := range e.Relationships {
+		if r.Relation != "" && relations[r.Relation] == "" {
+			relations[r.Relation] = fmt.Sprintf("the relationship %s of the entity %s, with the subject source %s", r.Relation, e.Name, r.SubjectSource)
+		}
+	}
+	for _, field := range sortedKeys(e.References) {
+		if ref := e.References[field]; ref.Relation != "" && relations[ref.Relation] == "" {
+			relations[ref.Relation] = fmt.Sprintf("the relation of the reference %s of the entity %s", field, e.Name)
+		}
+	}
+	return relations
 }

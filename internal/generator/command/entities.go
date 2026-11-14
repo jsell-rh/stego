@@ -117,7 +117,7 @@ func planEntity(e types.Entity, byName map[string]types.Entity, tenantKey string
 	}
 	var refs []*entityField
 	for _, f := range e.Fields {
-		if !sqlName.MatchString(f.Name) || f.Name == "id" || f.Name == tenantKey || f.Name == "version" || f.Name == "authz_token" || f.Name == "created_time" || f.Name == "updated_time" {
+		if c := f.ColumnName(); !sqlName.MatchString(c) || !sqlName.MatchString(f.Name) || c == "id" || c == tenantKey || c == "version" || c == "authz_token" || c == "created_time" || c == "updated_time" {
 			return nil, fmt.Errorf("the field name %s is not a plain column name of its own", f.Name)
 		}
 		goType, ok := goTypes[f.Type]
@@ -200,7 +200,7 @@ func planEntity(e types.Entity, byName map[string]types.Entity, tenantKey string
 func (e *entity) columns() string {
 	cols := []string{`"id"::text`}
 	for _, f := range e.fields {
-		cols = append(cols, quote(f.decl.Name))
+		cols = append(cols, quote(f.decl.ColumnName()))
 	}
 	cols = append(cols, `"version"`)
 	if e.resourceType != "" {
@@ -223,9 +223,9 @@ func (e *entity) statements(tenantKey string) (selectRow, forUpdate, forDelete, 
 	params := []string{"$1", "$2::uuid"}
 	sets := make([]string, 0, len(e.fields)+2)
 	for i, f := range e.fields {
-		names = append(names, quote(f.decl.Name))
+		names = append(names, quote(f.decl.ColumnName()))
 		params = append(params, fmt.Sprintf("$%d", i+3))
-		sets = append(sets, fmt.Sprintf("%s = $%d", quote(f.decl.Name), i+5))
+		sets = append(sets, fmt.Sprintf("%s = $%d", quote(f.decl.ColumnName()), i+5))
 	}
 	sets = append(sets, `"version" = "version" + 1`, `"updated_time" = now()`)
 	insert = fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) RETURNING %s", table, strings.Join(names, ", "), strings.Join(params, ", "), e.columns())
@@ -259,9 +259,9 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 	for _, f := range e.fields {
 		switch f.sensitivity {
 		case "pii":
-			sensitive = append(sensitive, fmt.Sprintf("%q: audit.PII", f.decl.Name))
+			sensitive = append(sensitive, fmt.Sprintf("%q: audit.PII", f.decl.ColumnName()))
 		case "secret":
-			sensitive = append(sensitive, fmt.Sprintf("%q: audit.Secret", f.decl.Name))
+			sensitive = append(sensitive, fmt.Sprintf("%q: audit.Secret", f.decl.ColumnName()))
 		}
 	}
 	if len(sensitive) > 0 {
@@ -290,16 +290,16 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 	for _, f := range e.fields {
 		// The audit runtime encodes plain values only, so an optional field gives its value, or nil when it is not set.
 		if f.pointer {
-			state = append(state, fmt.Sprintf("%q: command.StateOf(v.%s)", f.decl.Name, f.goName))
+			state = append(state, fmt.Sprintf("%q: command.StateOf(v.%s)", f.decl.ColumnName(), f.goName))
 			continue
 		}
 		// A jsonb column holds JSON text: its state is that JSON value, which the audit runtime decodes and redacts
 		// at any depth (ST-SUP-RP05-LC03). A NULL column is nil.
 		if f.decl.Type == types.FieldTypeJsonb {
-			state = append(state, fmt.Sprintf("%q: json.RawMessage(v.%s)", f.decl.Name, f.goName))
+			state = append(state, fmt.Sprintf("%q: json.RawMessage(v.%s)", f.decl.ColumnName(), f.goName))
 			continue
 		}
-		state = append(state, fmt.Sprintf("%q: v.%s", f.decl.Name, f.goName))
+		state = append(state, fmt.Sprintf("%q: v.%s", f.decl.ColumnName(), f.goName))
 	}
 	w.f("\tState: func(v %s) map[string]any {\n\t\treturn map[string]any{%s}\n\t},\n", e.goName, strings.Join(state, ", "))
 	changed := []string{"before.ID != after.ID"}

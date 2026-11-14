@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/jsell-rh/stego/registry/runtime/internal/catalogfirst"
 	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
 	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
@@ -984,7 +985,19 @@ func quoteName(kind, name string) (string, error) {
 // change only when the message has the destination authz and is in the state the hook reports; it refuses the state
 // done unless session_user is a hook role, and refuses to run under an isolation other than READ COMMITTED. Status
 // never reads the outbox.
-const migrationText = `DO $do$
+// tenantWalled gives the row-level security and the tenant policy <table>_tenant of the authorization table table in
+// the schema of the text, each read in the catalog first, so a run of the migration job that changes nothing takes no
+// lock on the table that conflicts with a request of the running release; a missing or changed policy is made again.
+// The index and the constraint trigger of the revocation tuples are read in the catalog first in the same way.
+func tenantWalled(table string) string {
+	relation := "{{schema_quoted_text}} || '." + table + "'"
+	return catalogfirst.Unless(catalogfirst.RowSecurity(relation), "ALTER TABLE {{schema}}."+table+" ENABLE ROW LEVEL SECURITY;\nALTER TABLE {{schema}}."+table+" FORCE ROW LEVEL SECURITY;") +
+		catalogfirst.Unless(catalogfirst.Policy{Relation: relation, Name: table + "_tenant", Command: catalogfirst.EveryCommand, Using: catalogfirst.TenantForm, Check: catalogfirst.TenantForm}.Holds(),
+			"DROP POLICY IF EXISTS "+table+"_tenant ON {{schema}}."+table+";\nCREATE POLICY "+table+"_tenant ON {{schema}}."+table+"\n"+
+				"\tUSING (tenant_id = pg_catalog.current_setting('app.tenant', true))\n\tWITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));")
+}
+
+var migrationText = `DO $do$
 DECLARE
 	v_role text;
 BEGIN
@@ -1017,13 +1030,7 @@ CREATE TABLE IF NOT EXISTS {{schema}}.authz_revocations (
 	created_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
 	completed_at timestamptz
 );
-ALTER TABLE {{schema}}.authz_revocations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE {{schema}}.authz_revocations FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS authz_revocations_tenant ON {{schema}}.authz_revocations;
-CREATE POLICY authz_revocations_tenant ON {{schema}}.authz_revocations
-	USING (tenant_id = pg_catalog.current_setting('app.tenant', true))
-	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
-REVOKE ALL ON {{schema}}.authz_revocations FROM PUBLIC;
+` + tenantWalled("authz_revocations") + `REVOKE ALL ON {{schema}}.authz_revocations FROM PUBLIC;
 GRANT SELECT ON {{schema}}.authz_revocations TO {{runtime_role}}, {{outbox_relay}};
 GRANT INSERT (id, tenant_id, principal, tuple_count) ON {{schema}}.authz_revocations TO {{runtime_role}};
 GRANT UPDATE (tuple_count, done, parked, discarded, token, completed_at) ON {{schema}}.authz_revocations TO {{outbox_relay}};
@@ -1034,14 +1041,8 @@ CREATE TABLE IF NOT EXISTS {{schema}}.authz_revocation_tuples (
 	tenant_id text NOT NULL CHECK (octet_length(tenant_id) BETWEEN 1 AND 255),
 	state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'done', 'parked', 'discarded'))
 );
-CREATE INDEX IF NOT EXISTS authz_revocation_tuples_revocation ON {{schema}}.authz_revocation_tuples (revocation_id);
-ALTER TABLE {{schema}}.authz_revocation_tuples ENABLE ROW LEVEL SECURITY;
-ALTER TABLE {{schema}}.authz_revocation_tuples FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS authz_revocation_tuples_tenant ON {{schema}}.authz_revocation_tuples;
-CREATE POLICY authz_revocation_tuples_tenant ON {{schema}}.authz_revocation_tuples
-	USING (tenant_id = pg_catalog.current_setting('app.tenant', true))
-	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
-REVOKE ALL ON {{schema}}.authz_revocation_tuples FROM PUBLIC;
+` + catalogfirst.Unless(catalogfirst.Exists("{{schema_quoted_text}} || '.authz_revocation_tuples_revocation'"),
+	"CREATE INDEX IF NOT EXISTS authz_revocation_tuples_revocation ON {{schema}}.authz_revocation_tuples (revocation_id);") + `` + tenantWalled("authz_revocation_tuples") + `REVOKE ALL ON {{schema}}.authz_revocation_tuples FROM PUBLIC;
 GRANT SELECT ON {{schema}}.authz_revocation_tuples TO {{runtime_role}}, {{outbox_relay}};
 GRANT INSERT (message_id, revocation_id, tenant_id) ON {{schema}}.authz_revocation_tuples TO {{runtime_role}};
 GRANT UPDATE (state) ON {{schema}}.authz_revocation_tuples TO {{outbox_relay}};
@@ -1143,10 +1144,11 @@ BEGIN
 	END IF;
 END
 $do$;
-DROP TRIGGER IF EXISTS authz_revocation_tuple_check ON {{schema}}.authz_revocation_tuples;
+` + catalogfirst.Unless(catalogfirst.Trigger{Relation: "{{schema_quoted_text}} || '.authz_revocation_tuples'", Name: "authz_revocation_tuple_check",
+	Function: "{{schema_quoted_text}} || '.authz_revocation_tuple_check()'", Type: catalogfirst.Row | catalogfirst.Insert, Deferred: true}.Holds(),
+	`DROP TRIGGER IF EXISTS authz_revocation_tuple_check ON {{schema}}.authz_revocation_tuples;
 CREATE CONSTRAINT TRIGGER authz_revocation_tuple_check AFTER INSERT ON {{schema}}.authz_revocation_tuples
-	DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION {{schema}}.authz_revocation_tuple_check();
-`
+	DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION {{schema}}.authz_revocation_tuple_check();`)
 
 // Migration returns the SQL text that creates the revocation floor authz_floor, the revocation records and the
 // function of the outbox state hook in schema, for the migration job to run as the owner role after the migration of
@@ -1159,8 +1161,9 @@ CREATE CONSTRAINT TRIGGER authz_revocation_tuple_check AFTER INSERT ON {{schema}
 // role that equals a hook role, no hook role, and an outbox relay role that is not a lower-case SQL name ending
 // with outbox.RelaySuffix or that equals one of the other roles; the text refuses a runtime role that is a member of
 // the relay login role or of the outbox relay role before it creates anything. The text runs again with no error on a database that it made: each table and
-// index is made only when it is missing, the floor row only once, each function and trigger is replaced, and each
-// policy is dropped before it is made again, so the migration job can run on every release. Run it in one
+// index is made only when it is missing, the floor row only once, each function is replaced, and row-level security,
+// the trigger and each policy are read in the catalog first and made again only when they differ, so the migration
+// job can run on every release and a run with nothing to change takes no strong lock on a table (ST-SUP-RP14-LC03). Run it in one
 // transaction.
 func Migration(schema, runtimeRole, relayRole, outboxRelayRole string, hookRoles ...string) (string, error) {
 	quotedSchema, err := quoteName("schema", schema)

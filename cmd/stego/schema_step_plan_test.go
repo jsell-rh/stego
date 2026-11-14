@@ -173,22 +173,22 @@ func TestSchemaStepPlan(t *testing.T) {
 			t.Error("the refused apply wrote a step in service.yaml")
 		}
 	})
-	t.Run("ST-GEN-UC12-R02-T01 Plan and apply refuse a declared schema change whose kind generation does not carry out yet", func(t *testing.T) {
+	t.Run("ST-GEN-UC12-R02-T03 Plan and apply refuse a declared schema change whose kind generation does not carry out yet", func(t *testing.T) {
 		t.Parallel()
 		s := newSmallService(t)
-		s.write(t, "service.yaml", noteFields(renamedTitle)+titleRename)
+		s.write(t, "service.yaml", noteFields("[{name: title, type: int64}]")+titleRetype)
 		before := tree(t, s.service)
 		for _, command := range []string{"plan", "apply"} {
 			stdout, stderr, err := s.stego(t, command, "--base", "HEAD")
-			if err == nil || !strings.Contains(stdout+stderr, "does not carry out the schema change note-title-rename (rename) yet") {
-				t.Errorf("stego %s of a declared rename: %v, want a refusal that names the change and its kind:\n%s%s", command, err, stdout, stderr)
+			if err == nil || !strings.Contains(stdout+stderr, "does not carry out the schema change note-title-retype (retype) yet") {
+				t.Errorf("stego %s of a declared retype: %v, want a refusal that names the change and its kind:\n%s%s", command, err, stdout, stderr)
 			}
 		}
 		if !maps.Equal(before, tree(t, s.service)) {
 			t.Error("a refused plan or apply changed a file")
 		}
 		if stdout, stderr, err := s.stego(t, "validate"); err != nil {
-			t.Errorf("stego validate refuses the declared rename, which checking accepts: %v\n%s%s", err, stdout, stderr)
+			t.Errorf("stego validate refuses the declared retype, which checking accepts: %v\n%s%s", err, stdout, stderr)
 		}
 	})
 	t.Run("ST-GEN-UC12-R01-T02 Plan lists a new add step with its kind, phase and migration, and no trigger or backfill", func(t *testing.T) {
@@ -218,6 +218,17 @@ func TestSchemaStepPlan(t *testing.T) {
 		git(t, s.service, "commit", "-q", "-m", "body")
 		if again := s.must(t, "plan", "--base", "HEAD"); strings.Contains(again, "New schema steps") {
 			t.Errorf("plan lists a step that the base holds:\n%s", again)
+		}
+	})
+	t.Run("ST-GEN-UC12-R01-T01 Plan lists a new schema step with its kind, phase, migration, trigger and backfill", func(t *testing.T) {
+		t.Parallel()
+		s := newSmallService(t)
+		s.write(t, "service.yaml", noteFields(renamedTitle)+titleRename)
+		planned := s.must(t, "plan", "--base", "HEAD")
+		want := "1. note-title-rename: rename Note.heading at expand; migration internal/storage/migrations/step_0001_note-title-rename_expand.sql; " +
+			"trigger notes_heading_sync; backfill in the migration job under the lease stego.backfill.note-title-rename"
+		if !strings.Contains(planned, "New schema steps:\n  "+want+"\n") {
+			t.Errorf("plan does not list the rename step as\n%s\n%s", want, planned)
 		}
 	})
 	t.Run("ST-GEN-INV36-T A schema step on a base that pins an old postgres-adapter is refused and names the release to deploy first", func(t *testing.T) {
@@ -258,6 +269,34 @@ func TestSchemaStepPlan(t *testing.T) {
 		s.write(t, "service.yaml", head)
 		if stdout, stderr, err := s.stego(t, "compat", "--base", "HEAD"); exitCode(t, err) != 0 {
 			t.Errorf("compat on a base at postgres-adapter 6.1.0 refuses the add step: %v\n%s%s", err, stdout, stderr)
+		}
+	})
+	t.Run("ST-GEN-INV36-T A rename step on a base that pins a runtime library before the fixed sync template is refused and names the runtime to deploy first", func(t *testing.T) {
+		t.Parallel()
+		s := newSmallService(t)
+		record := s.read(t, ".stego/state.yaml")
+		pin := regexp.MustCompile(`(module: github.com/jsell-rh/stego/registry/runtime\n\s+version: )(v[0-9.]+)`)
+		found := pin.FindStringSubmatch(record)
+		if found == nil {
+			t.Fatalf("the record pins no runtime library:\n%s", record)
+		}
+		s.write(t, "service.yaml", noteFields(renamedTitle)+titleRename)
+		if stdout, stderr, err := s.stego(t, "compat", "--base", "HEAD"); exitCode(t, err) != 0 {
+			t.Fatalf("compat on a base at the runtime library %s refuses the rename: %v\n%s%s", found[2], err, stdout, stderr)
+		}
+		// The same base, whose record pins the runtime library before the one that holds the fixed template.
+		s.write(t, "service.yaml", smallServiceDeclaration)
+		s.write(t, ".stego/state.yaml", pin.ReplaceAllString(record, "${1}v0.94.0"))
+		git(t, s.service, "commit", "-q", "-am", "base at v0.94.0")
+		s.write(t, "service.yaml", noteFields(renamedTitle)+titleRename)
+		stdout, stderr, err := s.stego(t, "compat", "--base", "HEAD")
+		if code := exitCode(t, err); code != 1 || !strings.Contains(stdout+stderr, "ST-GEN-INV36") || !strings.Contains(stdout+stderr, "deploy a release with the runtime library v0.95.0 or later") {
+			t.Errorf("compat on a base at the runtime library v0.94.0: exit %d, want 1 and a fault that names v0.95.0 as the runtime to deploy first:\n%s%s", code, stdout, stderr)
+		}
+		// An add step needs no sync trigger, so the same base takes it.
+		s.write(t, "service.yaml", noteBody(smallServiceDeclaration)+"schema_changes:\n  - {id: add-note-body, kind: add, entity: Note, field: body}\nschema_history:\n  - {change: add-note-body, phase: expand}\n")
+		if stdout, stderr, err := s.stego(t, "compat", "--base", "HEAD"); exitCode(t, err) != 0 {
+			t.Errorf("compat on a base at the runtime library v0.94.0 refuses an add step: %v\n%s%s", err, stdout, stderr)
 		}
 	})
 	t.Run("ST-GEN-UC12-R06-T02 Without apply, the check refuses a new field that has no add step", func(t *testing.T) {

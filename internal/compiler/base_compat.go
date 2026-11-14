@@ -128,6 +128,7 @@ func CheckBase(base BaseSource, head *types.ServiceDeclaration) (BaseCheck, erro
 	}
 	check.Faults = append(check.Faults, validateBaseSchema(state.LastApplied, declaration, head)...)
 	check.Faults = append(check.Faults, ledgerVersionFaults(state.LastApplied, declaration, head)...)
+	check.Faults = append(check.Faults, syncRuntimeFaults(state.LastApplied, declaration, head)...)
 	return check, nil
 }
 
@@ -158,6 +159,50 @@ func ledgerVersionFaults(applied *AppliedState, base, head *types.ServiceDeclara
 	step := head.SchemaHistory[len(base.SchemaHistory)]
 	return []BaseFault{{Rule: StepLedgerRule, Entity: changeEntity(head, step.Change), Message: fmt.Sprintf(
 		"the base runs postgres-adapter %s, whose ledger refuses the row of a new schema step such as %s at %s, so its pods cannot restart after the step's migration; deploy a release with postgres-adapter %s or later, with no new schema step, first", adapter.Version, step.Change, step.Phase, StepLedgerVersion)}}
+}
+
+// SyncRuntimeVersion is the first runtime library version whose schema check accepts the sync trigger of template
+// version 2 with the completeness CHECK of its step, NOT VALID or validated (decision on ST-SUP-Q120 (c),
+// orchestrator under the owner's delegation, 2026-11-14), after template version 1 as the decisions on findings F3
+// and F4 of the schema-change research fixed it, with the writer marker, the backfill bypass and the guarded
+// conversions (orchestrator under the owner's delegation, 2026-11-13).
+const SyncRuntimeVersion = "v0.95.0"
+
+// syncKinds are the kinds of schema change whose step at expand adds a sync trigger.
+var syncKinds = map[string]bool{"rename": true, "retype": true, "require": true}
+
+// syncRuntimeFaults refuses a head with a new expand step of a rename, a retype or a require when the record at the
+// base pins a runtime library before SyncRuntimeVersion, or none: the schema check of that release refuses the sync
+// trigger of the step, so its pods cannot restart after the step's migration. The fault names the runtime version to
+// deploy first (ST-GEN-INV36; decision on finding F11, orchestrator under the owner's delegation, 2026-11-13). A
+// base with no postgres-adapter has no schema check of its tables.
+func syncRuntimeFaults(applied *AppliedState, base, head *types.ServiceDeclaration) []BaseFault {
+	if _, pinned := applied.Components["postgres-adapter"]; !pinned {
+		return nil
+	}
+	version := ""
+	if applied.Archetype != nil && applied.Archetype.Runtime != nil {
+		version = applied.Archetype.Runtime.Version
+	}
+	if semver.IsValid(version) && semver.Compare(version, SyncRuntimeVersion) >= 0 {
+		return nil
+	}
+	kinds := map[string]string{}
+	for _, change := range head.SchemaChanges {
+		kinds[change.ID] = change.Kind
+	}
+	for _, step := range head.SchemaHistory[min(len(base.SchemaHistory), len(head.SchemaHistory)):] {
+		if step.Phase != "expand" || !syncKinds[kinds[step.Change]] {
+			continue
+		}
+		pinned := version
+		if pinned == "" {
+			pinned = "no runtime library"
+		}
+		return []BaseFault{{Rule: StepLedgerRule, Entity: changeEntity(head, step.Change), Message: fmt.Sprintf(
+			"the base runs %s, whose schema check refuses the sync trigger of the %s step %s at expand, so its pods cannot restart after the step's migration; deploy a release with the runtime library %s or later, with no new schema step, first", pinned, kinds[step.Change], step.Change, SyncRuntimeVersion)}}
+	}
+	return nil
 }
 
 // validateBaseSchema enforces ST-GEN-INV33 on a head declaration against the declaration of a base that has a
@@ -228,7 +273,11 @@ func generatedBaselines(applied *AppliedState, base, head *types.ServiceDeclarat
 		}
 	}
 	baseline := func(service *types.ServiceDeclaration, components []string) ([]postgresadapter.BaselineTable, string, error) {
-		return postgresadapter.Baseline(gen.Context{Entities: service.Entities, Collections: service.Collections,
+		entities, err := gen.StoredNames(service.Entities, service.Invariants, service.Collections, service.SchemaChanges)
+		if err != nil {
+			return nil, "", err
+		}
+		return postgresadapter.Baseline(gen.Context{Entities: entities, Collections: service.Collections,
 			SchemaChanges: service.SchemaChanges, SchemaHistory: service.SchemaHistory, Tenancy: pooledTenancy(service, components)})
 	}
 	out := &baselineOutput{}
