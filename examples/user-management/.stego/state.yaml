@@ -34,9 +34,9 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261114002620-ff2587443d99
+        module_version: v0.0.0-20261114012733-ef83582fcaf9
         vcs: git
-        revision: ff2587443d993858f8e9904cb20a0191c86e9e6c
+        revision: ef83582fcaf9720150b54c3b9f50422ec6bd4ba3
         source_state: clean
     service_name: user-management
     service_hash: bf9ae6f59e42415acf7e472f491e4544a532f496a834c92a946f82bc5aa4d40b
@@ -137,8 +137,8 @@ last_applied:
         contracts/databaseaccess/access.go: b80421de6d01d78aedd7bdeb82184d76fae2e9c2693f21656ff2b7876682f13b
         contracts/databaseaccess/access.json: 78f3252f7ce86d0a9f5de40f5fedae13211fd58f8ec6e486bf1c52f9356ee8d1
         health/health.go: 303258996e35b5a3dd592d8d7a2ec7b8a63067edf2dd8bc946f22bb7f7d3dbeb
-        http_tls_open_other.go: 76811bb166da158cbbdf0d6fb4ce32491dcb95f2f3a4e0e0e9f0341224a9a00d
-        http_tls_open_unix.go: 52087320dbcef0e1455e7ec7bddfb1bf6b6ae05a17231041f167fb7e7ba338e2
+        http_tls_open_other.go: 5fedad5901ff9caa0dabba0acf76935b8f07314f6dbb8cb9a81471e98b99706d
+        http_tls_open_unix.go: 3865bc443b82e094d9a31fbcacaa4c2fefc3e8ec4c545c29702a38c3f3d1bef1
         internal/api/all_users_handler.go: 522f70a0801935ea05cef1d2b0fc10f5783697d87b20fa5fd3111c727d664c09
         internal/api/cors.go: 5b7863e6f7fa7f104ffbc0f97418542b07bc428766642a1856de26eac9e1fc2c
         internal/api/data/entities.go: 63255775f57b77931da7cd741ad91200c3dd7a7d376cc9f14f21184cdb9a5cee
