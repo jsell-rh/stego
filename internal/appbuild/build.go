@@ -213,6 +213,10 @@ func checkLocation(source, revision, module, target string) (string, string, str
 		}
 		source = rest
 	} else if scheme, _, ok := strings.Cut(source, "://"); ok && !strings.ContainsAny(scheme, "/") {
+		// A scheme that is not one of RFC 3986 can hold a token, such as user:TOKEN@host://org/x, so it is not shown.
+		if !schemePattern.MatchString(scheme) {
+			return "", "", "", fmt.Errorf("--source %s: expected a local Git repository folder or a file:// URL, not a local folder", shownSource(source))
+		}
 		return "", "", "", fmt.Errorf("--source %q: expected a local Git repository folder or a file:// URL, not a %s URL", shownSource(source), scheme)
 	}
 	if source != "" {

@@ -547,6 +547,8 @@ func TestBuildSourceRefusalHidesUserInfo(t *testing.T) {
 			{"https://someone:SECRET#TOKEN@example.com/service.git", "https://"},
 			{"https://example.com/SECRET-TOKEN/service.git?token=SECRET-TOKEN#SECRET-TOKEN", "https://example.com"},
 			{"someone:SECRET-TOKEN@example.com:org/service.git", "--source: cannot read the local repository folder"},
+			{"user:SECRET-TOKEN@host://org/x", "--source (a URL): expected a local Git repository folder or a file:// URL, not a local folder"},
+			{"https:SECRET-TOKEN@example.com://x", "not a local folder"},
 		} {
 			runs := map[string][]string{
 				"download": {"download", "--source", testCase.source, "--revision", revision, "--target", "cmd/tiny", "--go", filepath.Join(root, "sdk", "bin", "go"),

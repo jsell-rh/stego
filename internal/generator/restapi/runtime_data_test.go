@@ -836,35 +836,53 @@ func entries(t *testing.T, answer *httptest.ResponseRecorder) []map[string]any {
 }
 
 func TestTokenLimit(t *testing.T) {
-	// The object, the member name, the array and its items: one token more than the limit, each item a bad value: the schema check would make one failure for each.
-	over := "{\"title\":[" + strings.Repeat("0,", MaxBodyTokens-3) + "0]}"
-	var before, after runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&before)
-	answer, called := post(t, over)
-	runtime.ReadMemStats(&after)
+	// A request schema with an array of integers whose items each fail, so the schema check would make one failure
+	// for each item of a body that the limit lets through.
+	openAPISpec = []byte(` + "`" + `{"openapi":"3.0.3","info":{"title":"t","version":"1"},"paths":{"/api/v1/todos":{"post":{"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"tags":{"type":"array","items":{"type":"integer","maximum":0}},"name":{"type":"string","maxLength":5}}}}}},"responses":{"200":{"description":"ok"}}}}}}` + "`" + `)
+	items := func(n int) string { return strings.Repeat("1,", n-1) + "1" }
+	// One MiB of items: about 524000 values.
+	many := (MaxRequestBody - 64) / 2
+	for name, body := range map[string]string{
+		"a one MiB array":                 "{\"tags\":[" + items(many) + "]}",
+		"1e400 first":                     "{\"tags\":[1e400," + items(many-1) + "]}",
+		"-1e400 first":                    "{\"tags\":[-1e400," + items(many-1) + "]}",
+		"1e400 last":                      "{\"tags\":[" + items(many-1) + ",1e400]}",
+		"1e400 in a member before":        "{\"name\":1e400,\"tags\":[" + items(many-1) + "]}",
+		"one token more than the limit":   "{\"tags\":[" + items(MaxBodyTokens-2) + "]}",
+	} {
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		answer, called := post(t, body)
+		runtime.ReadMemStats(&after)
+		if answer.Code != http.StatusBadRequest || called {
+			t.Fatalf("%s got %d and called the handler %v", name, answer.Code, called)
+		}
+		list := entries(t, answer)
+		if len(list) != 1 || !strings.Contains(list[0]["message"].(string), "more than 10000 JSON values") {
+			t.Fatalf("%s got %d entries %.200v, want one entry that names the limit", name, len(list), list)
+		}
+		if grown := after.TotalAlloc - before.TotalAlloc; grown > 32<<20 {
+			t.Fatalf("%s allocated %d bytes", name, grown)
+		}
+	}
+	// At the limit, the schema check runs and lists its failures, at most 50 and one entry that counts the rest.
+	answer, called := post(t, "{\"tags\":["+items(MaxBodyTokens-3)+"]}")
 	if answer.Code != http.StatusBadRequest || called {
-		t.Fatalf("a body over the token limit got %d and called the handler %v: %s", answer.Code, called, answer.Body)
+		t.Fatalf("a bad body at the token limit got %d and called the handler %v", answer.Code, called)
 	}
-	list := entries(t, answer)
-	if len(list) != 1 || !strings.Contains(list[0]["message"].(string), "more than 10000 JSON values") {
-		t.Fatalf("a body over the token limit got %v, want one entry that names the limit", list)
+	if list := entries(t, answer); len(list) != 51 {
+		t.Fatalf("a body at the token limit got %d entries, want 50 failures and one count", len(list))
 	}
-	if grown := after.TotalAlloc - before.TotalAlloc; grown > 64<<20 {
-		t.Fatalf("a body over the token limit allocated %d bytes", grown)
+	// A body that is not JSON is refused, also when it is cut after a value.
+	for _, body := range []string{"{", "{\"tags\":[1,", "{\"tags\" 1}", "1e400 x"} {
+		// The limit refuses it itself: an error of the count never lets a body pass to the schema check.
+		if answer, called := post(t, body); answer.Code != http.StatusBadRequest || called || !strings.Contains(answer.Body.String(), "not valid JSON") {
+			t.Fatalf("the body %q got %d and called the handler %v: %s", body, answer.Code, called, answer.Body)
+		}
 	}
-	// One item less is at the limit: the schema check runs and lists its failures.
-	at := "{\"title\":[" + strings.Repeat("0,", MaxBodyTokens-4) + "0]}"
-	answer, called = post(t, at)
-	if answer.Code != http.StatusBadRequest || called {
-		t.Fatalf("a bad body at the token limit got %d and called the handler %v: %s", answer.Code, called, answer.Body)
-	}
-	if list := entries(t, answer); len(list) == 1 && strings.Contains(list[0]["message"].(string), "JSON values") {
-		t.Fatalf("a body at the token limit was refused by the limit: %v", list)
-	}
-	// A body that is not JSON is left to the schema check.
-	if answer, called := post(t, "{"); answer.Code != http.StatusBadRequest || called {
-		t.Fatalf("a body that is not JSON got %d and called the handler %v", answer.Code, called)
+	if answer, called := post(t, "{\"tags\":[0],\"name\":\"ok\"}"); answer.Code != http.StatusNoContent || !called {
+		t.Fatalf("a valid body got %d and called the handler %v", answer.Code, called)
 	}
 }
 `
