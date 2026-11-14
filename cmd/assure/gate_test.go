@@ -726,33 +726,44 @@ func TestGateChange(t *testing.T) {
 const foundBase = "${{ steps.base.outputs.sha }}"
 
 // findBaseEnv is the environment of the step that finds the base: the run's merge commit, the base in the event
-// payload, and the base branch.
+// payload, the base branch and the repository's default branch.
 var findBaseEnv = map[string]string{
-	"MERGE":      "${{ github.sha }}",
-	"EVENT_BASE": "${{ github.event.pull_request.base.sha }}",
-	"BASE_REF":   "${{ github.event.pull_request.base.ref }}",
+	"MERGE":          "${{ github.sha }}",
+	"EVENT_BASE":     "${{ github.event.pull_request.base.sha }}",
+	"BASE_REF":       "${{ github.event.pull_request.base.ref }}",
+	"DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
 }
 
 // findBaseRun is the script of the step that finds the base. The base is the merge commit's first parent, and the
-// step checks that the second parent is the change's head, that the base descends from the payload base, and that
-// it lies on the base branch. Without each check, a stale, an older or a foreign commit could build the gate.
-const findBaseRun = `git fetch --no-tags origin "$MERGE" "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+// step checks that the base branch is the default branch, that the merge commit has no third parent, that the second
+// parent is the change's head, that the base descends from the payload base, and that it lies on the base branch.
+// Without each check, a stale, an older or a foreign commit could build the gate (reviews of PR #282 and #285).
+const findBaseRun = `if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+  echo "::error::The gate did not run: the base branch $BASE_REF is not the default branch $DEFAULT_BRANCH. This is no decision on the change."
+  exit 1
+fi
+git fetch --no-tags origin "$MERGE" "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
 base="$(git rev-parse --verify "$MERGE^1^{commit}")"
+if git rev-parse --verify -q "$MERGE^3^{commit}" > /dev/null; then
+  echo "::error::The gate did not run: the merge commit $MERGE of this run has more than two parents. This is no decision on the change."
+  exit 1
+fi
 if [ "$(git rev-parse --verify "$MERGE^2^{commit}")" != "$COMMIT" ]; then
-  echo "::error::The gate did not run: the merge commit $MERGE of this run does not merge the head $COMMIT. Re-run the checks. This is no decision on the change."
+  echo "::error::The gate did not run: the merge commit $MERGE of this run does not merge the head $COMMIT. Push a commit or update the branch. This is no decision on the change."
   exit 1
 fi
 if ! git merge-base --is-ancestor "$EVENT_BASE" "$base" || ! git merge-base --is-ancestor "$base" "refs/remotes/origin/$BASE_REF"; then
-  echo "::error::The gate did not run: the base $base of the merge commit is not on $BASE_REF at or after $EVENT_BASE. Re-run the checks. This is no decision on the change."
+  echo "::error::The gate did not run: the base $base of the merge commit is not on $BASE_REF at or after $EVENT_BASE. Push a commit or update the branch. This is no decision on the change."
   exit 1
 fi
 echo "sha=$base" >> "$GITHUB_OUTPUT"
 `
 
 // sameFindBase tells whether the step finds the base exactly as findBaseRun does, in the change's checkout, with
-// only findBaseEnv, and with no action, condition or other input.
+// only findBaseEnv, under bash with pipefail as its test runs it (G3, review of PR #289), and with no action,
+// condition or other input.
 func sameFindBase(step gateStep) bool {
-	return step.ID == "base" && step.Uses == "" && step.If == "" && len(step.With) == 0 &&
+	return step.ID == "base" && step.Uses == "" && step.If == "" && len(step.With) == 0 && step.Shell == "bash" &&
 		step.WorkingDirectory == "stego" && reflect.DeepEqual(step.Env, findBaseEnv) && step.Run == findBaseRun
 }
 
@@ -784,15 +795,25 @@ steps:
       MERGE: ${{ github.sha }}
       EVENT_BASE: ${{ github.event.pull_request.base.sha }}
       BASE_REF: ${{ github.event.pull_request.base.ref }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    shell: bash
     run: |
+      if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+        echo "::error::The gate did not run: the base branch $BASE_REF is not the default branch $DEFAULT_BRANCH. This is no decision on the change."
+        exit 1
+      fi
       git fetch --no-tags origin "$MERGE" "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
       base="$(git rev-parse --verify "$MERGE^1^{commit}")"
+      if git rev-parse --verify -q "$MERGE^3^{commit}" > /dev/null; then
+        echo "::error::The gate did not run: the merge commit $MERGE of this run has more than two parents. This is no decision on the change."
+        exit 1
+      fi
       if [ "$(git rev-parse --verify "$MERGE^2^{commit}")" != "$COMMIT" ]; then
-        echo "::error::The gate did not run: the merge commit $MERGE of this run does not merge the head $COMMIT. Re-run the checks. This is no decision on the change."
+        echo "::error::The gate did not run: the merge commit $MERGE of this run does not merge the head $COMMIT. Push a commit or update the branch. This is no decision on the change."
         exit 1
       fi
       if ! git merge-base --is-ancestor "$EVENT_BASE" "$base" || ! git merge-base --is-ancestor "$base" "refs/remotes/origin/$BASE_REF"; then
-        echo "::error::The gate did not run: the base $base of the merge commit is not on $BASE_REF at or after $EVENT_BASE. Re-run the checks. This is no decision on the change."
+        echo "::error::The gate did not run: the base $base of the merge commit is not on $BASE_REF at or after $EVENT_BASE. Push a commit or update the branch. This is no decision on the change."
         exit 1
       fi
       echo "sha=$base" >> "$GITHUB_OUTPUT"
@@ -1010,7 +1031,11 @@ func TestGateBuiltFromBase(t *testing.T) {
 		head, find, base, lathe, latheBuild, build, readOnly, run := -1, -1, -1, -1, -1, -1, -1, -1
 		checkouts := 0
 		for i, s := range gate.Steps {
-			onlyKeys(t, step(i), raw.Jobs["gate"].Steps[i], "id", "name", "if", "uses", "run", "with", "env", "working-directory")
+			onlyKeys(t, step(i), raw.Jobs["gate"].Steps[i], "id", "name", "if", "uses", "run", "shell", "with", "env", "working-directory")
+			// A shell is only the built-in bash, which runs the step with pipefail as its test does (G3).
+			if s.Shell != "" && s.Shell != "bash" {
+				t.Fatalf("%s runs in the shell %q: a step of the gate job runs only in the built-in bash", step(i), s.Shell)
+			}
 			if action, _, _ := strings.Cut(s.Uses, "@"); s.Uses != "" &&
 				action != "actions/checkout" && action != "actions/setup-go" && action != "actions/setup-node" {
 				t.Fatalf("%s uses %s: the gate job uses only checkout, setup-go and setup-node", step(i), s.Uses)
@@ -1192,6 +1217,7 @@ type gateStep struct {
 	If               string            `yaml:"if"`
 	Uses             string            `yaml:"uses"`
 	Run              string            `yaml:"run"`
+	Shell            string            `yaml:"shell"`
 	With             map[string]string `yaml:"with"`
 	Env              map[string]string `yaml:"env"`
 	WorkingDirectory string            `yaml:"working-directory"`
