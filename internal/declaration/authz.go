@@ -750,27 +750,85 @@ func (s *AuthzSchema) reachesWildcard(typeName, name string) bool {
 // a relation that admits a wildcard; a relation that admits a userset whose relation reaches one; or a permission
 // whose expression reaches one through its relations and arrows. A union reaches one when any part does, an
 // intersection when every part does, and an exclusion when its base does. Each rule is monotone, so the answer is
-// the least fixed point: every node starts at no wildcard, and each pass over the schema sets the nodes that now
-// reach one, until a pass sets none. A cycle with no wildcard stays at no wildcard. Each pass is linear in the
-// size of the schema, and there are at most as many passes as nodes, so no schema makes checking slow.
+// the least fixed point: every node starts at no wildcard, and a node is set when its rule holds by the nodes set so
+// far. A cycle with no wildcard stays at no wildcard. A worklist computes it: each node is decided once at the
+// start, and again only when a node that its rule reads is set, so the work grows with the size of the schema, not
+// with its square (security review of PR 253, L3 and L4), and no schema makes checking slow.
 func (s *AuthzSchema) wildcardReach() map[string]bool {
 	reach := map[string]bool{}
-	for changed := true; changed; {
-		changed = false
-		for typeName, definition := range s.definitions {
-			for name := range definition.subjects {
-				if !reach[typeName+"#"+name] && s.relationReaches(definition.subjects[name], reach) {
-					reach[typeName+"#"+name], changed = true, true
-				}
-			}
-			for name, rewrite := range definition.rewrites {
-				if !reach[typeName+"#"+name] && s.rewriteReaches(typeName, rewrite, reach) {
-					reach[typeName+"#"+name], changed = true, true
-				}
-			}
+	holds := map[string]func() bool{}
+	readers := map[string][]string{}
+	read := func(node string) func(string) {
+		return func(dependency string) { readers[dependency] = append(readers[dependency], node) }
+	}
+	for typeName, definition := range s.definitions {
+		for name, subjects := range definition.subjects {
+			node := typeName + "#" + name
+			holds[node] = func() bool { return s.relationReaches(subjects, reach) }
+			s.relationReads(subjects, read(node))
+		}
+		for name, rewrite := range definition.rewrites {
+			node, typeName := typeName+"#"+name, typeName
+			holds[node] = func() bool { return s.rewriteReaches(typeName, rewrite, reach) }
+			s.rewriteReads(typeName, rewrite, read(node))
+		}
+	}
+	var work []string
+	set := func(node string) {
+		if !reach[node] && holds[node] != nil && holds[node]() {
+			reach[node] = true
+			work = append(work, node)
+		}
+	}
+	for node := range holds {
+		set(node)
+	}
+	for len(work) > 0 {
+		node := work[len(work)-1]
+		work = work[:len(work)-1]
+		for _, reader := range readers[node] {
+			set(reader)
 		}
 	}
 	return reach
+}
+
+// relationReads gives each node that relationReaches reads for a relation with the subjects given.
+func (s *AuthzSchema) relationReads(subjects []schemaSubject, read func(string)) {
+	for _, subject := range subjects {
+		if subject.relation != "" && subject.relation != "..." {
+			read(subject.namespace + "#" + subject.relation)
+		}
+	}
+}
+
+// rewriteReads gives each node that rewriteReaches reads for a permission expression of the type.
+func (s *AuthzSchema) rewriteReads(typeName string, rewrite *core.UsersetRewrite, read func(string)) {
+	var children []*core.SetOperation_Child
+	switch {
+	case rewrite.GetUnion() != nil:
+		children = rewrite.GetUnion().GetChild()
+	case rewrite.GetIntersection() != nil:
+		children = rewrite.GetIntersection().GetChild()
+	case rewrite.GetExclusion() != nil:
+		children = rewrite.GetExclusion().GetChild()
+	}
+	for _, c := range children {
+		switch {
+		case c.GetComputedUserset() != nil:
+			read(typeName + "#" + c.GetComputedUserset().GetRelation())
+		case c.GetTupleToUserset() != nil || c.GetFunctionedTupleToUserset() != nil:
+			tupleset, computed := c.GetTupleToUserset().GetTupleset().GetRelation(), c.GetTupleToUserset().GetComputedUserset().GetRelation()
+			if f := c.GetFunctionedTupleToUserset(); f != nil {
+				tupleset, computed = f.GetTupleset().GetRelation(), f.GetComputedUserset().GetRelation()
+			}
+			for _, subject := range s.definitions[typeName].subjects[tupleset] {
+				read(subject.namespace + "#" + computed)
+			}
+		case c.GetUsersetRewrite() != nil:
+			s.rewriteReads(typeName, c.GetUsersetRewrite(), read)
+		}
+	}
 }
 
 // relationReaches tells whether a relation with the subjects given reaches a wildcard, by the nodes found so far.

@@ -130,4 +130,25 @@ func TestTenantProvisioning(t *testing.T) {
 			}
 		}
 	})
+	// A long chain of arrows made the fixed point quadratic: each pass over the schema set one more node, so 12000
+	// links took about 48 s (security review of PR 253, L4). The worklist sets each node once, when a node it reads
+	// changes, so the time grows with the size of the schema.
+	t.Run(inv78+": a chain of 12000 arrows is checked in linear time", func(t *testing.T) {
+		const links = 12000
+		var text strings.Builder
+		fmt.Fprintf(&text, "definition user {}\ndefinition node%d {\n relation anyone: user:*\n permission perm = anyone\n}\n", links)
+		for i := links - 1; i >= 0; i-- {
+			fmt.Fprintf(&text, "definition node%d {\n relation next: node%d\n permission perm = next->perm\n}\n", i, i+1)
+		}
+		compiled := compileTD03(t, text.String())
+		start := time.Now()
+		reach := compiled.wildcardReach()
+		elapsed := time.Since(start)
+		if !reach["node0#perm"] || reach["node0#next"] {
+			t.Errorf("node0#perm reaches a wildcard %v and node0#next %v, want true and false", reach["node0#perm"], reach["node0#next"])
+		}
+		if elapsed > 2*time.Second {
+			t.Errorf("the wildcard reach of a chain of %d arrows took %v, want well under 2 s", links, elapsed)
+		}
+	})
 }
