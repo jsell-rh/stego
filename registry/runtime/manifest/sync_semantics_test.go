@@ -207,10 +207,10 @@ func TestSyncSemantics(t *testing.T) {
 		})
 	})
 
-	t.Run("ST-SUP-RP15-LC02-T05 SyncSource and SyncFunction refuse a dollar sign, a backslash and a control character in every input", func(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC02-T05 SyncSource and SyncFunction refuse a dollar sign, a backslash, a control or format character and text that is not UTF-8 in every input", func(t *testing.T) {
 		c, _ := SyncConversion("text-int4")
 		ok := Sync{Change: "v-k", Owner: "owner", K: "k", U: "u", Conversion: c, Fill: "0", HasFill: true}
-		hostile := []string{"$", "$stego_sync$", "a$b", `\`, `a\b`, "\x00", "\x01", "\n", "\t", "\x1b", "\x7f", "\u0085", " "}
+		hostile := []string{"$", "$stego_sync$", "a$b", `\`, `a\b`, "\x00", "\x01", "\n", "\t", "\x1b", "\x7f", "\u0085", "\u2028", "\u2029", "\u202e", "\u2066", "\u200b", "\ufeff", "\u00ad", "\xff", "\xc3"}
 		fields := []struct {
 			name string
 			set  func(s *Sync, schema, function *string, v string)

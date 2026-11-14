@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -959,6 +960,58 @@ func TestMigrateLockAndLease(t *testing.T) {
 		var unmoved int
 		if err := f.admin.QueryRowContext(context.Background(), `SELECT count(*) FROM public.boards WHERE heading IS DISTINCT FROM title`).Scan(&unmoved); err != nil || unmoved != 0 {
 			t.Fatalf("%d rows have no new value equal to the old one (error %v)", unmoved, err)
+		}
+	})
+}
+
+func TestMigrateJobLockIndex(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T10 Two jobs pass while the first one builds an index concurrently, with no deadlock and no invalid index", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		var started sync.WaitGroup
+		started.Add(2)
+		var tries atomic.Int32
+		stepped = func(step string, _ *sql.Conn) {
+			if step == StepOwnerRole {
+				started.Done()
+				started.Wait()
+			}
+		}
+		waited = func() { tries.Add(1) }
+		defer func() { stepped, waited = nil, nil }()
+		m := f.migration(nil)
+		tables := m.Ledger
+		var building atomic.Bool
+		// The job that holds the job lock builds an index concurrently while the other job waits for the lock. A
+		// wait in pg_advisory_lock holds a snapshot, which CREATE INDEX CONCURRENTLY waits for: a deadlock.
+		m.Ledger = func(ctx context.Context, conn *sql.Conn) error {
+			if err := tables(ctx, conn); err != nil {
+				return err
+			}
+			if building.CompareAndSwap(false, true) {
+				// The other job tries the lock twice, or, with a blocking wait that never comes back to try again,
+				// waits in it for 2 s.
+				deadline := time.Now().Add(2 * time.Second)
+				for tries.Load() < 2 && time.Now().Before(deadline) {
+					time.Sleep(20 * time.Millisecond)
+				}
+			}
+			_, err := conn.ExecContext(ctx, "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_job_lock_probe ON public.orders (id)")
+			return err
+		}
+		errs := make(chan error, 2)
+		for range 2 {
+			go func() { errs <- Migrate(context.Background(), settings, m) }()
+		}
+		for range 2 {
+			if err := <-errs; err != nil {
+				t.Fatalf("one of two jobs gave %v at the stage %s, want both to pass", err, Stage(err))
+			}
+		}
+		var invalid int
+		if err := f.admin.QueryRowContext(context.Background(), `SELECT count(*) FROM pg_catalog.pg_index WHERE NOT indisvalid`).Scan(&invalid); err != nil || invalid != 0 {
+			t.Fatalf("%d indexes are not valid (error %v), want none", invalid, err)
 		}
 	})
 }

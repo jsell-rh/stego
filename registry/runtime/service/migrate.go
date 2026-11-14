@@ -206,12 +206,9 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	if err := step(StepOwnerRole, func() error { _, err := conn.ExecContext(ctx, asOwner); return err }); err != nil {
 		return err
 	}
-	// The job lock is a session lock of the job's connection: a second job waits here until the first ends, and a
-	// wait past the time limit of the job fails this step.
-	if err := step(StepJobLock, func() error {
-		_, err := conn.ExecContext(ctx, "SELECT pg_catalog.pg_advisory_lock("+jobLock+")")
-		return err
-	}); err != nil {
+	// The job lock is a session lock of the job's connection: a second job waits here until the first ends its
+	// schema steps, and a wait past the time limit of the job fails this step.
+	if err := step(StepJobLock, func() error { return takeJobLock(ctx, conn) }); err != nil {
 		return err
 	}
 	locked := true
@@ -501,6 +498,31 @@ func textStep(ctx context.Context, conn *sql.Conn, owner, name, text string) err
 		}
 	}
 }
+
+// takeJobLock takes the job lock on conn. It tries the lock, and while another job holds it, it pauses and tries
+// again, until ctx ends at the time limit of the job. A blocking pg_advisory_lock would hold a snapshot while it
+// waits, and CREATE INDEX CONCURRENTLY of the job that holds the lock waits for every snapshot, so the two jobs
+// would deadlock (security review of PR #295, L1). Between two tries the connection holds no open transaction.
+func takeJobLock(ctx context.Context, conn *sql.Conn) error {
+	for attempt := 1; ; attempt++ {
+		var taken bool
+		if err := conn.QueryRowContext(ctx, "SELECT pg_catalog.pg_try_advisory_lock("+jobLock+")").Scan(&taken); err != nil {
+			return err
+		}
+		if taken {
+			return nil
+		}
+		if waited != nil {
+			waited()
+		}
+		if err := pause(ctx, attempt); err != nil {
+			return fmt.Errorf("another migration job holds the job lock: %w", err)
+		}
+	}
+}
+
+// waited is called after each try of the job lock that another job holds; the tests set it.
+var waited func()
 
 // lockTimedOut tells whether err ends a wait for a lock at the lock timeout: SQLSTATE 55P03, lock_not_available.
 func lockTimedOut(err error) bool {
