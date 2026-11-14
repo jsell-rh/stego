@@ -12,7 +12,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -85,6 +84,8 @@ type service struct {
 	// cursor is the cursor key of the service, and processEnv the environment of the service binary on a port.
 	cursor     []byte
 	processEnv func(port string) []string
+	// migrateJob runs the migration job of the binary once on the database.
+	migrateJob func() ([]byte, error)
 }
 
 // TestMain removes the Kafka container of kafkatest when the tests end.
@@ -151,11 +152,14 @@ func migrated(t *testing.T) *service {
 	s.spice = conn
 	env := []string{"STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK=1", "STEGO_SPICEDB_ENDPOINT=" + endpoint,
 		"STEGO_SPICEDB_KEY_FILE=" + writeFile(t, "spicedb.key", []byte(spiceKey)), "STEGO_SPICEDB_INSECURE_LOOPBACK=1"}
-	ctx, cancel := context.WithTimeout(s.ctx, time.Minute)
-	defer cancel()
-	migrate := exec.CommandContext(ctx, binary, "migrate")
-	migrate.Env = append(append(os.Environ(), env...), "STEGO_MIGRATION_DATABASE_URL="+as(stegoruntime.OwnerRole))
-	if output, err := migrate.CombinedOutput(); err != nil {
+	s.migrateJob = func() ([]byte, error) {
+		ctx, cancel := context.WithTimeout(s.ctx, time.Minute)
+		defer cancel()
+		migrate := exec.CommandContext(ctx, binary, "migrate")
+		migrate.Env = append(append(os.Environ(), env...), "STEGO_MIGRATION_DATABASE_URL="+as(stegoruntime.OwnerRole))
+		return migrate.CombinedOutput()
+	}
+	if output, err := s.migrateJob(); err != nil {
 		t.Fatalf("the migration job failed: %v\n%s", err, output)
 	}
 	broker := kafkatest.Start(t)
@@ -409,75 +413,53 @@ func TestExample(t *testing.T) {
 	})
 }
 
-// refusedStart starts the service binary on the database and waits until it stops: it gives the log of the
-// process, and fails the test when the process answers /livez or does not stop with a failure.
-func (s *service) refusedStart() string {
-	t := s.t
-	port := freePort(t)
-	ctx, cancel := context.WithTimeout(s.ctx, time.Minute)
-	defer cancel()
-	process := exec.CommandContext(ctx, os.Getenv("STEGO_EXAMPLE_BINARY"))
-	process.Env = s.processEnv(port)
-	var log bytes.Buffer
-	process.Stdout, process.Stderr = &log, &log
-	err := process.Run()
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) || ctx.Err() != nil {
-		t.Fatalf("the service did not stop with a failure: %v\n%s", err, log.String())
-	}
-	if response, err := http.Get("http://127.0.0.1:" + port + "/livez"); err == nil {
-		response.Body.Close()
-		t.Fatalf("a process answered /livez on the port of the refused service:\n%s", log.String())
-	}
-	return log.String()
-}
-
-// rows gives the number of rows of each table that the service writes, by table.
-func (s *service) rows() map[string]int {
-	counts := map[string]int{}
-	for _, table := range []string{"public.organizations", "public.users", "public.org_settings", "public.activity_entries",
-		"public.audit_event", "public.audit_chain_heads", "public.idempotency_keys", "public.stego_tenants", "stego_outbox.messages"} {
-		counts[table] = s.count("SELECT count(*) FROM " + table)
-	}
-	return counts
-}
-
 func TestSchemaManifest(t *testing.T) {
-	t.Run("ST-SUP-RC01-OC12-T08 Startup fails closed when the database does not satisfy the schema manifest", func(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC12-T08 A start on a database that does not satisfy the schema manifest alerts, and the migration job refuses it", func(t *testing.T) {
 		// Each change makes the database that the migration job made differ from the schema manifest of the code
-		// once, as a change by hand after a release does; the service then restarts on it.
-		changes := []struct{ name, statement, fault string }{
+		// once, as a change by hand after a release does; the service then restarts on it and alerts, and the
+		// migration job run again refuses it, unless a migration text of the runtime makes the object again
+		// (decision on finding F10, owner, 2026-11-13).
+		changes := []struct {
+			name, statement, fault string
+			healed                 bool
+		}{
 			{"a dropped unique index", `DROP INDEX public.organizations_name_key`,
-				"table public.organizations: index organizations_name_key is missing"},
+				"table public.organizations: index organizations_name_key is missing", false},
 			{"an upsert key index on other columns", `DROP INDEX public.org_settings_org_id_key_key;
 CREATE UNIQUE INDEX org_settings_org_id_key_key ON public.org_settings (tenant_id, key)`,
-				"table public.org_settings: index org_settings_org_id_key_key does not have the columns (tenant_id, org_id, key) of the manifest"},
+				"table public.org_settings: index org_settings_org_id_key_key does not have the columns (tenant_id, org_id, key) of the manifest", false},
 			{"an upsert key index with a predicate", `DROP INDEX public.org_settings_org_id_key_key;
 CREATE UNIQUE INDEX org_settings_org_id_key_key ON public.org_settings (tenant_id, org_id, key) WHERE generation > 0`,
-				"table public.org_settings: index org_settings_org_id_key_key does not have the predicate of the manifest"},
+				"table public.org_settings: index org_settings_org_id_key_key does not have the predicate of the manifest", false},
 			{"a dropped trigger of the audit record", `DROP TRIGGER audit_event_reject_row ON public.audit_event`,
-				"table public.audit_event: trigger audit_event_reject_row is missing"},
+				"table public.audit_event: trigger audit_event_reject_row is missing", true},
 			{"disabled row-level security", `ALTER TABLE public.users DISABLE ROW LEVEL SECURITY`,
-				"table public.users: row-level security is not enabled and forced"},
+				"table public.users: row-level security is not enabled and forced", false},
 			{"a changed column type", `ALTER TABLE public.users ALTER COLUMN email TYPE text`,
-				"table public.users: column email has the type text, and the manifest needs character varying(255)"},
+				"table public.users: column email has the type text, and the manifest needs character varying(255)", false},
 			{"a dropped check constraint", `ALTER TABLE public.users DROP CONSTRAINT users_role_check`,
-				"table public.users: constraint users_role_check is missing"},
+				"table public.users: constraint users_role_check is missing", false},
 		}
 		for _, change := range changes {
 			t.Run(change.name, func(t *testing.T) {
 				s := migrated(t)
 				execAll(t, s.admin, change.statement)
-				before := s.rows()
-				log := s.refusedStart()
-				if !strings.Contains(log, "the database does not satisfy the schema manifest") || !strings.Contains(log, change.fault) {
-					t.Fatalf("the refused start does not name %q:\n%s", change.fault, log)
+				s.serve()
+				// serve waits for /livez; the alert is written before the service answers.
+				log := s.log.String()
+				if !strings.Contains(log, "the database does not satisfy the schema manifest") || !strings.Contains(log, change.fault) ||
+					!strings.Contains(log, `"event.name":"schema.manifest.mismatch"`) {
+					t.Fatalf("the start does not alert %q with schema.manifest.mismatch:\n%s", change.fault, log)
 				}
 				if strings.Contains(log, password) || strings.Contains(log, "postgres://") {
-					t.Fatalf("the log of the refused start holds a credential:\n%s", log)
+					t.Fatalf("the log of the start holds a credential:\n%s", log)
 				}
-				if after := s.rows(); fmt.Sprint(after) != fmt.Sprint(before) {
-					t.Fatalf("the refused start wrote rows: %v, then %v", before, after)
+				output, err := s.migrateJob()
+				switch {
+				case change.healed && err != nil:
+					t.Fatalf("the migration job, whose texts make the object again, failed: %v\n%s", err, output)
+				case !change.healed && (err == nil || !strings.Contains(string(output), `"stage":"migrate.manifest"`)):
+					t.Fatalf("the migration job gave %v, want a refusal at the stage migrate.manifest:\n%s", err, output)
 				}
 			})
 		}

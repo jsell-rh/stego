@@ -58,7 +58,7 @@ func TestMigrate(t *testing.T) {
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
 		want := []string{StepOwnerRole, StepJobLock, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepOutboxSequence, StepAuditTables, StepAuditSink,
-			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain, StepManifest, StepBackfill}
+			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain, StepBackfill, StepManifest}
 		run := func(m Migration) (*steps, error) {
 			s := &steps{backends: map[int]bool{}}
 			stepped = s.record(t)
@@ -1054,8 +1054,8 @@ func TestMigrateLocks(t *testing.T) {
 			!strings.Contains(err.Error(), "table public.orders: column status has the type character varying(20)") {
 			t.Fatalf("the job on a database with another column type gave %v at the stage %q, want the refusal of the step %s that names the column", err, Stage(err), StepManifest)
 		}
-		if slices.Contains(steps, StepBackfill) || len(steps) == 0 || steps[len(steps)-1] != StepManifest {
-			t.Fatalf("the refused job ran the steps %v, want it to end at %s, before %s", steps, StepManifest, StepBackfill)
+		if len(steps) < 2 || steps[len(steps)-1] != StepManifest || steps[len(steps)-2] != StepBackfill {
+			t.Fatalf("the refused job ran the steps %v, want it to end at %s, after %s", steps, StepManifest, StepBackfill)
 		}
 		// The parts are needed: a job with none is refused at the start.
 		bare := f.migration(nil)

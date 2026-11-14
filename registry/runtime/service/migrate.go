@@ -286,15 +286,16 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	if err := step(StepSchemaAgain, func() error { return m.WriteSchema(ctx, spice) }); err != nil {
 		return err
 	}
-	// After the texts, which make again the objects that they own, and before the backfills, the job refuses a
-	// database that does not satisfy the joined schema manifest of the service (F10).
-	if err := step(StepManifest, func() error { return checkManifest(ctx, conn, m) }); err != nil {
-		return err
-	}
 	// The backfill runs after the job lock is released: two jobs of the database share it under the lease of each
 	// change, so one moves rows and the other waits for the lease (ST-GEN-UC13-R01).
 	unlock()
-	return step(StepBackfill, func() error { return runBackfills(parent, db, m) })
+	if err := step(StepBackfill, func() error { return runBackfills(parent, db, m) }); err != nil {
+		return err
+	}
+	// Last, after the texts, which make again the objects that they own, and after the backfills, which validate the
+	// completeness CHECK of each open change, the job refuses a database that does not satisfy the joined schema
+	// manifest of the service, as the rollout would find it (F10).
+	return step(StepManifest, func() error { return checkManifest(ctx, conn, m) })
 }
 
 // checkManifest checks the catalog of the database on the job's one connection (manifest.CheckCatalog), as the
