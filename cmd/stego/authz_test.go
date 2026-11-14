@@ -26,20 +26,13 @@ func td03Service(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// On the runtime data path, the only data path (ST-SUP-RC20-OC39), a create of a top-level entity is public
-	// with a reason (ST-SUP-RC29-OC01), and the service states its audit and its schema generation.
-	service := strings.Replace(string(data), "permissions: {create: edit,", "public_reasons: {create: a new todo has no resource to decide on before it exists}\n    permissions: {create: public,", 1)
-	// A public create may not write a field-sourced relationship, since the client would choose the subject
-	// (ST-SUP-Q118): on the runtime data path the owner of a todo is its creator.
-	service = strings.Replace(service, td03FieldOwner, td03CallerOwner, 1)
-	return onRuntimePath(service)
+	// The fixture is in the runtime data path form (ST-SUP-RC29-OC01, ST-SUP-Q118): a public create, and an owner
+	// that the caller is. The service also states its audit and its schema generation.
+	return onRuntimePath(string(data))
 }
 
-// td03FieldOwner is the relationship of ST-DECL-TD03, and td03CallerOwner the one that td03Service gives in its place.
-const (
-	td03FieldOwner  = "{relation: owner, subject_source: field, subject_field: owner_id, subject_type: user}"
-	td03CallerOwner = "{relation: owner, subject_source: caller, subject_type: user}"
-)
+// td03CallerOwner is the relationship of ST-DECL-TD03: its subject is the caller.
+const td03CallerOwner = "{relation: owner, subject_source: caller, subject_type: user}"
 
 // td03Schema reads the fixture schema of ST-DECL-TD03.
 func td03Schema(t *testing.T) string {

@@ -178,12 +178,19 @@ func TestWrittenRelations(t *testing.T) {
 	})
 }
 
+// td03Permissions are the public reason and the permissions of Todo in ST-DECL-TD03, and td03Relationships its
+// relationships: the runtime data path form, a public create and an owner that the caller is (ST-SUP-Q118).
+const (
+	td03Permissions   = "    public_reasons: {create: a new todo has no resource to decide on before it exists}\n    permissions: {create: public, read: view, update: edit, delete: edit, list: view}\n"
+	td03Relationships = "    relationships:\n      - {relation: owner, subject_source: caller, subject_type: user}\n"
+)
+
 func TestAuthorizationCoverage(t *testing.T) {
 	service, schema := td03Files(t)
 	publicList := func(reason string) string {
 		changed := change(t, service, "list: view}", "list: public}")
 		if reason != "" {
-			changed = change(t, changed, "    relationships:\n", "    public_reasons: {list: "+reason+"}\n    relationships:\n")
+			changed = change(t, changed, "before it exists}\n", "before it exists, list: "+reason+"}\n")
 		}
 		return changed
 	}
@@ -192,8 +199,8 @@ func TestAuthorizationCoverage(t *testing.T) {
 		"tenancy:\n  kind: pooled\n  key: tenant_id\n  claim: tenant\n  provisioning: {resource_type: service, provision: provision, retire: retire}\n", ""),
 		"authorization:\n  provider: spicedb\n  schema_path: authz/schema.zed\n  subject_from_identity: user\n", ""),
 		"    resource_type: document\n", ""),
-		"    permissions: {create: edit, read: view, update: edit, delete: edit, list: view}\n", ""),
-		"    relationships:\n      - {relation: owner, subject_source: field, subject_field: owner_id, subject_type: user}\n", "")
+		td03Permissions, ""),
+		td03Relationships, "")
 
 	t.Run("ST-DECL-INV31-T With authorization bound, an entity with no resource type and an operation with no permission are refused, each named", func(t *testing.T) {
 		coverage := func(t *testing.T, changed string) []ValidationError {
@@ -207,7 +214,7 @@ func TestAuthorizationCoverage(t *testing.T) {
 			return faults
 		}
 		t.Run("Todo with no resource type", func(t *testing.T) {
-			noType := change(t, change(t, service, "    resource_type: document\n", ""), "    relationships:\n      - {relation: owner, subject_source: field, subject_field: owner_id, subject_type: user}\n", "")
+			noType := change(t, change(t, service, "    resource_type: document\n", ""), td03Relationships, "")
 			expectOneFault(t, coverage(t, noType), "authorization-coverage", "Todo")
 		})
 		t.Run("Tag with no resource type", func(t *testing.T) {
