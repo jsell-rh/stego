@@ -205,6 +205,14 @@ func (h *OrganizationsHandler) Read(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, NotFound("Organization", id))
 		return
 	}
+	if err := h.rt.Queries.AwaitWrite(w, r, b.Tenant, b.Principal); err != nil {
+		if errors.Is(err, query.ErrBadRequest) {
+			handleError(w, r, BadRequest("the Authz-Revocation-After header is not the identity of a revocation"))
+			return
+		}
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
 	value, err := query.Run(r.Context(), h.rt.Queries, organizationsReadQuery, h.rt.boundQuery(r.Context(), b, organizationsReadQuery), id, func(ctx context.Context, id string, qh *query.Handle[struct{}]) (Organization, error) {
 		repo, err := query.Repo(qh, data.EntityOrganizationView())
 		if err != nil {
@@ -314,6 +322,14 @@ func (h *OrganizationsHandler) List(w http.ResponseWriter, r *http.Request) {
 			handleError(w, r, BadRequest("the cursor is not valid"))
 			return
 		}
+	}
+	if err := h.rt.Queries.AwaitWrite(w, r, b.Tenant, b.Principal); err != nil {
+		if errors.Is(err, query.ErrBadRequest) {
+			handleError(w, r, BadRequest("the Authz-Revocation-After header is not the identity of a revocation"))
+			return
+		}
+		handleError(w, r, InternalError("internal error"))
+		return
 	}
 	page, err := query.Run(r.Context(), h.rt.Queries, organizationsListQuery, h.rt.boundQuery(r.Context(), b, organizationsListQuery), query.ListRequest{Limit: limit, After: after, Order: order, Where: where}, func(ctx context.Context, request query.ListRequest, qh *query.Handle[struct{}]) (organizationsPage, error) {
 		repo, err := query.Repo(qh, data.EntityOrganizationView())

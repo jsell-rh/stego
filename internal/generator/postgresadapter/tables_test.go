@@ -184,7 +184,10 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 		access string
 	}{{orderService("storage"), "access.json"}, {orderService("previous"), ""}, {widgetService(widgetEntities()), "widgets_access.json"}, {boundsService(), "bounds_access.json"},
 		{boardBase("boardsbase", "boardsbasetenancy"), "boardsbase_access.json"}, {boardSteps("boards", "boardtenancy"), "boards_access.json"},
-		{boardNoDefault("boardsnote", "boardsnotetenancy"), "boardsnote_access.json"}, {boardSlug("boardsslug", "boardsslugtenancy"), "boardsslug_access.json"}} {
+		{boardNoDefault("boardsnote", "boardsnotetenancy"), "boardsnote_access.json"}, {boardSlug("boardsslug", "boardsslugtenancy"), "boardsslug_access.json"},
+		{boardRenameBase("boardsrnbase", "boardsrnbasetenancy"), "boardsrnbase_access.json"}, {boardRename("boardsrn", "boardsrntenancy"), "boardsrn_access.json"}} {
+		// The adapter names the roles of the tenancy component in the migration of a step.
+		service.ctx.PeerConfigs = map[string]map[string]any{gen.TenancyComponent: roles}
 		files, wiring, err := new(postgresadapter.Generator).Generate(service.ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -208,7 +211,7 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	goMod := "module " + tablesModule + "\n\ngo 1.26.11\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n github.com/jsell-rh/stego/registry/runtime v0.92.0\n)\n\nreplace github.com/jsell-rh/stego/registry/runtime => " + runtimeDir + "\n"
+	goMod := "module " + tablesModule + "\n\ngo 1.26.11\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n github.com/jsell-rh/stego/registry/runtime v0.93.0\n)\n\nreplace github.com/jsell-rh/stego/registry/runtime => " + runtimeDir + "\n"
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -409,6 +412,11 @@ func TestTables(t *testing.T) {
 		onPostgres(t, "ST-SUP-RC01-OC42-T03")
 	})
 
+	t.Run("ST-GEN-UC12-R02-T02 on PostgreSQL", func(t *testing.T) { onPostgres(t, "ST-GEN-UC12-R02-T02") })
+	t.Run("ST-SUP-RC01-OC23-T01 on PostgreSQL", func(t *testing.T) { onPostgres(t, "ST-SUP-RC01-OC23-T01") })
+	t.Run("ST-SUP-RC01-OC25-T01 on PostgreSQL", func(t *testing.T) { onPostgres(t, "ST-SUP-RC01-OC25-T01") })
+	t.Run("ST-GEN-UC12-R03-T02 on PostgreSQL", func(t *testing.T) { onPostgres(t, "ST-GEN-UC12-R03-T02") })
+
 	t.Run("ST-SUP-RC01-OC22-T03 An add step takes a database with rows to the schema of a new database, and the release before still runs on it", func(t *testing.T) {
 		onPostgres(t, "ST-SUP-RC01-OC22-T03")
 	})
@@ -437,8 +445,8 @@ func TestTables(t *testing.T) {
 		onPostgres(t, "ST-SUP-RC01-OC38-T05")
 	})
 
-	t.Run("ST-SUP-RC01-OC22-T06 A step waits behind a long reader, and each reader still gets its rows", func(t *testing.T) {
-		onSteps(t, "ST-SUP-RC01-OC22-T06")
+	t.Run("ST-SUP-RC01-OC22-T08 A step waits behind a long reader, and each reader still gets its rows", func(t *testing.T) {
+		onSteps(t, "ST-SUP-RC01-OC22-T08")
 	})
 	t.Run("ST-SUP-RC01-OC22-T07 A retry after a lock timeout commits each statement once and applies no step twice", func(t *testing.T) {
 		onSteps(t, "ST-SUP-RC01-OC22-T07")

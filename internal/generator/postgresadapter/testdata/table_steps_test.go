@@ -66,7 +66,7 @@ func TestTableSteps(t *testing.T) {
 	}
 	const slugSearch, slugUnique = "step_0001_add-board-slug_expand_index_01", "step_0001_add-board-slug_expand_index_02"
 
-	t.Run("ST-SUP-RC01-OC22-T06 A step waits behind a long reader, and each reader still gets its rows", func(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC22-T08 A step waits behind a long reader, and each reader still gets its rows", func(t *testing.T) {
 		_, db, conn := base(t)
 		var first string
 		if err := db.QueryRow(`SELECT "id"::text FROM public."boards" ORDER BY "title" LIMIT 1`).Scan(&first); err != nil {

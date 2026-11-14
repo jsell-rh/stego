@@ -1,7 +1,7 @@
 package manifest
 
 // The semantics of the sync function on PostgreSQL, from the independent verification of PR #270
-// (ST-SUP-RP15-LC02-T04 and T05): the copy direction of the writer marker, the backfill bypass, the fill value of a
+// (ST-SUP-RP15-LC02-T05 and T06): the copy direction of the writer marker, the backfill bypass, the fill value of a
 // value that does not convert, and the refusal of a hostile name or constant.
 
 import (
@@ -86,7 +86,7 @@ func TestSyncSemantics(t *testing.T) {
 	ns := func(s string) sql.NullString { return sql.NullString{String: s, Valid: true} }
 	null := sql.NullString{}
 
-	t.Run("ST-SUP-RP15-LC02-T04 the writer marker gives the copy direction of each release, with a declared default", func(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC02-T06 the writer marker gives the copy direction of each release, with a declared default", func(t *testing.T) {
 		admin, _, runtime := formSync(t, "integer", "text", "5", "int4-text", "", false)
 		before := "SET LOCAL ROLE " + runtime
 		step := before + "; SET LOCAL stego.schema_step = 'v-k'"
@@ -126,7 +126,7 @@ func TestSyncSemantics(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP15-LC02-T04 the backfill bypass holds for the owner role only", func(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC02-T06 the backfill bypass holds for the owner role only", func(t *testing.T) {
 		admin, owner, runtime := formSync(t, "text", "text", "", "identity", "", false)
 		if _, _, err := formRow(t, admin, "SET LOCAL ROLE "+runtime, "INSERT INTO public.v (id, k) VALUES (1, 'a')", 1); err != nil {
 			t.Fatal(err)
@@ -160,7 +160,7 @@ func TestSyncSemantics(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP15-LC02-T04 a value that does not convert gives the fill value and never an error", func(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC02-T06 a value that does not convert gives the fill value and never an error", func(t *testing.T) {
 		for _, c := range []struct {
 			conversion, kType, uType, fill string
 			hasFill                        bool

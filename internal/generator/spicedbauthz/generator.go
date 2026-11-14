@@ -43,6 +43,14 @@ const TenantColumn = "tenant_id"
 // (ST-SUP-RC29-OC06).
 const TokenColumn = "authz_token"
 
+// RevocationRoute is the route of the revocation status, which the operation-to-permission table holds with its own
+// decision and from which alone the router registers it (ST-SUP-RC29-OC18). Its path is the RevocationPath of the
+// authorization runtime with the identity, as the Authz-Revocation-Location of a write gives it (ST-SUP-RP10-LC35).
+const RevocationRoute = "GET /authz/revocations/{id}"
+
+// RevocationOperation is the name of the revocation status operation in the operation-to-permission table.
+const RevocationOperation = "revocation-status"
+
 // databaseSchema is the SQL schema of the protected tables and of the authorization tables.
 const databaseSchema = "public"
 
@@ -60,6 +68,10 @@ type plan struct {
 	RelayName     string
 	AlertBound    time.Duration
 	WatchInterval time.Duration
+	// WaitCap, Waiters and TenantWaiters are the bounds of a wait for a revocation (ST-SUP-RC29-OC19).
+	WaitCap       time.Duration
+	Waiters       int
+	TenantWaiters int
 	Operations    []operationPlan
 	Entities      []entityPlan
 	Bindings      []bindingPlan
@@ -146,6 +158,21 @@ func read(ctx gen.Context) (plan, error) {
 	if p.WatchInterval, err = duration(ctx.ComponentConfig, "watch_interval"); err != nil {
 		return plan{}, err
 	}
+	if p.WaitCap, err = duration(ctx.ComponentConfig, "wait_cap"); err != nil {
+		return plan{}, err
+	}
+	if p.WaitCap > MaxWaitCap {
+		return plan{}, fmt.Errorf("spicedb-authz: the component setting wait_cap %s is more than %s; a wait must end in time to answer before the server's write timeout of 30s ends the response, or it holds a waiter place for an answer that cannot be written", p.WaitCap, MaxWaitCap)
+	}
+	if p.Waiters, err = count(ctx.ComponentConfig, "waiter_limit"); err != nil {
+		return plan{}, err
+	}
+	if p.TenantWaiters, err = count(ctx.ComponentConfig, "tenant_waiter_limit"); err != nil {
+		return plan{}, err
+	}
+	if p.TenantWaiters > p.Waiters {
+		return plan{}, fmt.Errorf("spicedb-authz: the component setting tenant_waiter_limit %d is more than waiter_limit %d; the limit of a tenant is inside the limit of all", p.TenantWaiters, p.Waiters)
+	}
 	entities := map[string]types.Entity{}
 	owners := map[string]string{}
 	for _, entity := range ctx.Entities {
@@ -228,6 +255,10 @@ func withMarker(schema string) string {
 	return schema + "\n" + MarkerDefinition
 }
 
+// MaxWaitCap is the largest wait_cap, 25 s: below the write timeout of the generated HTTP server, 30 s, so a full
+// wait leaves time to write its answer (ST-SUP-RC29-OC19).
+const MaxWaitCap = 25 * time.Second
+
 // duration reads a component setting that is a positive Go duration, such as 5s.
 func duration(config map[string]any, name string) (time.Duration, error) {
 	text, _ := config[name].(string)
@@ -236,6 +267,28 @@ func duration(config map[string]any, name string) (time.Duration, error) {
 		return 0, fmt.Errorf("spicedb-authz: the component setting %s %q is not a positive duration such as 5s", name, text)
 	}
 	return d, nil
+}
+
+// maxCount is the largest count setting: a waiter limit above it holds more waits than a process serves.
+const maxCount = 100000
+
+// count reads a component setting that is a whole number of 1 to maxCount.
+func count(config map[string]any, name string) (int, error) {
+	n := 0
+	switch v := config[name].(type) {
+	case int:
+		n = v
+	case int64:
+		n = int(v)
+	case float64:
+		if v == float64(int(v)) {
+			n = int(v)
+		}
+	}
+	if n < 1 || n > maxCount {
+		return 0, fmt.Errorf("spicedb-authz: the component setting %s %v is not a whole number of 1 to %d", name, config[name], maxCount)
+	}
+	return n, nil
 }
 
 // pascal turns a declared name such as org-users, before_update or owner into a Go name part such as OrgUsers,
@@ -290,10 +343,14 @@ func render(p plan) []byte {
 	fmt.Fprintf(&b, "const AlertBound = time.Duration(%d)\n\n", int64(p.AlertBound))
 	fmt.Fprintf(&b, "// WatchInterval is the time between two reads of the oldest age of the authz outbox messages, the component\n// setting watch_interval: %s (ST-SUP-RP06-LC14).\n", p.WatchInterval)
 	fmt.Fprintf(&b, "const WatchInterval = time.Duration(%d)\n\n", int64(p.WatchInterval))
+	fmt.Fprintf(&b, "// WaitCap is the longest wait for a revocation, the component setting wait_cap: %s (ST-SUP-RC29-OC19).\n", p.WaitCap)
+	fmt.Fprintf(&b, "const WaitCap = time.Duration(%d)\n\n", int64(p.WaitCap))
+	fmt.Fprintf(&b, "// Waiters is the most waits for a revocation at one time, the component setting waiter_limit: %d; TenantWaiters\n// is the most of one tenant, inside it, the component setting tenant_waiter_limit: %d (ST-SUP-RC29-OC19).\n", p.Waiters, p.TenantWaiters)
+	fmt.Fprintf(&b, "const (\n\tWaiters       = %d\n\tTenantWaiters = %d\n)\n\n", p.Waiters, p.TenantWaiters)
 
-	b.WriteString("// Operation is the decision of one operation of one collection: the permission of the resource type that it\n// checks, or, for a public operation, the reason that the declaration gives (ST-SUP-RC29-OC01).\n")
-	b.WriteString("type Operation struct {\n\tCollection   string\n\tOperation    string\n\tResourceType string\n\tPermission   string\n\tPublic       bool\n\tReason       string\n}\n\n")
-	b.WriteString("// Operations are the decisions of the operations of the collections, in declaration order.\n")
+	b.WriteString("// Operation is the decision of one operation: of an operation of a collection, the permission of the resource type\n// that it checks, or, for a public operation, the reason that the declaration gives (ST-SUP-RC29-OC01); of the\n// revocation status route, its route and the decision Writer, which allows only the principal and tenant that made\n// the write and calls no provider (ST-SUP-RC29-OC18).\n")
+	b.WriteString("type Operation struct {\n\tCollection   string\n\tOperation    string\n\tResourceType string\n\tPermission   string\n\tPublic       bool\n\tReason       string\n\tRoute        string\n\tWriter       bool\n}\n\n")
+	b.WriteString("// Operations are the decisions of the operations of the collections, in declaration order, and then of the\n// revocation status route, from which alone the router registers that route.\n")
 	b.WriteString("var Operations = []Operation{\n")
 	for _, o := range p.Operations {
 		if o.Public {
@@ -302,6 +359,7 @@ func render(p plan) []byte {
 		}
 		fmt.Fprintf(&b, "\t{Collection: %q, Operation: %q, ResourceType: %q, Permission: %q},\n", o.Collection, o.Operation, o.ResourceType, o.Permission)
 	}
+	fmt.Fprintf(&b, "\t{Operation: %q, Route: %q, Writer: true},\n", RevocationOperation, RevocationRoute)
 	b.WriteString("}\n\n")
 
 	b.WriteString("// Owners maps each protected resource type to the table of its rows, whose authz_token holds the token of the\n// row's last tuple write; the relay stores it there (ST-SUP-RC29-OC06).\n")
@@ -363,9 +421,11 @@ func WriteSchema(ctx context.Context, conn grpc.ClientConnInterface) error {
 
 // NewRuntime returns the authorization runtime of the service, which binds the handles of its transactions and
 // reads the revocation statuses. db is the runtime role's pool, provider the decision provider, and queue the
-// outbox queue in which a handle enqueues the relay's tuple writes.
+// outbox queue in which a handle enqueues the relay's tuple writes. A wait for a revocation is bounded by WaitCap,
+// Waiters and TenantWaiters (ST-SUP-RC29-OC19).
 func NewRuntime(db *sql.DB, provider stegoauthz.Decision, queue *outbox.Queue, meter metric.MeterProvider) (*stegoauthz.Runtime, error) {
-	return stegoauthz.New(stegoauthz.Config{Provider: provider, DB: db, Schema: DatabaseSchema, Outbox: queue, Meter: meter})
+	return stegoauthz.New(stegoauthz.Config{Provider: provider, DB: db, Schema: DatabaseSchema, Outbox: queue, Meter: meter,
+		WaitCap: WaitCap, Waiters: Waiters, TenantWaiters: TenantWaiters})
 }
 
 // NewRelay builds the relay of the service, the outbox destination authz, with the owning table of each protected

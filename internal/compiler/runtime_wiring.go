@@ -15,6 +15,7 @@ import (
 	"text/template"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/spicedbauthz"
 	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/types"
 )
@@ -160,6 +161,11 @@ func runtimeWiring(in runtimeWiringInput) ([]gen.File, ComponentWiring, error) {
 			return nil, ComponentWiring{}, fmt.Errorf("the route %q has no method and path", route)
 		}
 		wiring.Routes = append(wiring.Routes, fmt.Sprintf("mux.Handle(%q, service.Routes())", method+" "+base+target))
+	}
+	if data.API != "" || data.Commands != "" {
+		// The revocation status route of the writes: main.go forwards its pattern, the route of its entry of the
+		// operation-to-permission table, to Routes, which registers its handler from that entry (ST-SUP-RC29-OC18).
+		wiring.Routes = append(wiring.Routes, fmt.Sprintf("mux.Handle(%q, service.Routes())", spicedbauthz.RevocationRoute))
 	}
 	files := []gen.File{{Path: path.Join(RuntimeWiringNamespace, "runtime.go"), Content: source}}
 	return files, ComponentWiring{Name: runtimeWiringComponent, Wiring: wiring}, nil

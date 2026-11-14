@@ -25,6 +25,8 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
+	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
@@ -55,7 +57,7 @@ func TestMigrate(t *testing.T) {
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
 		want := []string{StepOwnerRole, StepJobLock, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepOutboxSequence, StepAuditTables, StepAuditSink,
-			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain}
+			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain, StepBackfill}
 		run := func(m Migration) (*steps, error) {
 			s := &steps{backends: map[int]bool{}}
 			stepped = s.record(t)
@@ -132,6 +134,560 @@ func TestMigrate(t *testing.T) {
 		}
 	})
 }
+
+// boardsDDL is the table of a rename at expand of title to heading, owned by tenants and under forced row-level
+// security, with the sync trigger of the change, the table of the backfill checkpoints, its functions and the row of
+// the change, as the migration of the step makes them as the owner role.
+func boardsDDL(t *testing.T, owner string) string {
+	t.Helper()
+	function, err := manifest.SyncFunction("stego_steps", "boards_heading_sync", 1, manifest.Sync{Change: "board-title-rename", Owner: owner, K: "title", U: "heading",
+		Conversion: manifest.Conversion{Name: "identity"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return `CREATE TABLE public.boards (tenant_id text NOT NULL DEFAULT pg_catalog.current_setting('app.tenant'), id uuid NOT NULL, title text NOT NULL, heading text,
+  PRIMARY KEY (tenant_id, id));
+ALTER TABLE public.boards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.boards FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON public.boards USING (tenant_id = pg_catalog.current_setting('app.tenant', true)) WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
+CREATE SCHEMA stego_steps;
+` + function + `;
+CREATE TRIGGER boards_heading_sync BEFORE INSERT OR UPDATE ON public.boards FOR EACH ROW EXECUTE FUNCTION stego_steps.boards_heading_sync();
+CREATE SCHEMA IF NOT EXISTS stego_schema;
+` + lease.BackfillsTable + ";\n" + lease.BackfillFunctions + `
+INSERT INTO stego_schema.backfills (change_id) VALUES ('board-title-rename');
+`
+}
+
+// renameJob gives a fixture with the table boards of a rename board-title-rename at expand, 25 rows in three tenants
+// of which 24 have no new value, and the migration of a job that backfills it in batches of 4.
+func renameJob(t *testing.T) (*fixture, Migration, []Backfill) {
+	t.Helper()
+	f := newFixture(t)
+	ctx := context.Background()
+	owner := func(statement string, args ...any) {
+		t.Helper()
+		tx, err := f.admin.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+f.owner); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, statement, args...); err != nil {
+			t.Fatalf("%.60s: %v", statement, err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tenants, err := tenant.Migration("public", f.runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner(tenants)
+	owner(lease.LeasesTable)
+	owner(boardsDDL(t, f.owner))
+	counts := map[string]int{"tenant-a": 10, "tenant-b": 0, "tenant-c": 15}
+	for _, id := range []string{"tenant-c", "tenant-a", "tenant-b"} {
+		owner(`INSERT INTO public.stego_tenants (tenant_id) VALUES ($1)`, id)
+		for i := range counts[id] {
+			tx, err := f.admin.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, statement := range []string{"SET LOCAL ROLE " + f.owner, "SELECT pg_catalog.set_config('app.tenant', '" + id + "', true)"} {
+				if _, err := tx.ExecContext(ctx, statement); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO public.boards (id, title) VALUES (gen_random_uuid(), $1)`, fmt.Sprintf("%s-%02d", id, i)); err != nil {
+				t.Fatal(err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// The sync trigger of the release before copied each insert, so the backfill has rows to move only after the
+	// new column is cleared, as for rows that the release before wrote before the step.
+	// One row keeps the new value that the trigger gave it, so the backfill leaves it and moves the 24 others.
+	if _, err := f.admin.ExecContext(ctx, `ALTER TABLE public.boards DISABLE TRIGGER boards_heading_sync; UPDATE public.boards SET heading = NULL WHERE title <> 'tenant-c-03';
+ALTER TABLE public.boards ENABLE TRIGGER boards_heading_sync`); err != nil {
+		t.Fatal(err)
+	}
+	backfills, err := CopyBackfills([]lease.Copy{{Change: "board-title-rename", Table: "boards", TenantColumn: "tenant_id", From: "title", To: "heading"}}, "public")
+	if err != nil {
+		t.Fatal(err)
+	}
+	backfills[0].Settings.BatchSize = 4
+	m := f.migration(nil)
+	m.Service, m.Backfills, m.BackfillLease = "svc", backfills, lease.Settings{TTL: 2 * time.Second, Renew: 500 * time.Millisecond, Retry: 100 * time.Millisecond}
+	return f, m, backfills
+}
+
+func TestMigrateBackfill(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T05 The job backfills each open rename last, as the owner role, under its lease, tenant by tenant, and resumes from its checkpoint", func(t *testing.T) {
+		f, m, backfills := renameJob(t)
+		ctx := context.Background()
+		// Two jobs at once: each takes the lease in turn, and the rows move once.
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		for i := range errs {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				job := m
+				job.Holder = fmt.Sprintf("job-%d", i)
+				errs[i] = runBackfills(ctx, f.admin, job)
+			}()
+		}
+		wg.Wait()
+		for i, err := range errs {
+			if err != nil {
+				t.Fatalf("job %d: %v", i, err)
+			}
+		}
+		var moved int64
+		var completed bool
+		var stored string
+		if err := f.admin.QueryRowContext(ctx, `SELECT rows_moved, completed_at IS NOT NULL, last_key_type FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`).Scan(&moved, &completed, &stored); err != nil ||
+			moved != 24 || !completed || stored != string(lease.KeyComposite) {
+			t.Fatalf("the checkpoint has %d moved, complete %v, the key type %q (error %v); want 24, complete and composite", moved, completed, stored, err)
+		}
+		var unmoved int
+		if err := f.admin.QueryRowContext(ctx, `SELECT count(*) FROM public.boards WHERE heading IS DISTINCT FROM title`).Scan(&unmoved); err != nil || unmoved != 0 {
+			t.Fatalf("%d rows have no new value equal to the old one (error %v)", unmoved, err)
+		}
+		var leases int
+		if err := f.admin.QueryRowContext(ctx, `SELECT count(*) FROM public.leases WHERE name = 'stego.backfill.board-title-rename'`).Scan(&leases); err != nil || leases != 1 {
+			t.Fatalf("there are %d leases stego.backfill.board-title-rename (error %v), want 1", leases, err)
+		}
+		// A job that stops after its first batches resumes from the checkpoint in the next run, and moves each row once.
+		if _, err := f.admin.ExecContext(ctx, `ALTER TABLE public.boards DISABLE TRIGGER boards_heading_sync; UPDATE public.boards SET heading = NULL;
+ALTER TABLE public.boards ENABLE TRIGGER boards_heading_sync; UPDATE stego_schema.backfills SET last_key = NULL, last_key_type = NULL, rows_moved = 0, completed_at = NULL`); err != nil {
+			t.Fatal(err)
+		}
+		stopCtx, stop := context.WithCancel(ctx)
+		first := m
+		first.Backfills = slices.Clone(backfills)
+		first.Backfills[0].Settings.Observer = &stopAfter{rows: 8, stop: stop}
+		if err := runBackfills(stopCtx, f.admin, first); err == nil {
+			t.Fatal("the stopped job ended with no error")
+		}
+		var after int64
+		if err := f.admin.QueryRowContext(ctx, `SELECT rows_moved FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`).Scan(&after); err != nil || after < 8 || after >= 25 {
+			t.Fatalf("the stopped job moved %d rows (error %v), want at least 8 and fewer than 25", after, err)
+		}
+		// The resumed job loses its lease to another holder after its first batch: its next batch is fenced, and it
+		// waits for the lease again and completes the change.
+		resumed := m
+		resumed.Backfills = slices.Clone(backfills)
+		var once sync.Once
+		took := make(chan int64, 1)
+		step := resumed.Backfills[0].Step
+		resumed.Backfills[0].Step = func(ctx context.Context, tx *sql.Tx, after *lease.Key, limit int) (lease.Batch, error) {
+			once.Do(func() {
+				go func() {
+					// It waits for the lock of the batch's fence on the lease row, so it takes the lease after the batch.
+					if _, err := f.admin.ExecContext(context.Background(), `UPDATE public.leases SET expires_at = now() - interval '1 second' WHERE name = 'stego.backfill.board-title-rename'`); err != nil {
+						t.Error(err)
+					}
+					other, err := lease.New(f.admin, "stego.backfill.board-title-rename", "other", lease.Settings{TTL: time.Second, Renew: 500 * time.Millisecond})
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					held, err := other.Acquire(context.Background())
+					if err != nil {
+						t.Error(err)
+						took <- 0
+						return
+					}
+					took <- held.Token()
+				}()
+			})
+			return step(ctx, tx, after, limit)
+		}
+		if err := runBackfills(ctx, f.admin, resumed); err != nil {
+			t.Fatal(err)
+		}
+		if token := <-took; token == 0 {
+			t.Fatal("the other holder did not take the lease")
+		}
+		if err := f.admin.QueryRowContext(ctx, `SELECT rows_moved, completed_at IS NOT NULL FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`).Scan(&moved, &completed); err != nil || moved != 25 || !completed {
+			t.Fatalf("after the resumed job the checkpoint has %d moved, complete %v (error %v); want 25 and complete", moved, completed, err)
+		}
+	})
+}
+
+// runtimeGrants gives the runtime role of f what the migration job gives it next to a rename at expand: USAGE on
+// stego_schema, where the schema generation marker is (the database access of the adapter), and SELECT and UPDATE on
+// the lease table, the role of the lease client (controllerLease).
+func runtimeGrants(t *testing.T, f *fixture) {
+	t.Helper()
+	for _, statement := range []string{"GRANT USAGE ON SCHEMA stego_schema TO " + f.runtime, "GRANT SELECT, UPDATE ON TABLE public.leases TO " + f.runtime} {
+		if _, err := f.admin.Exec(statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+}
+
+// sqlState gives the SQLSTATE of err, or "" for no error.
+func sqlState(err error) string {
+	if err == nil {
+		return ""
+	}
+	var coded interface{ SQLState() string }
+	if errors.As(err, &coded) {
+		return coded.SQLState()
+	}
+	return err.Error()
+}
+
+// unmoved counts the rows of the boards table of renameJob whose new value is not the old one.
+func unmoved(t *testing.T, f *fixture) int {
+	t.Helper()
+	var n int
+	if err := f.admin.QueryRow(`SELECT count(*) FROM public.boards WHERE heading IS DISTINCT FROM title`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestBackfillFunctions(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC25-T02 The runtime role cannot forge, poison or lock the backfill checkpoint", func(t *testing.T) {
+		f, m, _ := renameJob(t)
+		ctx := context.Background()
+		runtimeGrants(t, f)
+		// The functions as the migration text makes them: SECURITY DEFINER of the owner, with the fixed search path,
+		// and EXECUTE for the owner alone.
+		rows, err := f.admin.Query(`SELECT p.proname, p.prosecdef, coalesce(p.proconfig::text, ''), pg_catalog.pg_get_userbyid(p.proowner),
+ coalesce((SELECT string_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END, ',' ORDER BY 1)
+  FROM pg_catalog.aclexplode(p.proacl) a WHERE a.privilege_type = 'EXECUTE'), 'PUBLIC by default')
+ FROM pg_catalog.pg_proc p WHERE p.pronamespace = 'stego_schema'::regnamespace ORDER BY 1`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		functions := 0
+		for rows.Next() {
+			var name, config, owner, grantees string
+			var definer bool
+			if err := rows.Scan(&name, &definer, &config, &owner, &grantees); err != nil {
+				t.Fatal(err)
+			}
+			functions++
+			if !definer || config != `{"search_path=pg_catalog, pg_temp"}` || owner != f.owner || grantees != f.owner {
+				t.Errorf("%s: SECURITY DEFINER %v, settings %s, owner %s, EXECUTE for %s; want true, the fixed search path, %s and %s alone", name, definer, config, owner, grantees, f.owner, f.owner)
+			}
+		}
+		rows.Close()
+		if functions != 2 {
+			t.Fatalf("stego_schema has %d functions, want backfill_read and backfill_checkpoint", functions)
+		}
+		var public bool
+		if err := f.admin.QueryRow(`SELECT has_function_privilege('public', 'stego_schema.backfill_read(text)', 'EXECUTE')
+ OR has_function_privilege('public', 'stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text, text, text)', 'EXECUTE')`).Scan(&public); err != nil || public {
+			t.Fatalf("PUBLIC may run a backfill function: %v (error %v)", public, err)
+		}
+		rt, err := sql.Open("pgx", f.runtimeURL())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rt.Close()
+		leaseName := BackfillLeaseName("board-title-rename")
+		// The runtime role can change a lease row (UPDATE on public.leases), so the forged calls name a lease row
+		// that they match: only the missing grant refuses them.
+		if _, err := f.admin.Exec(`INSERT INTO public.leases (name) VALUES ($1)`, leaseName); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := rt.Exec(`UPDATE public.leases SET holder = 'forger', expires_at = now() + interval '1 hour', token = 1 WHERE name = $1`, leaseName); err != nil {
+			t.Fatal(err)
+		}
+		forged := []struct{ name, statement string }{
+			{"a forged completion", `SELECT stego_schema.backfill_checkpoint('board-title-rename', NULL, 0, 0, 0, '', true, 1, NULL, '` + leaseName + `', 'forger')`},
+			{"a token of the maximum value", `SELECT stego_schema.backfill_checkpoint('board-title-rename', NULL, 0, 0, 0, '', false, 9223372036854775807, NULL, '` + leaseName + `', 'forger')`},
+			{"a FOR UPDATE lock of the row", `SELECT count(*) FROM stego_schema.backfill_read('board-title-rename')`},
+			{"a direct read of the row", `SELECT count(*) FROM stego_schema.backfills`},
+			{"a direct change of the row", `UPDATE stego_schema.backfills SET completed_at = now()`},
+		}
+		for _, call := range forged {
+			var n int64
+			if err := rt.QueryRow(call.statement).Scan(&n); sqlState(err) != "42501" {
+				t.Errorf("as the runtime role %s gives %v, want SQLSTATE 42501", call.name, err)
+			}
+		}
+		var token int64
+		var completed bool
+		if err := f.admin.QueryRow(`SELECT token, completed_at IS NOT NULL FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`).Scan(&token, &completed); err != nil || token != 0 || completed {
+			t.Fatalf("after the forged calls the checkpoint has the token %d, complete %v (error %v); want 0 and not complete", token, completed, err)
+		}
+		// The job then moves every row: nothing that the runtime role did stops it or makes it skip the change.
+		if _, err := f.admin.Exec(`UPDATE public.leases SET expires_at = '-infinity' WHERE name = $1`, leaseName); err != nil {
+			t.Fatal(err)
+		}
+		job := m
+		job.BackfillTimeout = 20 * time.Second
+		if err := runBackfills(ctx, f.admin, job); err != nil {
+			t.Fatalf("the job after the forged calls: %v", err)
+		}
+		if n := unmoved(t, f); n != 0 {
+			t.Fatalf("after the job %d rows have no new value", n)
+		}
+	})
+
+	t.Run("ST-SUP-RP09-LC07-T02 The checkpoint function refuses the owner when the lease row does not hold its holder and token unexpired", func(t *testing.T) {
+		f, _, _ := renameJob(t)
+		ctx := context.Background()
+		leaseName := BackfillLeaseName("board-title-rename")
+		if _, err := f.admin.Exec(`INSERT INTO public.leases (name, holder, expires_at, token) VALUES ($1, 'job-a', now() + interval '1 hour', 3)`, leaseName); err != nil {
+			t.Fatal(err)
+		}
+		// checkpoint runs the function as the owner role and gives the count of rows it changed.
+		checkpoint := func(token int64, name, holder string) int64 {
+			t.Helper()
+			tx, err := f.admin.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback() }()
+			if _, err := tx.Exec("SET LOCAL ROLE " + f.owner); err != nil {
+				t.Fatal(err)
+			}
+			var n int64
+			if err := tx.QueryRow(`SELECT stego_schema.backfill_checkpoint('board-title-rename', '\x01'::bytea, 5, 0, 0, '', false, $1, 'uuid', $2, $3)`, token, name, holder).Scan(&n); err != nil {
+				t.Fatalf("the checkpoint as the owner role: %v", err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			return n
+		}
+		for _, c := range []struct {
+			name, lease, holder string
+			token               int64
+		}{
+			{"a stale token", leaseName, "job-a", 2},
+			{"a token above the lease row's", leaseName, "job-a", 4},
+			{"another holder", leaseName, "job-b", 3},
+			{"another lease row", "stego.backfill.other", "job-a", 3},
+		} {
+			if n := checkpoint(c.token, c.lease, c.holder); n != 0 {
+				t.Errorf("the checkpoint with %s changed %d rows, want 0", c.name, n)
+			}
+		}
+		if n := checkpoint(3, leaseName, "job-a"); n != 1 {
+			t.Fatalf("the checkpoint of the holder with its token changed %d rows, want 1", n)
+		}
+		if _, err := f.admin.Exec(`UPDATE public.leases SET expires_at = now() - interval '1 second' WHERE name = $1`, leaseName); err != nil {
+			t.Fatal(err)
+		}
+		if n := checkpoint(3, leaseName, "job-a"); n != 0 {
+			t.Errorf("the checkpoint under an expired lease changed %d rows, want 0", n)
+		}
+		var moved, token int64
+		if err := f.admin.QueryRow(`SELECT rows_moved, token FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`).Scan(&moved, &token); err != nil || moved != 5 || token != 3 {
+			t.Fatalf("the checkpoint row has %d moved and the token %d (error %v), want 5 and 3 from the one write of the holder", moved, token, err)
+		}
+	})
+}
+
+// poolSessions takes n sessions of db at once and gives the current user, the session user and the search path of
+// each.
+func poolSessions(t *testing.T, db *sql.DB, n int) [][3]string {
+	t.Helper()
+	ctx := context.Background()
+	var conns []*sql.Conn
+	defer func() {
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	}()
+	var out [][3]string
+	for range n {
+		c, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conns = append(conns, c)
+		var s [3]string
+		if err := c.QueryRowContext(ctx, `SELECT current_user, session_user, pg_catalog.current_setting('search_path')`).Scan(&s[0], &s[1], &s[2]); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func TestMigrateBackfillSessions(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T06 After an error and after a cancel in the backfill step no pooled session runs as the owner role", func(t *testing.T) {
+		cases := []struct {
+			name    string
+			step    lease.Step
+			timeout time.Duration
+		}{
+			{"a batch that fails in SQL", func(ctx context.Context, tx *sql.Tx, after *lease.Key, limit int) (lease.Batch, error) {
+				_, err := tx.ExecContext(ctx, `SELECT 1 / 0`)
+				return lease.Batch{}, err
+			}, 0},
+			{"a batch that the end of the job cancels in its statement", func(ctx context.Context, tx *sql.Tx, after *lease.Key, limit int) (lease.Batch, error) {
+				_, err := tx.ExecContext(ctx, `SELECT pg_catalog.pg_sleep(5)`)
+				return lease.Batch{}, err
+			}, 1500 * time.Millisecond},
+		}
+		for _, c := range cases {
+			f, m, backfills := renameJob(t)
+			pool, err := sql.Open("pgx", f.database)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pool.SetMaxOpenConns(4)
+			pool.SetMaxIdleConns(4)
+			var path string
+			if err := pool.QueryRow(`SELECT pg_catalog.current_setting('search_path')`).Scan(&path); err != nil {
+				t.Fatal(err)
+			}
+			job := m
+			job.Backfills = slices.Clone(backfills)
+			job.Backfills[0].Step = c.step
+			job.BackfillTimeout = 2 * time.Second
+			ctx, cancel := context.WithCancel(context.Background())
+			if c.timeout > 0 {
+				ctx, cancel = context.WithTimeout(context.Background(), c.timeout)
+			}
+			err = runBackfills(ctx, pool, job)
+			cancel()
+			if err == nil {
+				t.Errorf("%s: the backfill step ended with no error", c.name)
+			}
+			for _, s := range poolSessions(t, pool, 4) {
+				if s[0] == f.owner || s[0] != s[1] || s[2] != path {
+					t.Errorf("%s: a pooled session runs as %s (session user %s) with the search path %q; want the login role and %q", c.name, s[0], s[1], s[2], path)
+				}
+			}
+			_ = pool.Close()
+		}
+	})
+}
+
+func TestMigrateBackfillStall(t *testing.T) {
+	t.Run("ST-SUP-RP09-LC12-T02 The migration job emits a stall, runs on until its backfill time limit, and its next run resumes", func(t *testing.T) {
+		f, m, backfills := renameJob(t)
+		ctx := context.Background()
+		// A session holds a row of tenant-c, so the batches of tenant-a move and the first batch of tenant-c waits.
+		lock, err := f.admin.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = lock.Rollback() }()
+		if _, err := lock.ExecContext(ctx, `SELECT id FROM public.boards WHERE title = 'tenant-c-07' FOR UPDATE`); err != nil {
+			t.Fatal(err)
+		}
+		ttl, renew := time.Second, 300*time.Millisecond
+		job := m
+		job.Backfills = slices.Clone(backfills)
+		job.BackfillLease = lease.Settings{TTL: ttl, Renew: renew, Retry: 100 * time.Millisecond}
+		job.BackfillTimeout = 3*ttl + 3*time.Second
+		seen := &stallRecorder{}
+		job.Backfills[0].Settings.Observer = seen
+		job.Backfills[0].Settings.LockTimeout = 200 * time.Millisecond
+		started := time.Now()
+		err = runBackfills(ctx, f.admin, job)
+		took := time.Since(started)
+		if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("the stalled job ends with %v, want the end of its backfill time limit", err)
+		}
+		if took < job.BackfillTimeout {
+			t.Fatalf("the stalled job ended after %v, before its backfill time limit of %v", took, job.BackfillTimeout)
+		}
+		stalls, lastRows := seen.state()
+		if len(stalls) != 1 || stalls[0].Sub(lastRows) > 3*ttl+renew+300*time.Millisecond || stalls[0].Sub(lastRows) < 3*ttl {
+			t.Fatalf("schema.backfill.stalled came %d times (%v after the last batch), want once within three TTLs and one renew interval", len(stalls), stalls)
+		}
+		var moved int64
+		var completed bool
+		if err := f.admin.QueryRowContext(ctx, `SELECT rows_moved, completed_at IS NOT NULL FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`).Scan(&moved, &completed); err != nil ||
+			moved < 10 || moved >= 24 || completed {
+			t.Fatalf("after the stalled job the checkpoint has %d moved, complete %v (error %v); want the 10 rows of tenant-a at least, fewer than 24, and not complete", moved, completed, err)
+		}
+		// The next run, after the lock is released, resumes from the checkpoint and moves each other row once.
+		_ = lock.Rollback()
+		next := m
+		next.Backfills = slices.Clone(backfills)
+		resumed := &stallRecorder{}
+		next.Backfills[0].Settings.Observer = resumed
+		if err := runBackfills(ctx, f.admin, next); err != nil {
+			t.Fatal(err)
+		}
+		if got := resumed.moved(); got != 24-moved {
+			t.Fatalf("the next run moved %d rows, want the %d that the stalled job left", got, 24-moved)
+		}
+		if err := f.admin.QueryRowContext(ctx, `SELECT rows_moved, completed_at IS NOT NULL FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`).Scan(&moved, &completed); err != nil || moved != 24 || !completed {
+			t.Fatalf("after the next run the checkpoint has %d moved, complete %v (error %v); want 24 and complete", moved, completed, err)
+		}
+		if stalls, _ := resumed.state(); len(stalls) != 0 {
+			t.Fatalf("the next run emitted %d stalls, want none", len(stalls))
+		}
+	})
+}
+
+// stallRecorder records the stalls of a backfill, the time of its last batch and the rows it moved.
+type stallRecorder struct {
+	mu     sync.Mutex
+	stalls []time.Time
+	last   time.Time
+	rows   int64
+}
+
+func (s *stallRecorder) BackfillRows(_ string, rows int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rows += rows
+	s.last = time.Now()
+}
+func (s *stallRecorder) BackfillFailedRows(string, int64)      {}
+func (s *stallRecorder) BackfillDuplicateGroups(string, int64) {}
+func (s *stallRecorder) BackfillCompleted(string)              {}
+func (s *stallRecorder) BackfillThrottled(string, string)      {}
+func (s *stallRecorder) BackfillStalled(string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stalls = append(s.stalls, time.Now())
+}
+
+func (s *stallRecorder) state() ([]time.Time, time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.stalls), s.last
+}
+
+func (s *stallRecorder) moved() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.rows
+}
+
+// stopAfter ends the context of a backfill once it has moved the given rows.
+type stopAfter struct {
+	mu    sync.Mutex
+	rows  int64
+	moved int64
+	stop  context.CancelFunc
+}
+
+func (s *stopAfter) BackfillRows(_ string, rows int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.moved += rows; s.moved >= s.rows {
+		s.stop()
+	}
+}
+func (s *stopAfter) BackfillFailedRows(string, int64)      {}
+func (s *stopAfter) BackfillDuplicateGroups(string, int64) {}
+func (s *stopAfter) BackfillCompleted(string)              {}
+func (s *stopAfter) BackfillStalled(string)                {}
+func (s *stopAfter) BackfillThrottled(string, string)      {}
 
 func TestMigrateLedgerRole(t *testing.T) {
 	t.Run("ST-SUP-RP14-LC03-T02 Migrate runs the ledger of the adapter as the owner role, not as the login of the job", func(t *testing.T) {
@@ -225,7 +781,7 @@ func TestMigrateLedgerRole(t *testing.T) {
 }
 
 func TestMigrateLocks(t *testing.T) {
-	t.Run("ST-SUP-RP14-LC03-T05 A run again of the job waits at most the lock timeout behind a long transaction, and the reads of the table go on", func(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T07 A run again of the job waits at most the lock timeout behind a long transaction, and the reads of the table go on", func(t *testing.T) {
 		endpoint, key := startSpiceDB(t)
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
@@ -295,7 +851,7 @@ func TestMigrateLocks(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP14-LC03-T06 Two jobs started at once run one after the other, and both pass", func(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T08 Two jobs started at once run one after the other, and both pass", func(t *testing.T) {
 		endpoint, key := startSpiceDB(t)
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}

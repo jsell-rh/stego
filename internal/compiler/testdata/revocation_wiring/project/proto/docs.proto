@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package docs.v1;
+
+// ShareDocumentRequest is the request of share-document: the document and the user who may view it.
+message ShareDocumentRequest {
+  string document_id = 1;
+  string user_id = 2;
+}
+
+// ShareDocumentResponse is the response of share-document.
+message ShareDocumentResponse {
+  string document_id = 1;
+}
+
+// UnshareDocumentRequest is the request of unshare-document: the document and the user who may no longer view it.
+message UnshareDocumentRequest {
+  string document_id = 1;
+  string user_id = 2;
+}
+
+// UnshareDocumentResponse is the response of unshare-document.
+message UnshareDocumentResponse {
+  string document_id = 1;
+}

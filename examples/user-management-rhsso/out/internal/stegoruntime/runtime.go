@@ -21,6 +21,7 @@ import (
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	stegoauthz "github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/command"
 	"github.com/jsell-rh/stego/registry/runtime/modes"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/service"
@@ -140,6 +141,8 @@ func StartStage(err error) string { return service.StartStage(err) }
 func parts(afterSlots *api.AfterSlots) service.Parts {
 	return service.Parts{
 		Service: Service, DeclarationVersion: DeclarationVersion, SubjectType: subjectType, TenantClaim: tenantClaim,
+		// The open changes with a sync trigger, which the writer marker of each write names (ST-SUP-RC01-OC23).
+		SchemaSteps: svcstorage.SchemaSteps,
 		ProblemType: problemType, ProblemCode: problemCode, TenantConfig: svcstorage.TenantConfig,
 		NewQueue:   func(db *sql.DB) (*outbox.Queue, error) { return svcoutbox.NewQueue(db, nil) },
 		AuditQueue: func(q *outbox.Queue) (audit.Enqueuer, error) { return svcoutbox.AuditQueue(q) },
@@ -196,6 +199,13 @@ func NewService(ctx context.Context) (rt *Runtime, err error) {
 			rt = nil
 		}
 	}()
+	// The revocation status route, which answers the state of a write's revocation to its writer alone, comes from
+	// its entry of the operation-to-permission table only (ST-SUP-RC29-OC17, ST-SUP-RC29-OC18).
+	for _, o := range svcauthz.Operations {
+		if o.Writer {
+			rt.routes.Handle(o.Route, command.ServeRevocationStatus(svc.Collections(), subjectType))
+		}
+	}
 	return rt, nil
 }
 
@@ -289,7 +299,7 @@ func (rt *Runtime) Readiness() http.Handler {
 // (ST-SUP-RP04-LC07).
 const tenantSchema = "public"
 
-// Routes serves the declared commands and queries, each at its route.
+// Routes serves the declared commands and queries, each at its route, and the revocation status route.
 func (rt *Runtime) Routes() http.Handler { return rt.routes }
 
 // Service gives the runtime library objects of the running service, on which the gRPC application serves the
@@ -316,7 +326,7 @@ func (rt *Runtime) Close() error { return rt.svc.Close() }
 // Migrate is the migration job of the service (tenant.MigrationJob), which the service runtime runs in its fixed
 // order on one connection (ST-SUP-RP14-LC03): the ledger check and the ledger of the PostgreSQL adapter with the
 // tenant list of the tenant runtime, the schema of the authorization component, the outbox, audit, idempotency and authorization migrations of the runtime library,
-// the grants of the runtime role and the audit partitions.
+// the grants of the runtime role, the audit partitions and the backfills.
 func Migrate(ctx context.Context) error {
 	settings, err := service.ReadMigrationSettings()
 	if err != nil {
@@ -334,6 +344,11 @@ func Migrate(ctx context.Context) error {
 	if err != nil {
 		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
+	// The backfill of each open rename, which the job runs last, before the rollout (ST-GEN-UC13).
+	backfills, err := service.CopyBackfills(svcstorage.BackfillCopies, tenantSchema)
+	if err != nil {
+		return &service.StepError{Step: service.StepSettings, Err: err}
+	}
 	return service.Migrate(ctx, settings, service.Migration{
 		OwnerRole: OwnerRole, RuntimeRole: RuntimeRole, WorkerRole: WorkerRole, PurgeRole: PurgeRole, OutboxRelayRole: OutboxRelayRole, TenantConfig: svcstorage.TenantConfig,
 		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error { return svcstorage.CheckLedger(ctx, conn) },
@@ -341,6 +356,7 @@ func Migrate(ctx context.Context) error {
 		Outbox:      queueText, Audit: auditText, Authorization: authzText,
 		WriteSchema: func(ctx context.Context, conn grpc.ClientConnInterface) error { return svcauthz.WriteSchema(ctx, conn) },
 		Grants:      grants, TenantSchema: tenantSchema,
+		Service: Service, Backfills: backfills,
 	})
 }
 

@@ -87,6 +87,9 @@ func renderContract(m *model) []byte {
 	if m.usesAudit() {
 		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/audit\"\n")
 	}
+	if m.hasRelations() {
+		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/authz\"\n")
+	}
 	w.f("\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n")
 	if m.probeImport != "" {
 		w.f("\n\tprobes %q\n", m.probeImport)
@@ -105,9 +108,28 @@ func renderContract(m *model) []byte {
 			w.f("// %s is the refusal %s of %s: the handler answers it with %d and the code %s.\n", r.goName, r.name, c.decl.Name, r.status, r.code)
 			w.f("var %s = command.NewRefusal(%q, %q, %d, %q)\n\n", r.goName, c.decl.Name, r.name, r.status, r.code)
 		}
+		for _, h := range c.helpers {
+			renderRelationHelper(w, c, h)
+		}
 	}
 	w.f("%s", refusalHelpers)
 	return w.Bytes()
+}
+
+// renderRelationHelper writes the typed helpers of one relation that the command declares (ST-SUP-RC32-OC13): a
+// fill relates or unrelates a subject to the row of a loaded value through them, and never builds a resource ID or
+// names a relation that the command does not declare. The tuple's resource is the tenant-qualified resource of the
+// row in the handle's tenant (ST-SUP-RC29-OC22); the command runtime decides the command's permission on the row
+// first, and the relay writes the tuple after the commit, in the revocation of the transaction (ST-SUP-RP10-LC05).
+func renderRelationHelper(w *writer, c *command, h relationHelper) {
+	for _, op := range []struct{ name, verb, call string }{{h.relate, "relates", "Relate"}, {h.unrelate, "unrelates", "Unrelate"}} {
+		w.f("// %s %s the subject subjectType:subjectID to the row of on through the relation %s#%s that %s declares:\n", op.name, op.verb, h.resourceType, h.relation, c.decl.Name)
+		w.f("// it enqueues the tuple for the relay in the command's transaction. on is a loaded %s of this handle.\n", h.entity.decl.Name)
+		w.f("func %s(ctx context.Context, h *%sHandle, on Loaded%s, subjectType, subjectID string) error {\n", op.name, c.goName, h.entity.goName)
+		w.f("\tif on == nil {\n\t\treturn command.ErrNoResource\n\t}\n")
+		w.f("\tresource, err := authz.NewResource(h.Tenant(), %q, on.ID())\n\tif err != nil {\n\t\treturn err\n\t}\n", h.resourceType)
+		w.f("\t_, err = h.Authz().%s(ctx, on, authz.Tuple{Resource: resource, Relation: %q, Subject: authz.Subject{Type: subjectType, ID: subjectID}})\n\treturn err\n}\n\n", op.call, h.relation)
+	}
 }
 
 // EntityFile gives a Go file of the package pkg that holds the repository declarations on the command runtime of the

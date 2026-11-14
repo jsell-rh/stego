@@ -60,8 +60,20 @@ const AlertBound = time.Duration(5000000000)
 // setting watch_interval: 1s (ST-SUP-RP06-LC14).
 const WatchInterval = time.Duration(1000000000)
 
-// Operation is the decision of one operation of one collection: the permission of the resource type that it
-// checks, or, for a public operation, the reason that the declaration gives (ST-SUP-RC29-OC01).
+// WaitCap is the longest wait for a revocation, the component setting wait_cap: 10s (ST-SUP-RC29-OC19).
+const WaitCap = time.Duration(10000000000)
+
+// Waiters is the most waits for a revocation at one time, the component setting waiter_limit: 100; TenantWaiters
+// is the most of one tenant, inside it, the component setting tenant_waiter_limit: 10 (ST-SUP-RC29-OC19).
+const (
+	Waiters       = 100
+	TenantWaiters = 10
+)
+
+// Operation is the decision of one operation: of an operation of a collection, the permission of the resource type
+// that it checks, or, for a public operation, the reason that the declaration gives (ST-SUP-RC29-OC01); of the
+// revocation status route, its route and the decision Writer, which allows only the principal and tenant that made
+// the write and calls no provider (ST-SUP-RC29-OC18).
 type Operation struct {
 	Collection   string
 	Operation    string
@@ -69,9 +81,12 @@ type Operation struct {
 	Permission   string
 	Public       bool
 	Reason       string
+	Route        string
+	Writer       bool
 }
 
-// Operations are the decisions of the operations of the collections, in declaration order.
+// Operations are the decisions of the operations of the collections, in declaration order, and then of the
+// revocation status route, from which alone the router registers that route.
 var Operations = []Operation{
 	{Collection: "documents", Operation: "create", ResourceType: "document", Permission: "edit"},
 	{Collection: "documents", Operation: "read", ResourceType: "document", Permission: "view"},
@@ -83,6 +98,7 @@ var Operations = []Operation{
 	{Collection: "projects", Operation: "update", ResourceType: "project", Permission: "edit"},
 	{Collection: "projects", Operation: "delete", ResourceType: "project", Permission: "edit"},
 	{Collection: "projects", Operation: "list", ResourceType: "project", Permission: "view"},
+	{Operation: "revocation-status", Route: "GET /authz/revocations/{id}", Writer: true},
 }
 
 // Owners maps each protected resource type to the table of its rows, whose authz_token holds the token of the
@@ -139,9 +155,11 @@ func WriteSchema(ctx context.Context, conn grpc.ClientConnInterface) error {
 
 // NewRuntime returns the authorization runtime of the service, which binds the handles of its transactions and
 // reads the revocation statuses. db is the runtime role's pool, provider the decision provider, and queue the
-// outbox queue in which a handle enqueues the relay's tuple writes.
+// outbox queue in which a handle enqueues the relay's tuple writes. A wait for a revocation is bounded by WaitCap,
+// Waiters and TenantWaiters (ST-SUP-RC29-OC19).
 func NewRuntime(db *sql.DB, provider stegoauthz.Decision, queue *outbox.Queue, meter metric.MeterProvider) (*stegoauthz.Runtime, error) {
-	return stegoauthz.New(stegoauthz.Config{Provider: provider, DB: db, Schema: DatabaseSchema, Outbox: queue, Meter: meter})
+	return stegoauthz.New(stegoauthz.Config{Provider: provider, DB: db, Schema: DatabaseSchema, Outbox: queue, Meter: meter,
+		WaitCap: WaitCap, Waiters: Waiters, TenantWaiters: TenantWaiters})
 }
 
 // NewRelay builds the relay of the service, the outbox destination authz, with the owning table of each protected

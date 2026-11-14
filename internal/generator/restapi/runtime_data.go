@@ -1010,7 +1010,7 @@ func renderRuntimeHandler(ctx gen.Context, c *runtimeCollection, dataImport, slo
 	}
 	needUUID := w.envelope && (c.ops[types.OpCreate] || c.ops[types.OpUpsert])
 	w.f("package %s\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n", path.Base(ctx.OutputNamespace))
-	if c.ops[types.OpList] {
+	if c.ops[types.OpList] || c.ops[types.OpRead] {
 		w.f("\t\"errors\"\n")
 	}
 	if needFmt {
@@ -1973,6 +1973,9 @@ func (w *runtimeHandlerWriter) read() {
 	w.start(false)
 	w.f("\tif !command.ValidUUID(id) {\n\t\thandleError(w, r, NotFound(%q, id))\n\t\treturn\n\t}\n", e.Name)
 	q := w.commandVar(types.OpRead)
+	// A read that names the caller's own write in Authz-Revocation-After waits for that write's revocation before it
+	// opens its transaction, as a list does, so a read right after a share sees it (ST-SUP-RC20-OC42, ST-SUP-Q119).
+	w.awaitWrite()
 	w.f("\tvalue, err := query.Run(r.Context(), h.rt.Queries, %s, h.rt.boundQuery(r.Context(), b, %s), id, func(ctx context.Context, id string, qh *query.Handle[struct{}]) (%s, error) {\n", q, q, e.Name)
 	w.f("\t\trepo, err := query.Repo(qh, data.Entity%sView())\n\t\tif err != nil {\n\t\t\treturn %s{}, err\n\t\t}\n", e.Name, e.Name)
 	w.f("\t\tloaded, err := repo.Get(ctx, id)\n\t\tif err != nil {\n\t\t\treturn %s{}, err\n\t\t}\n", e.Name)
@@ -1991,6 +1994,12 @@ func (w *runtimeHandlerWriter) read() {
 	w.f("\t\treturn %sFromView(loaded.Value()), nil\n\t})\n", c.camel)
 	w.f("\tif err != nil {\n\t\tanswerRead(w, r, %q, id, err)\n\t\treturn\n\t}\n", e.Name)
 	w.f("\tw.Header().Set(\"Content-Type\", \"application/json\")\n\t_ = json.NewEncoder(w).Encode(%sPresented(value))\n}\n\n", c.camel)
+}
+
+// awaitWrite emits the call of AwaitWrite of a read or a list (ST-SUP-RP11-LC21): a value that is not the identity
+// of a revocation is 400, and any other failure is 500.
+func (w *runtimeHandlerWriter) awaitWrite() {
+	w.f("\tif err := h.rt.Queries.AwaitWrite(w, r, b.Tenant, b.Principal); err != nil {\n\t\tif errors.Is(err, query.ErrBadRequest) {\n\t\t\thandleError(w, r, BadRequest(\"the Authz-Revocation-After header is not the identity of a revocation\"))\n\t\t\treturn\n\t\t}\n\t\thandleError(w, r, InternalError(\"internal error\"))\n\t\treturn\n\t}\n")
 }
 
 func (w *runtimeHandlerWriter) list() {
@@ -2022,6 +2031,17 @@ func (w *runtimeHandlerWriter) list() {
 		own++
 	}
 	w.f("\twhere, err := query.ParseSearch(r.URL.Query().Get(\"search\"), %sSearchFields, query.MaxFilter-%d)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the search is not valid\"))\n\t\treturn\n\t}\n", c.camel, own)
+	// A renamed field is named in the API by its first name and stored in the column of its declared name
+	// (ST-GEN-UC12-R04): the order and the search name it by the API name, and the query runtime reads columns.
+	var renamed []string
+	for _, f := range e.Fields {
+		if f.Column != "" {
+			renamed = append(renamed, fmt.Sprintf("%q: %q", f.Name, f.Column))
+		}
+	}
+	if len(renamed) > 0 {
+		w.f("\tcolumns := map[string]string{%s}\n\tfor i := range order {\n\t\tif column, ok := columns[order[i].Field]; ok {\n\t\t\torder[i].Field = column\n\t\t}\n\t}\n\tfor i := range where {\n\t\tif column, ok := columns[where[i].Field]; ok {\n\t\t\twhere[i].Field = column\n\t\t}\n\t}\n", strings.Join(renamed, ", "))
+	}
 	if c.scope != "" {
 		w.f("\twhere = append(where, query.Equal{Field: %q, Value: scope})\n", c.scope)
 	}
@@ -2029,6 +2049,9 @@ func (w *runtimeHandlerWriter) list() {
 		w.f("\twhere = append(where, query.Equal{Field: %q, Value: %q})\n", kv[0], kv[1])
 	}
 	w.f("\tvar after query.Cursor\n\tif text := r.URL.Query().Get(\"cursor\"); text != \"\" {\n\t\tif after, err = h.rt.Queries.ParseCursor(%s, b.Tenant, b.Principal, text); err != nil {\n\t\t\thandleError(w, r, BadRequest(\"the cursor is not valid\"))\n\t\t\treturn\n\t\t}\n\t}\n", q)
+	// A list that names the caller's own write in Authz-Revocation-After waits for that write's revocation before it
+	// opens its transaction, so it shows the write (ST-SUP-RC20-OC41, ST-SUP-RP11-LC21, ST-SUP-Q119).
+	w.awaitWrite()
 	w.f("\tpage, err := query.Run(r.Context(), h.rt.Queries, %s, h.rt.boundQuery(r.Context(), b, %s), query.ListRequest{Limit: limit, After: after, Order: order, Where: where}, func(ctx context.Context, request query.ListRequest, qh *query.Handle[struct{}]) (%sPage, error) {\n", q, q, c.camel)
 	w.f("\t\trepo, err := query.Repo(qh, data.Entity%sView())\n\t\tif err != nil {\n\t\t\treturn %sPage{}, err\n\t\t}\n", e.Name, c.camel)
 	w.f("\t\tresult, err := repo.List(ctx, request)\n\t\tif err != nil {\n\t\t\treturn %sPage{}, err\n\t\t}\n", c.camel)
