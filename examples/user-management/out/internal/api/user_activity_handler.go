@@ -226,6 +226,14 @@ func (h *UserActivityHandler) List(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := h.rt.Queries.AwaitWrite(w, r, b.Tenant, b.Principal); err != nil {
+		if errors.Is(err, query.ErrBadRequest) {
+			handleError(w, r, BadRequest("the Authz-Revocation-After header is not the identity of a revocation"))
+			return
+		}
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
 	page, err := query.Run(r.Context(), h.rt.Queries, userActivityListQuery, h.rt.boundQuery(r.Context(), b, userActivityListQuery), query.ListRequest{Limit: limit, After: after, Order: order, Where: where}, func(ctx context.Context, request query.ListRequest, qh *query.Handle[struct{}]) (userActivityPage, error) {
 		repo, err := query.Repo(qh, data.EntityActivityEntryView())
 		if err != nil {

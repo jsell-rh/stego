@@ -21,6 +21,7 @@ import (
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	stegoauthz "github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/command"
 	"github.com/jsell-rh/stego/registry/runtime/modes"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/service"
@@ -196,6 +197,13 @@ func NewService(ctx context.Context) (rt *Runtime, err error) {
 			rt = nil
 		}
 	}()
+	// The revocation status route, which answers the state of a write's revocation to its writer alone, comes from
+	// its entry of the operation-to-permission table only (ST-SUP-RC29-OC17, ST-SUP-RC29-OC18).
+	for _, o := range svcauthz.Operations {
+		if o.Writer {
+			rt.routes.Handle(o.Route, command.ServeRevocationStatus(svc.Collections(), subjectType))
+		}
+	}
 	return rt, nil
 }
 
@@ -289,7 +297,7 @@ func (rt *Runtime) Readiness() http.Handler {
 // (ST-SUP-RP04-LC07).
 const tenantSchema = "public"
 
-// Routes serves the declared commands and queries, each at its route.
+// Routes serves the declared commands and queries, each at its route, and the revocation status route.
 func (rt *Runtime) Routes() http.Handler { return rt.routes }
 
 // Service gives the runtime library objects of the running service, on which the gRPC application serves the
