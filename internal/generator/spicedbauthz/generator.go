@@ -335,6 +335,33 @@ func goText(text string) string {
 }
 
 // render writes the source of the authorization wiring package.
+// tokenStatements gives the statements of the migration for the protected table table in databaseSchema: the one
+// that adds authz_token when the catalog does not hold it, and the start of the grant of the worker role, which the
+// emitted code ends with the quoted role. The table name is a quoted identifier (sqlIdentifier), and in the regclass
+// literal a string literal of it (sqlString), so no name can end either (review of PR #292, L1). The column is added
+// only when the catalog does not hold it: ADD COLUMN IF NOT EXISTS takes ACCESS EXCLUSIVE on the table even when the
+// column is there, so a run again of the job would wait behind each long transaction of the running release, and
+// each read and write of the table would queue behind it. The catalog read and the regclass name take no lock on the
+// table. The table name is the snake case of an exported Go name, so it holds no $ that could end the dollar quote.
+func tokenStatements(table string) (column, grant string) {
+	name := databaseSchema + "." + sqlIdentifier(table)
+	column = "DO $authz$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = " + sqlString(name) +
+		"::regclass AND attname = " + sqlString(TokenColumn) + " AND NOT attisdropped) THEN ALTER TABLE " + name +
+		" ADD COLUMN IF NOT EXISTS " + TokenColumn + " text NOT NULL DEFAULT '' CHECK (octet_length(" + TokenColumn + ") <= 4096); END IF; END $authz$;\n"
+	grant = "GRANT SELECT (" + TenantColumn + ", id), UPDATE (" + TokenColumn + ") ON " + name + " TO "
+	return column, grant
+}
+
+// sqlIdentifier quotes a name as a PostgreSQL identifier.
+func sqlIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+// sqlString quotes a value as a PostgreSQL string literal.
+func sqlString(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
 func render(p plan) []byte {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "// Package %s is the authorization wiring of the service on the authorization runtime\n// github.com/jsell-rh/stego/registry/runtime/authz (ST-SUP-RC29).\n", p.Package)
@@ -415,13 +442,9 @@ func Migration(runtimeRole, relayRole, outboxRelayRole, workerRole string) (stri
 	var statements strings.Builder
 `)
 	for _, e := range p.Entities {
-		table := databaseSchema + `.\"` + e.Table + `\"`
-		// The column is added only when the catalog does not hold it: ADD COLUMN IF NOT EXISTS takes ACCESS
-		// EXCLUSIVE on the table even when the column is there, so a run again of the job would wait behind each
-		// long transaction of the running release, and each read and write of the table would queue behind it. The
-		// catalog read and the regclass name take no lock on the table.
-		fmt.Fprintf(&b, "\tstatements.WriteString(\"DO $authz$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = '%s'::regclass AND attname = '%s' AND NOT attisdropped) THEN ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s text NOT NULL DEFAULT '' CHECK (octet_length(%s) <= 4096); END IF; END $authz$;\\n\")\n", table, TokenColumn, table, TokenColumn, TokenColumn)
-		fmt.Fprintf(&b, "\tstatements.WriteString(\"GRANT SELECT (%s, id), UPDATE (%s) ON %s TO \" + worker + \";\\n\")\n", TenantColumn, TokenColumn, table)
+		column, grant := tokenStatements(e.Table)
+		fmt.Fprintf(&b, "\tstatements.WriteString(%s)\n", strconv.Quote(column))
+		fmt.Fprintf(&b, "\tstatements.WriteString(%s + worker + \";\\n\")\n", strconv.Quote(grant))
 	}
 	b.WriteString(`	return text + statements.String(), nil
 }
