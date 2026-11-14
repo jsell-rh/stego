@@ -998,12 +998,16 @@ func TestMigrateLocks(t *testing.T) {
 			t.Fatalf("the run with nothing to change changed the catalog:\n%v\nwant\n%v", after, before)
 		}
 		// Each kind of object changes in the catalog: row-level security that is no longer forced, a dropped and a
-		// changed policy, a policy on other roles, a dropped index, a dropped trigger, a disabled trigger and a
-		// dropped constraint trigger. The run again makes each one as the text states it.
+		// changed policy, a policy made again as restrictive, a policy on other roles, a dropped index, a dropped
+		// trigger, a disabled trigger and a dropped constraint trigger. The run again makes each one as the text
+		// states it.
 		for _, statement := range []string{
 			"ALTER TABLE stego_outbox.messages NO FORCE ROW LEVEL SECURITY",
 			"ALTER TABLE public.audit_chain_heads DISABLE ROW LEVEL SECURITY",
 			"DROP POLICY idempotency_keys_purge_delete ON public.idempotency_keys",
+			// The same name, command, roles and expression, but restrictive: Policy.Holds reads polpermissive (#301 L1).
+			"DROP POLICY idempotency_keys_purge_select ON public.idempotency_keys",
+			"CREATE POLICY idempotency_keys_purge_select ON public.idempotency_keys AS RESTRICTIVE FOR SELECT TO " + f.purge + " USING (true)",
 			"ALTER POLICY messages_tenant ON stego_outbox.messages USING (true)",
 			"ALTER POLICY tenant_wall ON public.audit_event WITH CHECK (true)",
 			"ALTER POLICY authz_revocations_tenant ON public.authz_revocations TO " + f.runtime,
