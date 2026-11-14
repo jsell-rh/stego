@@ -215,6 +215,12 @@ func manifestSource(models []tableModel, key string, optional map[string][]syncT
 				fmt.Fprintf(&b, "{Name: %q, Timing: \"BEFORE\", Row: true, Events: []string{\"INSERT\", \"UPDATE\"},\nFunction: manifest.Function{Name: %q, Language: \"plpgsql\", Source: %q, Config: []string{%q}}},\n",
 					trigger.name, StepSchema+"."+trigger.name, trigger.source, syncConfig)
 			}
+			// The completeness CHECK of each open rename is validated when the table has it, and the contract step
+			// drops it (decision on ST-SUP-Q120 (c), orchestrator under the owner's delegation, 2026-11-14).
+			b.WriteString("},\nOptionalConstraints: []manifest.Constraint{\n")
+			for _, trigger := range triggers {
+				fmt.Fprintf(&b, "{Name: %q, Kind: manifest.KindCheck, Definition: %q},\n", trigger.check, trigger.definition)
+			}
 			b.WriteString("},\n")
 		}
 		if table.owned {
@@ -233,7 +239,7 @@ const syncConfig = "search_path=pg_catalog, pg_temp"
 
 // syncTrigger is the sync trigger of an open rename: its name, which is also the name of its function, and the
 // source of its function.
-type syncTrigger struct{ name, source string }
+type syncTrigger struct{ name, source, check, definition string }
 
 // openRenames gives, for each table, the sync trigger of each rename whose last step in the declaration is expand,
 // and makes the new column of each such rename nullable with no default in the models (ST-SUP-RC01-OC12): the
@@ -266,12 +272,13 @@ func openRenames(ctx gen.Context, models []tableModel) (map[string][]syncTrigger
 				}
 			}
 			trigger := SyncTriggerName(change.Entity, change.Field)
-			optional[name] = append(optional[name], syncTrigger{name: trigger, source: syncSource(change.ID, owner, change.From, change.Field)})
+			optional[name] = append(optional[name], syncTrigger{name: trigger, source: syncSource(change.ID, owner, change.From, change.Field),
+				check: CompleteCheckName(change.Entity, change.Field), definition: completeDefinition(change.From, change.Field)})
 			tenant := ""
 			if models[i].owned {
 				tenant = tenantColumn(ctx)
 			}
-			open = append(open, openRename{change: change.ID, table: name, tenant: tenant, from: change.From, to: change.Field})
+			open = append(open, openRename{change: change.ID, table: name, tenant: tenant, from: change.From, to: change.Field, check: CompleteCheckName(change.Entity, change.Field)})
 		}
 	}
 	return optional, open, nil
@@ -279,7 +286,7 @@ func openRenames(ctx gen.Context, models []tableModel) (map[string][]syncTrigger
 
 // openRename is the copy of the backfill of an open rename: its change, its table, the tenant column of an owned
 // table, and the old and the new column (registry/runtime/lease.Copy).
-type openRename struct{ change, table, tenant, from, to string }
+type openRename struct{ change, table, tenant, from, to, check string }
 
 // stepsSource gives the variables SchemaSteps, the IDs of the open renames, which the writer marker names
 // (ST-SUP-RC01-OC23), and BackfillCopies, the copy of the backfill of each (ST-GEN-UC13).
@@ -287,7 +294,7 @@ func stepsSource(open []openRename) string {
 	var ids, copies strings.Builder
 	for _, r := range open {
 		fmt.Fprintf(&ids, "%q,\n", r.change)
-		fmt.Fprintf(&copies, "{Change: %q, Table: %q, TenantColumn: %q, From: %q, To: %q},\n", r.change, r.table, r.tenant, r.from, r.to)
+		fmt.Fprintf(&copies, "{Change: %q, Table: %q, TenantColumn: %q, From: %q, To: %q, Check: %q},\n", r.change, r.table, r.tenant, r.from, r.to, r.check)
 	}
 	return fmt.Sprintf(`
 // SchemaSteps are the IDs of the schema changes of this release whose last step is expand and that have a sync
