@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"go/format"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -1421,6 +1422,12 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 			}
 		}
 
+		for method, op := range collectionOps {
+			collectionOps[method] = revocationHeaders(method, op)
+		}
+		for method, op := range itemOps {
+			itemOps[method] = revocationHeaders(method, op)
+		}
 		if op, ok := collectionOps["post"]; ok {
 			collectionOps["post"] = keys.apply(op, types.OpCreate)
 		}
@@ -1433,6 +1440,10 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 		if len(itemOps) > 0 {
 			spec.Paths[itemPath] = openAPIPathItem{Operations: itemOps}
 		}
+	}
+
+	if len(spec.Paths) > 0 {
+		spec.Paths[revocationRoute] = openAPIPathItem{Operations: map[string]openAPIOperation{"get": revocationStatusOperation()}}
 	}
 
 	data, err := json.MarshalIndent(spec, "", "  ")
@@ -1928,7 +1939,14 @@ type openAPIMediaType struct {
 
 type openAPIResponse struct {
 	Description string                      `json:"description"`
+	Headers     map[string]openAPIHeader    `json:"headers,omitempty"`
 	Content     map[string]openAPIMediaType `json:"content,omitempty"`
+}
+
+// openAPIHeader is a response header of an operation.
+type openAPIHeader struct {
+	Description string        `json:"description,omitempty"`
+	Schema      openAPISchema `json:"schema"`
 }
 
 type openAPIComponents struct {
@@ -2928,4 +2946,82 @@ func (k *idempotencyHeader) apply(op openAPIOperation, operation types.Operation
 	responses["422"] = openAPIResponse{Description: "Problem " + k.reuse + ": the key was used with another request"}
 	op.Responses = responses
 	return op
+}
+
+// revocationRoute is the path of the revocation status route that the runtime wiring registers beside the collection
+// routes, outside the base path (ST-SUP-RC29-OC18).
+const revocationRoute = "/authz/revocations/{id}"
+
+// The revocation headers of the runtime data path (ST-SUP-Q119): a write that enqueued a tuple answers
+// Authz-Revocation and Authz-Revocation-Location, and a read or a list takes Authz-Revocation-After and answers the
+// state it read in Authz-Revocation.
+const (
+	revocationHeader         = "Authz-Revocation"
+	revocationLocationHeader = "Authz-Revocation-Location"
+	revocationAfterHeader    = "Authz-Revocation-After"
+)
+
+// revocationStates are the states of a revocation that Authz-Revocation and the status route give.
+var revocationStates = []string{"pending", "complete", "parked", "failed"}
+
+// revocationHeaders adds the revocation headers to an operation of a collection, as ST-SUP-RC20-OC43 states them: a
+// get, a read or a list, takes the optional request headers Authz-Revocation-After and Prefer, answers 400 to a value
+// that is no revocation, and answers the state in Authz-Revocation; each write answers Authz-Revocation and
+// Authz-Revocation-Location on each success when it enqueued a tuple.
+func revocationHeaders(method string, op openAPIOperation) openAPIOperation {
+	responses := make(map[string]openAPIResponse, len(op.Responses)+1)
+	for code, response := range op.Responses {
+		if code[0] == '2' {
+			headers := make(map[string]openAPIHeader, len(response.Headers)+2)
+			for name, header := range response.Headers {
+				headers[name] = header
+			}
+			if method == "get" {
+				headers[revocationHeader] = openAPIHeader{Description: "The state of the revocation that " + revocationAfterHeader + " names, or unknown when it is not one of the caller's own; absent with no " + revocationAfterHeader,
+					Schema: openAPISchema{Type: "string", Enum: append(slices.Clone(revocationStates), "unknown")}}
+			} else {
+				headers[revocationHeader] = openAPIHeader{Description: "pending when the write enqueued a relationship tuple; absent when it enqueued none",
+					Schema: openAPISchema{Type: "string", Enum: []string{"pending"}}}
+				headers[revocationLocationHeader] = openAPIHeader{Description: "The path of the status of the write's revocation under " + revocationRoute + "; absent when the write enqueued no tuple",
+					Schema: openAPISchema{Type: "string"}}
+			}
+			response.Headers = headers
+		}
+		responses[code] = response
+	}
+	op.Responses = responses
+	if method == "get" {
+		op.Parameters = append(op.Parameters,
+			openAPIParam{Name: revocationAfterHeader, In: "header", Required: false,
+				Description: "The identity of the caller's own revocation, or its " + revocationLocationHeader + " path: the request waits until the revocation is no longer pending, within Prefer: wait=N and the wait cap, and then shows the write",
+				Schema:      openAPISchema{Type: "string"}},
+			openAPIParam{Name: "Prefer", In: "header", Required: false, Description: "wait=N: wait at most N seconds for the revocation (RFC 7240)", Schema: openAPISchema{Type: "string"}})
+		if _, ok := op.Responses["400"]; !ok {
+			op.Responses["400"] = openAPIResponse{Description: "Bad request: the " + revocationAfterHeader + " header is not the identity of a revocation, or the request is not valid"}
+		}
+	}
+	return op
+}
+
+// revocationStatusOperation is the operation of the revocation status route (ST-SUP-RC29-OC17, ST-SUP-RC29-OC19).
+func revocationStatusOperation() openAPIOperation {
+	state := openAPIHeader{Description: "The state of the revocation", Schema: openAPISchema{Type: "string", Enum: revocationStates}}
+	return openAPIOperation{
+		Summary:     "Read the state of the caller's own revocation",
+		OperationID: "readRevocation",
+		Tags:        []string{"authz"},
+		Parameters: []openAPIParam{
+			{Name: "id", In: "path", Required: true, Description: "The identity of the revocation", Schema: openAPISchema{Type: "string", Format: "uuid"}},
+			{Name: "Prefer", In: "header", Required: false, Description: "wait=N: wait at most N seconds, and at most the wait cap, while the revocation is pending (RFC 7240)", Schema: openAPISchema{Type: "string"}},
+		},
+		Responses: map[string]openAPIResponse{
+			"200": {Description: "The state of the revocation",
+				Headers: map[string]openAPIHeader{revocationHeader: state,
+					"Preference-Applied": {Description: "wait=N with the seconds that the route allowed", Schema: openAPISchema{Type: "string"}}},
+				Content: jsonContent(openAPISchema{Type: "object", Required: []string{"id", "state"}, Properties: map[string]openAPISchema{
+					"id": {Type: "string", Format: "uuid"}, "state": {Type: "string", Enum: revocationStates}}})},
+			"401": {Description: "Unauthorized"},
+			"404": {Description: "Not found: no revocation of the caller has the identity"},
+		},
+	}
 }

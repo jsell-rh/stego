@@ -371,6 +371,14 @@ func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, NotFound("User", id))
 		return
 	}
+	if err := h.rt.Queries.AwaitWrite(w, r, b.Tenant, b.Principal); err != nil {
+		if errors.Is(err, query.ErrBadRequest) {
+			handleError(w, r, BadRequest("the Authz-Revocation-After header is not the identity of a revocation"))
+			return
+		}
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
 	value, err := query.Run(r.Context(), h.rt.Queries, orgUsersReadQuery, h.rt.boundQuery(r.Context(), b, orgUsersReadQuery), id, func(ctx context.Context, id string, qh *query.Handle[struct{}]) (User, error) {
 		repo, err := query.Repo(qh, data.EntityUserView())
 		if err != nil {

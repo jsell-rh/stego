@@ -1092,9 +1092,11 @@ CREATE EVENT TRIGGER dup_slug ON ddl_command_end WHEN TAG IN ('ALTER TABLE') EXE
 		if !ledger(step) || ledger(build) {
 			t.Errorf("after the failed build the ledger holds the step %v and the build %v; want the step only", ledger(step), ledger(build))
 		}
-		// The job holds no lock after it ends: neither the ledger lock of its session nor a transaction.
+		// The job holds no lock after it ends: neither the ledger lock of its session nor a transaction. Only the
+		// locks of this test's database count: the jobs of other tests run on the same server at the same time.
 		var held int
-		if err := slugged.QueryRow(`SELECT count(*) FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND granted`).Scan(&held); err != nil || held != 0 {
+		if err := slugged.QueryRow(`SELECT count(*) FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND granted
+  AND database = (SELECT oid FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database())`).Scan(&held); err != nil || held != 0 {
 			t.Errorf("after the failed build %d advisory locks are held (error %v), want none", held, err)
 		}
 		// An invalid index of the same name that a build which stopped part way left is dropped before the next build.

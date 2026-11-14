@@ -1,9 +1,10 @@
 # Version 1.1.0 holds the revocation status route in the operation-to-permission table, from which alone the router
 # registers it (ST-SUP-RC29-OC18), and the settings wait_cap, waiter_limit and tenant_waiter_limit of a wait for a
-# revocation (ST-SUP-RC29-OC19).
+# revocation (ST-SUP-RC29-OC19). Version 1.1.1 refuses a wait_cap above 25 s, so a full wait leaves time to answer
+# before the server's write timeout of 30 s.
 kind: component
 name: spicedb-authz
-version: 1.1.0
+version: 1.1.1
 stage: ga
 output_namespace: internal/authz
 

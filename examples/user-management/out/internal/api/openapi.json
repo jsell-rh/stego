@@ -57,11 +57,44 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Authz-Revocation-After",
+            "in": "header",
+            "required": false,
+            "description": "The identity of the caller's own revocation, or its Authz-Revocation-Location path: the request waits until the revocation is no longer pending, within Prefer: wait=N and the wait cap, and then shows the write",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "required": false,
+            "description": "wait=N: wait at most N seconds for the revocation (RFC 7240)",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "Successful response",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "The state of the revocation that Authz-Revocation-After names, or unknown when it is not one of the caller's own; absent with no Authz-Revocation-After",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "complete",
+                    "parked",
+                    "failed",
+                    "unknown"
+                  ]
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -104,6 +137,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request: the Authz-Revocation-After header is not the identity of a revocation, or the request is not valid"
           }
         }
       },
@@ -126,6 +162,23 @@
         "responses": {
           "201": {
             "description": "Created",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "pending when the write enqueued a relationship tuple; absent when it enqueued none",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending"
+                  ]
+                }
+              },
+              "Authz-Revocation-Location": {
+                "description": "The path of the status of the write's revocation under /authz/revocations/{id}; absent when the write enqueued no tuple",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -207,11 +260,44 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Authz-Revocation-After",
+            "in": "header",
+            "required": false,
+            "description": "The identity of the caller's own revocation, or its Authz-Revocation-Location path: the request waits until the revocation is no longer pending, within Prefer: wait=N and the wait cap, and then shows the write",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "required": false,
+            "description": "wait=N: wait at most N seconds for the revocation (RFC 7240)",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "Successful response",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "The state of the revocation that Authz-Revocation-After names, or unknown when it is not one of the caller's own; absent with no Authz-Revocation-After",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "complete",
+                    "parked",
+                    "failed",
+                    "unknown"
+                  ]
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -254,6 +340,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request: the Authz-Revocation-After header is not the identity of a revocation, or the request is not valid"
           }
         }
       },
@@ -276,6 +365,23 @@
         "responses": {
           "201": {
             "description": "Created",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "pending when the write enqueued a relationship tuple; absent when it enqueued none",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending"
+                  ]
+                }
+              },
+              "Authz-Revocation-Location": {
+                "description": "The path of the status of the write's revocation under /authz/revocations/{id}; absent when the write enqueued no tuple",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -324,7 +430,24 @@
         ],
         "responses": {
           "204": {
-            "description": "Deleted"
+            "description": "Deleted",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "pending when the write enqueued a relationship tuple; absent when it enqueued none",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending"
+                  ]
+                }
+              },
+              "Authz-Revocation-Location": {
+                "description": "The path of the status of the write's revocation under /authz/revocations/{id}; absent when the write enqueued no tuple",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
@@ -342,11 +465,44 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Authz-Revocation-After",
+            "in": "header",
+            "required": false,
+            "description": "The identity of the caller's own revocation, or its Authz-Revocation-Location path: the request waits until the revocation is no longer pending, within Prefer: wait=N and the wait cap, and then shows the write",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "required": false,
+            "description": "wait=N: wait at most N seconds for the revocation (RFC 7240)",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "Successful response",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "The state of the revocation that Authz-Revocation-After names, or unknown when it is not one of the caller's own; absent with no Authz-Revocation-After",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "complete",
+                    "parked",
+                    "failed",
+                    "unknown"
+                  ]
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -372,6 +528,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request: the Authz-Revocation-After header is not the identity of a revocation, or the request is not valid"
           },
           "404": {
             "description": "Not found"
@@ -439,11 +598,44 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Authz-Revocation-After",
+            "in": "header",
+            "required": false,
+            "description": "The identity of the caller's own revocation, or its Authz-Revocation-Location path: the request waits until the revocation is no longer pending, within Prefer: wait=N and the wait cap, and then shows the write",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "required": false,
+            "description": "wait=N: wait at most N seconds for the revocation (RFC 7240)",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "Successful response",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "The state of the revocation that Authz-Revocation-After names, or unknown when it is not one of the caller's own; absent with no Authz-Revocation-After",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "complete",
+                    "parked",
+                    "failed",
+                    "unknown"
+                  ]
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -486,6 +678,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request: the Authz-Revocation-After header is not the identity of a revocation, or the request is not valid"
           }
         }
       },
@@ -518,6 +713,23 @@
         "responses": {
           "200": {
             "description": "Updated",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "pending when the write enqueued a relationship tuple; absent when it enqueued none",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending"
+                  ]
+                }
+              },
+              "Authz-Revocation-Location": {
+                "description": "The path of the status of the write's revocation under /authz/revocations/{id}; absent when the write enqueued no tuple",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -546,6 +758,23 @@
           },
           "201": {
             "description": "Created",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "pending when the write enqueued a relationship tuple; absent when it enqueued none",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending"
+                  ]
+                }
+              },
+              "Authz-Revocation-Location": {
+                "description": "The path of the status of the write's revocation under /authz/revocations/{id}; absent when the write enqueued no tuple",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -638,11 +867,44 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Authz-Revocation-After",
+            "in": "header",
+            "required": false,
+            "description": "The identity of the caller's own revocation, or its Authz-Revocation-Location path: the request waits until the revocation is no longer pending, within Prefer: wait=N and the wait cap, and then shows the write",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "required": false,
+            "description": "wait=N: wait at most N seconds for the revocation (RFC 7240)",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "Successful response",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "The state of the revocation that Authz-Revocation-After names, or unknown when it is not one of the caller's own; absent with no Authz-Revocation-After",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "complete",
+                    "parked",
+                    "failed",
+                    "unknown"
+                  ]
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -685,6 +947,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request: the Authz-Revocation-After header is not the identity of a revocation, or the request is not valid"
           }
         }
       },
@@ -717,6 +982,23 @@
         "responses": {
           "201": {
             "description": "Created",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "pending when the write enqueued a relationship tuple; absent when it enqueued none",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending"
+                  ]
+                }
+              },
+              "Authz-Revocation-Location": {
+                "description": "The path of the status of the write's revocation under /authz/revocations/{id}; absent when the write enqueued no tuple",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -773,7 +1055,24 @@
         ],
         "responses": {
           "204": {
-            "description": "Deleted"
+            "description": "Deleted",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "pending when the write enqueued a relationship tuple; absent when it enqueued none",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending"
+                  ]
+                }
+              },
+              "Authz-Revocation-Location": {
+                "description": "The path of the status of the write's revocation under /authz/revocations/{id}; absent when the write enqueued no tuple",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
@@ -799,11 +1098,44 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Authz-Revocation-After",
+            "in": "header",
+            "required": false,
+            "description": "The identity of the caller's own revocation, or its Authz-Revocation-Location path: the request waits until the revocation is no longer pending, within Prefer: wait=N and the wait cap, and then shows the write",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "required": false,
+            "description": "wait=N: wait at most N seconds for the revocation (RFC 7240)",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "Successful response",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "The state of the revocation that Authz-Revocation-After names, or unknown when it is not one of the caller's own; absent with no Authz-Revocation-After",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "complete",
+                    "parked",
+                    "failed",
+                    "unknown"
+                  ]
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -829,6 +1161,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request: the Authz-Revocation-After header is not the identity of a revocation, or the request is not valid"
           },
           "404": {
             "description": "Not found"
@@ -872,6 +1207,23 @@
         "responses": {
           "200": {
             "description": "Patched",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "pending when the write enqueued a relationship tuple; absent when it enqueued none",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending"
+                  ]
+                }
+              },
+              "Authz-Revocation-Location": {
+                "description": "The path of the status of the write's revocation under /authz/revocations/{id}; absent when the write enqueued no tuple",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -940,6 +1292,23 @@
         "responses": {
           "200": {
             "description": "Updated",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "pending when the write enqueued a relationship tuple; absent when it enqueued none",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending"
+                  ]
+                }
+              },
+              "Authz-Revocation-Location": {
+                "description": "The path of the status of the write's revocation under /authz/revocations/{id}; absent when the write enqueued no tuple",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1021,11 +1390,44 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Authz-Revocation-After",
+            "in": "header",
+            "required": false,
+            "description": "The identity of the caller's own revocation, or its Authz-Revocation-Location path: the request waits until the revocation is no longer pending, within Prefer: wait=N and the wait cap, and then shows the write",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "required": false,
+            "description": "wait=N: wait at most N seconds for the revocation (RFC 7240)",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "Successful response",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "The state of the revocation that Authz-Revocation-After names, or unknown when it is not one of the caller's own; absent with no Authz-Revocation-After",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "complete",
+                    "parked",
+                    "failed",
+                    "unknown"
+                  ]
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1068,6 +1470,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request: the Authz-Revocation-After header is not the identity of a revocation, or the request is not valid"
           }
         }
       },
@@ -1090,6 +1495,23 @@
         "responses": {
           "201": {
             "description": "Created",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "pending when the write enqueued a relationship tuple; absent when it enqueued none",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending"
+                  ]
+                }
+              },
+              "Authz-Revocation-Location": {
+                "description": "The path of the status of the write's revocation under /authz/revocations/{id}; absent when the write enqueued no tuple",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1171,11 +1593,44 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Authz-Revocation-After",
+            "in": "header",
+            "required": false,
+            "description": "The identity of the caller's own revocation, or its Authz-Revocation-Location path: the request waits until the revocation is no longer pending, within Prefer: wait=N and the wait cap, and then shows the write",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "required": false,
+            "description": "wait=N: wait at most N seconds for the revocation (RFC 7240)",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "Successful response",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "The state of the revocation that Authz-Revocation-After names, or unknown when it is not one of the caller's own; absent with no Authz-Revocation-After",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "complete",
+                    "parked",
+                    "failed",
+                    "unknown"
+                  ]
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1218,6 +1673,96 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request: the Authz-Revocation-After header is not the identity of a revocation, or the request is not valid"
+          }
+        }
+      }
+    },
+    "/authz/revocations/{id}": {
+      "get": {
+        "summary": "Read the state of the caller's own revocation",
+        "operationId": "readRevocation",
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The identity of the revocation",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "required": false,
+            "description": "wait=N: wait at most N seconds, and at most the wait cap, while the revocation is pending (RFC 7240)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The state of the revocation",
+            "headers": {
+              "Authz-Revocation": {
+                "description": "The state of the revocation",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "complete",
+                    "parked",
+                    "failed"
+                  ]
+                }
+              },
+              "Preference-Applied": {
+                "description": "wait=N with the seconds that the route allowed",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "complete",
+                        "parked",
+                        "failed"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "state"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found: no revocation of the caller has the identity"
           }
         }
       }
