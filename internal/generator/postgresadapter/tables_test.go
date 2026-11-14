@@ -404,6 +404,19 @@ func TestTables(t *testing.T) {
 		onPostgres(t, "ST-SUP-RC01-OC12-T09")
 	})
 
+	t.Run("ST-SUP-RC01-OC12-T10 The schema manifest names each search index as a lookup index, and a database without one does not satisfy it", func(t *testing.T) {
+		files, _, err := new(postgresadapter.Generator).Generate(boardNoDefault("boardsnote", "boardsnotetenancy"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Decision on ST-SUP-Q123 (b): a plain lookup index is part of the manifest.
+		source := generated(t, files, "boardsnote/schema_manifest.go")
+		if want := `{Name: "boards_note_search", Columns: []string{"tenant_id", "note"}, Lookup: true}`; !strings.Contains(source, want) {
+			t.Errorf("the schema manifest does not hold %s:\n%s", want, source)
+		}
+		onPostgres(t, "ST-SUP-RC01-OC12-T10")
+	})
+
 	t.Run("ST-SUP-RC01-OC42-T02 The marker check accepts the digest of the stored shape and the one a release before wrote, and no other", func(t *testing.T) {
 		onPostgres(t, "ST-SUP-RC01-OC42-T02")
 	})

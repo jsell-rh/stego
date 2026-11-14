@@ -177,9 +177,10 @@ func deparsedList(columns []string) string {
 
 // manifestSource gives the Go source of the manifest of the tables: for each table its columns with their types
 // and NOT NULL, its primary key, check and foreign key constraints with their definitions as pg_get_constraintdef
-// writes them, its primary key and unique indexes, and on an
-// owned table of a pooled service the row-level security and the tenant policy. The search indexes are left out:
-// a list that has no search index is slower, not wrong.
+// writes them, its primary key and unique indexes, its search indexes as lookup indexes, and on an
+// owned table of a pooled service the row-level security and the tenant policy. A list that has no search index is
+// slower, not wrong, so a start without one alerts and starts, as for every fault (decision on ST-SUP-Q123 (b),
+// orchestrator under the owner's delegation, 2026-11-14).
 func manifestSource(models []tableModel, key string, optional map[string][]syncTrigger) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "manifest.Manifest{Schemas: []manifest.Schema{{Name: %q, Steps: true}},\nTables: []manifest.Table{\n", StepSchema)
@@ -207,6 +208,9 @@ func manifestSource(models []tableModel, key string, optional map[string][]syncT
 		fmt.Fprintf(&b, "{Name: %q, Columns: %#v},\n", primaryName(table.name), append(append([]string{}, table.lead...), keyColumn))
 		for _, columns := range table.unique {
 			fmt.Fprintf(&b, "{Name: %q, Columns: %#v},\n", uniqueName(table.name, columns), append(append([]string{}, table.lead...), columns...))
+		}
+		for _, column := range table.search {
+			fmt.Fprintf(&b, "{Name: %q, Columns: %#v, Lookup: true},\n", searchName(table.name, column), append(append([]string{}, table.lead...), column))
 		}
 		b.WriteString("},\n")
 		if triggers := optional[table.name]; len(triggers) > 0 {
