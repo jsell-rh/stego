@@ -175,6 +175,7 @@ func TestPastItsFailDateAPinFails(t *testing.T) {
 	})
 	t.Run("ST-DIS-UC05-R03-T02 Past its fail date, apply writes no output without an override", func(t *testing.T) {
 		s := newSmallService(t)
+		s.unreleased(t)
 		headRegistry(t, s)
 		da1, da2 := pinnedDigest(t, s, componentA), digestAt(t, s, s.r2, componentA)
 		supersede(t, s, "STEGO-2026-0001", da1, da2, -30, false)
@@ -313,6 +314,7 @@ func TestAServiceAuthorLearnsOfASupersededPin(t *testing.T) {
 	t.Parallel()
 	t.Run("ST-DIS-UC05-FL-T A service author learns of a superseded pin while working, and past its date the pin fails", func(t *testing.T) {
 		s := newSmallService(t)
+		s.unreleased(t)
 		headRegistry(t, s)
 		da1, da2 := pinnedDigest(t, s, componentA), digestAt(t, s, s.r2, componentA)
 		supersede(t, s, "STEGO-2026-0001", da1, da2, 90, false)

@@ -10,6 +10,7 @@ import (
 	"go/format"
 	"path"
 	"regexp"
+	"strings"
 	"text/template"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -73,17 +74,13 @@ func generateSchemaGeneration(ctx gen.Context) (gen.File, error) {
 	if err != nil {
 		return gen.File{}, err
 	}
-	declaration, err := json.Marshal(struct {
-		Entities    any
-		Collections any
-	}{ctx.Entities, ctx.Collections})
+	definition, before, err := markerDefinitions(ctx)
 	if err != nil {
 		return gen.File{}, err
 	}
-	hash := sha256.Sum256(declaration)
-	// The marker holds the generation name and the digest of the declaration: the bootstrap, the marker check and
-	// the ledger read (ST-SUP-RC01-OC11, ST-SUP-RC01-OC41).
-	data := struct{ Package, Generation, Definition string }{path.Base(ctx.OutputNamespace), generation, hex.EncodeToString(hash[:])}
+	// The marker holds the generation name and the digest of the stored shape of the baseline: the bootstrap, the
+	// marker check and the ledger read (ST-SUP-RC01-OC11, ST-SUP-RC01-OC41, ST-SUP-RC01-OC42).
+	data := struct{ Package, Generation, Definition, DefinitionBefore string }{path.Base(ctx.OutputNamespace), generation, definition, before}
 	var output bytes.Buffer
 	t, err := template.New("schema-generation").Parse(schemaGenerationTemplate)
 	if err != nil {
@@ -97,4 +94,38 @@ func generateSchemaGeneration(ctx gen.Context) (gen.File, error) {
 		return gen.File{}, err
 	}
 	return gen.File{Path: path.Join(ctx.OutputNamespace, "schema_generation.go"), Content: code}, nil
+}
+
+// markerDefinitions gives the two digests that the marker check accepts (ST-SUP-RC01-OC42). definition is the digest
+// of the stored shape of the baseline, the declaration with every schema step undone: the SQL of its tables with no
+// collection, so with no search index and no unique index of an upsert key, which are indexes, not the stored shape.
+// A collection, an operation or a permission is not a fact of the database and does not change it. before is the
+// digest that a release before ST-SUP-RC01-OC42 wrote: the JSON of the entities and the collections of the same
+// baseline.
+func markerDefinitions(ctx gen.Context) (definition, before string, err error) {
+	baseline, err := ctx.AtSchemaStep(0)
+	if err != nil {
+		return "", "", err
+	}
+	declaration, err := json.Marshal(struct {
+		Entities    any
+		Collections any
+	}{baseline.Entities, baseline.Collections})
+	if err != nil {
+		return "", "", err
+	}
+	legacy := sha256.Sum256(declaration)
+	stored := baseline
+	stored.Collections = nil
+	models, err := tableModels(stored)
+	if err != nil {
+		return "", "", err
+	}
+	var shape strings.Builder
+	shape.WriteString("stored shape 1\n")
+	for _, table := range models {
+		shape.WriteString(createTableSQL(table))
+	}
+	sum := sha256.Sum256([]byte(shape.String()))
+	return hex.EncodeToString(sum[:]), hex.EncodeToString(legacy[:]), nil
 }
