@@ -62,9 +62,17 @@ type sbomPackage struct {
 // module that the module proxy did not supply (ST-BLD-UC02-R05).
 const sbomSourceProperty = "stego:module:source"
 
-// sbomSourceComment is the SPDX package comment for such a module.
+// sbomSourceComment is the SPDX package comment for such a module: one text for each source, since only the runtime
+// folder of the source revision is part of that revision.
 func sbomSourceComment(source string) string {
-	return "Supplied by " + source + " of the source revision, not by " + ProxySource + " (ST-BLD-UC02-R05)."
+	switch source {
+	case RuntimeFolderSource:
+		return "Supplied by " + source + ", the runtime folder of the source revision, not by " + ProxySource + " (ST-BLD-UC02-R05)."
+	case RuntimeCheckoutSource:
+		return "Supplied by " + source + ", the runtime folder of the STEGO checkout that --runtime-folder named, which hashes to the runtime pin that the stego binary carries, not by " + ProxySource + " (ST-BLD-UC02-R05)."
+	default:
+		return "Supplied by " + source + ", not by " + ProxySource + " (ST-BLD-UC02-R05)."
+	}
 }
 
 // sbomPackages reads the module inventory of the record into packages in the

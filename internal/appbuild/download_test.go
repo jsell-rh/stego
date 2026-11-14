@@ -218,6 +218,79 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 			t.Fatalf("a pin that go.sum states no hash for was served %v: %v", served, err)
 		}
 	})
+	t.Run("ST-BLD-UC02-R05-T13 A file of the runtime folder that is changed or swapped for a link during the stage is never staged in place of the pin", func(t *testing.T) {
+		outside := t.TempDir()
+		for name, swap := range map[string]func(t *testing.T, file string){
+			"a changed file": func(t *testing.T, file string) {
+				if err := os.WriteFile(file, []byte("package probe\n\nconst Changed = true\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			"a link to other text": func(t *testing.T, file string) {
+				other := filepath.Join(outside, "other.go")
+				put(t, outside, "other.go", "package probe\n\nconst Other = true\n")
+				if err := os.Remove(file); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(other, file); err != nil {
+					t.Fatal(err)
+				}
+			},
+			"a link to the same text": func(t *testing.T, file string) {
+				data, err := os.ReadFile(file)
+				if err != nil {
+					t.Fatal(err)
+				}
+				same := filepath.Join(outside, "same.go")
+				if err := os.WriteFile(same, data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Remove(file); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(same, file); err != nil {
+					t.Fatal(err)
+				}
+			},
+		} {
+			folder := filepath.Join(t.TempDir(), "runtime")
+			sum, modSum := runtimeFixture(t, folder, version)
+			var file string
+			if err := filepath.WalkDir(folder, func(path string, d os.DirEntry, err error) error {
+				if err == nil && file == "" && strings.HasSuffix(path, ".go") {
+					file = path
+				}
+				return err
+			}); err != nil || file == "" {
+				t.Fatalf("the fixture has no Go file: %v", err)
+			}
+			swapped := false
+			afterPlainCheck = func(string) { swap(t, file); swapped = true }
+			proxy := filepath.Join(t.TempDir(), "proxy")
+			served, err := stageRuntimeFolder(context.Background(), folder, pin, map[moduleVersion]string{*pin: sum}, map[moduleVersion]string{*pin: modSum}, proxy, t.TempDir(), trust)
+			afterPlainCheck = nil
+			if !swapped {
+				t.Fatalf("%s: the hook did not run", name)
+			}
+			// Either the stage refuses the folder and leaves no proxy, or what it staged is the pin, byte for byte.
+			if err != nil {
+				if served != nil {
+					t.Fatalf("%s: a refused stage served %v", name, served)
+				}
+				if _, statErr := os.Lstat(proxy); !errors.Is(statErr, os.ErrNotExist) {
+					t.Fatalf("%s: a refused stage left the proxy folder", name)
+				}
+				continue
+			}
+			found, hashErr := dirhash.HashZip(filepath.Join(proxy, "github.com", "jsell-rh", "stego", "registry", "runtime", "@v", version+".zip"), dirhash.Hash1)
+			if hashErr != nil || found != sum {
+				t.Fatalf("%s: the stage served a zip that hashes to %s, not the pin %s: %v", name, found, sum, hashErr)
+			}
+			if name != "a link to the same text" {
+				t.Fatalf("%s: the stage served the folder", name)
+			}
+		}
+	})
 	t.Run("ST-BLD-UC02-R05-T06 A runtime folder that holds a link, or is a link, is refused by name", func(t *testing.T) {
 		outside := t.TempDir()
 		put(t, outside, "secret.go", "package probe\n")
