@@ -40,8 +40,8 @@ func TestRestCrudArchetypeParsesFromLiveRegistry(t *testing.T) {
 	if a.Language != "go" {
 		t.Errorf("Language = %q, want %q", a.Language, "go")
 	}
-	if a.Version != "3.76.0" {
-		t.Errorf("Version = %q, want %q", a.Version, "3.76.0")
+	if a.Version != "3.96.1" {
+		t.Errorf("Version = %q, want %q", a.Version, "3.96.1")
 	}
 	if a.DefaultAuth != "jwt-auth" {
 		t.Errorf("DefaultAuth = %q, want %q", a.DefaultAuth, "jwt-auth")
@@ -73,7 +73,7 @@ func TestRestCrudArchetypeParsesFromLiveRegistry(t *testing.T) {
 		t.Errorf("Conventions.CORS = %q, want %q", a.Conventions.CORS, "enabled")
 	}
 
-	wantMixins := []string{"event-publisher", "async-worker"}
+	wantMixins := []string{"event-publisher", "durable-events", "kafka-events", "async-worker"}
 	if len(a.CompatibleMixins) != len(wantMixins) {
 		t.Fatalf("CompatibleMixins count = %d, want %d", len(a.CompatibleMixins), len(wantMixins))
 	}
@@ -117,8 +117,8 @@ func TestLiveRegistryLoadsAllArchetypeComponents(t *testing.T) {
 	if restAPI == nil {
 		t.Fatal("Component(rest-api) returned nil")
 	}
-	if restAPI.Version != "4.2.0" {
-		t.Errorf("rest-api Version = %q, want %q", restAPI.Version, "4.2.0")
+	if restAPI.Version != "4.2.2" {
+		t.Errorf("rest-api Version = %q, want %q", restAPI.Version, "4.2.2")
 	}
 
 	pg := reg.Component("postgres-adapter")

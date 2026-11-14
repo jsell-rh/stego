@@ -15,7 +15,7 @@ import (
 // claim given. The stated tenancy selects
 // the tenancy component, which is alpha, so the declaration accepts it (ST-GEN-INV37).
 func tenancyClaim(claim string) string {
-	return onRuntimePath(td02Plain + "tenancy:\n  kind: pooled\n  key: tenant_id\n  claim: \"" + claim + "\"\n" +
+	return onRuntimePath(td02Plain + "tenancy:\n  kind: pooled\n  key: tenant_id\n  claim: \"" + claim + "\"\n  provisioning: {resource_type: service, provision: provision, retire: retire}\n" +
 		acceptanceOf("tenancy", "tenancy builder pilot"))
 }
 

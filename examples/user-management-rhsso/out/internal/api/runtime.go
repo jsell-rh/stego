@@ -258,7 +258,8 @@ func (rt *Runtime) boundQuery(ctx context.Context, b command.Bound, q *query.Que
 
 // answerWrite answers an error of Run and writes the audit row of the denied or failed write in its own short
 // transaction (ST-SUP-RC28-OC03): a slot refusal is the slot's status and outcome denied, a deny is 404, the same
-// answer as a missing row, a conflict 409 and every other error 500. A row that is not there is 404 and outcome
+// answer as a missing row, a refused field value 400 naming the field (ST-SUP-Q118), a conflict 409 and every other
+// error 500. A row that is not there is 404 and outcome
 // denied for an operation that decides a permission, as a deny is, so the answer never tells that a row exists or
 // once existed (ST-SUP-RC20-OC37, ST-SUP-RP10-LC31), and 404 not_found otherwise. No error text reaches the answer or
 // the audit row.
@@ -294,6 +295,9 @@ func (rt *Runtime) answerWrite(w http.ResponseWriter, r *http.Request, req comma
 	o := command.OutcomeOf(err)
 	_ = rt.Commands.RecordFailure(r.Context(), req, action, resourceType, o)
 	switch o.Status {
+	case http.StatusBadRequest:
+		// The runtime refused a field's value (command.ErrInvalid): the answer names the field and the fixed reason.
+		handleError(w, r, Validation([]ValidationError{{Field: o.Field, Message: o.Reason}}))
 	case http.StatusNotFound:
 		handleError(w, r, NotFound(kind, req.Resource))
 	case http.StatusConflict:

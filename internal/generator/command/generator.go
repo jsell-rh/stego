@@ -112,12 +112,14 @@ type model struct {
 	handlersImport string
 	probeImport    string // the domain probes package, or empty when the service has none
 	tenantKey      string
-	subjectType    string
-	basePath       string
-	messages       *messages
-	entities       []*entity // the entities that a command writes, in declaration order
-	commands       []*command
-	names          map[string]string
+	// relations are the schema relations of each resource type (SchemaRelations).
+	relations   map[string][]string
+	subjectType string
+	basePath    string
+	messages    *messages
+	entities    []*entity // the entities that a command writes, in declaration order
+	commands    []*command
+	names       map[string]string
 	// destinations are the declared outbox destinations by name, with their delivery (ST-SUP-RC32-OC12).
 	destinations map[string]delivery
 }
@@ -229,6 +231,9 @@ func plan(ctx gen.Context) (*model, error) {
 		return nil, err
 	}
 	m.messages = msgs
+	if m.relations, err = SchemaRelations(ctx); err != nil {
+		return nil, err
+	}
 	byName := map[string]types.Entity{}
 	for _, e := range ctx.Entities {
 		byName[e.Name] = e
@@ -285,7 +290,7 @@ func (m *model) planCommand(c gen.Command, byName map[string]types.Entity, plann
 		p := planned[name]
 		if p == nil {
 			var err error
-			if p, err = planEntity(e, byName, m.tenantKey); err != nil {
+			if p, err = planEntity(e, byName, m.tenantKey, m.relations); err != nil {
 				return nil, fmt.Errorf("command: the command %s writes %s: %w", decl.Name, name, err)
 			}
 			planned[name] = p

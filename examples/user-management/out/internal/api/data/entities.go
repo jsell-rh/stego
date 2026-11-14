@@ -55,7 +55,8 @@ var OrganizationEntity = command.Must(command.NewEntity(command.EntitySpec[Organ
 		v.Description = command.ClonePointer(v.Description)
 		return v
 	},
-	ValidID: command.ValidUUID,
+	ValidID:   command.ValidUUID,
+	Relations: []string{"owner", "viewer"},
 }))
 
 // OrganizationRepository gives the repository of Organization of a command handle; the handle refuses an entity that its command does
@@ -117,6 +118,7 @@ var UserEntity = command.Must(command.NewEntity(command.EntitySpec[User]{
 	Parent: []command.Reference[User]{
 		{Entity: "Organization", ResourceType: "organization", ID: func(v User) string { return v.OrgID }, Permission: "edit", Relation: "organization"},
 	},
+	Relations: []string{"organization", "owner"},
 }))
 
 // UserRepository gives the repository of User of a command handle; the handle refuses an entity that its command does
@@ -177,6 +179,7 @@ var OrgSettingEntity = command.Must(command.NewEntity(command.EntitySpec[OrgSett
 	Parent: []command.Reference[OrgSetting]{
 		{Entity: "Organization", ResourceType: "organization", ID: func(v OrgSetting) string { return v.OrgID }, Permission: "edit", Relation: "organization"},
 	},
+	Relations: []string{"organization"},
 }))
 
 // OrgSettingRepository gives the repository of OrgSetting of a command handle; the handle refuses an entity that its command does
@@ -233,7 +236,8 @@ var ActivityEntryEntity = command.Must(command.NewEntity(command.EntitySpec[Acti
 		v.Detail = bytes.Clone(v.Detail)
 		return v
 	},
-	ValidID: command.ValidUUID,
+	ValidID:   command.ValidUUID,
+	Relations: []string{"owner"},
 }))
 
 // ActivityEntryRepository gives the repository of ActivityEntry of a command handle; the handle refuses an entity that its command does

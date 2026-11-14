@@ -38,7 +38,7 @@ const (
 	// Service is the name of the service, which its audit rows and its telemetry carry.
 	Service = "user-management"
 	// DeclarationVersion is the SHA-256 of the declaration, which each audit row carries.
-	DeclarationVersion = "57f491b2bcbc66d8735ede7923556203fb6bc4c387029904e670fcfce15fadbd"
+	DeclarationVersion = "bf9ae6f59e42415acf7e472f491e4544a532f496a834c92a946f82bc5aa4d40b"
 	// subjectType is the subject type of the schema that a verified identity maps to.
 	subjectType = "user"
 	// tenantClaim is the dotted path of the claim that names the caller's tenant.
@@ -332,7 +332,7 @@ func Migrate(ctx context.Context) error {
 		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
 	return service.Migrate(ctx, settings, service.Migration{
-		OwnerRole: OwnerRole, RuntimeRole: RuntimeRole, WorkerRole: WorkerRole, PurgeRole: PurgeRole, TenantConfig: svcstorage.TenantConfig,
+		OwnerRole: OwnerRole, RuntimeRole: RuntimeRole, WorkerRole: WorkerRole, PurgeRole: PurgeRole, OutboxRelayRole: OutboxRelayRole, TenantConfig: svcstorage.TenantConfig,
 		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error { return svcstorage.CheckLedger(ctx, conn) },
 		Ledger:      func(ctx context.Context, conn *sql.Conn) error { return svcstorage.Migrate(ctx, conn) },
 		Outbox:      queueText, Audit: auditText, Authorization: authzText,

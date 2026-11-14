@@ -129,15 +129,15 @@ func TestCommandWorkflowAndBoundaries(t *testing.T) {
 		if err := os.Chmod(config, 0644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := run("get", "record", "one"); err == nil {
-			t.Fatal("public configuration accepted")
+		if _, err := run("get", "record", "one"); err == nil || !strings.Contains(err.Error(), "invalid existing configuration file") {
+			t.Fatalf("public configuration gave %v, want the refusal \"invalid existing configuration file\"", err)
 		}
 		os.Chmod(config, 0600)
 		if err := os.Chmod(directory, 0777); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := run("get", "record", "one"); err == nil {
-			t.Fatal("writable configuration directory accepted")
+		if _, err := run("get", "record", "one"); err == nil || !strings.Contains(err.Error(), "configuration directory must not permit writes by other users") {
+			t.Fatalf("writable configuration directory gave %v, want the refusal \"configuration directory must not permit writes by other users\"", err)
 		}
 		os.Chmod(directory, 0700)
 		// A rotation is read by the next command. No token enters the config file.
@@ -204,8 +204,8 @@ func TestCommandWorkflowAndBoundaries(t *testing.T) {
 			t.Fatal(err)
 		}
 		before = calls.Load()
-		if _, err := run("get", "record", "one"); err == nil {
-			t.Fatal("public token file accepted")
+		if _, err := run("get", "record", "one"); err == nil || !strings.Contains(err.Error(), "invalid HTTP client credential file") {
+			t.Fatalf("public token file gave %v, want the refusal \"invalid HTTP client credential file\"", err)
 		}
 		if calls.Load() != before {
 			t.Fatal("public credential reached server")

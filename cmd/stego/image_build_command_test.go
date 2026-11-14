@@ -41,7 +41,7 @@ func setFlag(flags []string, name, value string) []string {
 // and the entries of its one layer.
 type ociImage struct {
 	manifest struct {
-		Config struct{ Digest string } `json:"config"`
+		Config struct{ Digest string }   `json:"config"`
 		Layers []struct{ Digest string } `json:"layers"`
 	}
 	config struct {

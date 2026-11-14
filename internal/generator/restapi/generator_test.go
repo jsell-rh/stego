@@ -48,6 +48,36 @@ func onRuntime(ctx gen.Context) gen.Context {
 		entities[i] = e
 	}
 	ctx.Entities = entities
+	return withSchema(ctx)
+}
+
+// withSchema gives ctx the schema that its authorization setting names among the inputs, when ctx has none: a
+// definition of each resource type with the relations owner and viewer and the permissions view and edit. The
+// command generator reads the relations of each resource type from it (ST-SUP-Q118).
+func withSchema(ctx gen.Context) gen.Context {
+	if ctx.Authorization == nil || ctx.Authorization.SchemaPath == "" {
+		return ctx
+	}
+	if _, ok := ctx.Inputs[ctx.Authorization.SchemaPath]; ok {
+		return ctx
+	}
+	var b strings.Builder
+	// The subject type user has one definition; an entity of the resource type user gets the relations there.
+	b.WriteString("definition user {\n\trelation owner: user\n\trelation viewer: user\n\tpermission view = owner + viewer\n\tpermission edit = owner\n}\n")
+	seen := map[string]bool{}
+	for _, e := range ctx.Entities {
+		if e.ResourceType == "" || e.ResourceType == "user" || seen[e.ResourceType] {
+			continue
+		}
+		seen[e.ResourceType] = true
+		b.WriteString("\ndefinition " + e.ResourceType + " {\n\trelation owner: user\n\trelation viewer: user\n\tpermission view = owner + viewer\n\tpermission edit = owner\n}\n")
+	}
+	inputs := map[string][]byte{}
+	for path, data := range ctx.Inputs {
+		inputs[path] = data
+	}
+	inputs[ctx.Authorization.SchemaPath] = []byte(b.String())
+	ctx.Inputs = inputs
 	return ctx
 }
 

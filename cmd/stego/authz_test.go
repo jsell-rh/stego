@@ -29,8 +29,17 @@ func td03Service(t *testing.T) string {
 	// On the runtime data path, the only data path (ST-SUP-RC20-OC39), a create of a top-level entity is public
 	// with a reason (ST-SUP-RC29-OC01), and the service states its audit and its schema generation.
 	service := strings.Replace(string(data), "permissions: {create: edit,", "public_reasons: {create: a new todo has no resource to decide on before it exists}\n    permissions: {create: public,", 1)
+	// A public create may not write a field-sourced relationship, since the client would choose the subject
+	// (ST-SUP-Q118): on the runtime data path the owner of a todo is its creator.
+	service = strings.Replace(service, td03FieldOwner, td03CallerOwner, 1)
 	return onRuntimePath(service)
 }
+
+// td03FieldOwner is the relationship of ST-DECL-TD03, and td03CallerOwner the one that td03Service gives in its place.
+const (
+	td03FieldOwner  = "{relation: owner, subject_source: field, subject_field: owner_id, subject_type: user}"
+	td03CallerOwner = "{relation: owner, subject_source: caller, subject_type: user}"
+)
 
 // td03Schema reads the fixture schema of ST-DECL-TD03.
 func td03Schema(t *testing.T) string {
@@ -326,7 +335,7 @@ func TestDeclareAuthorization(t *testing.T) {
 	t.Run("ST-DECL-UC06-R04-T01 A relationship with no relation, subject source or subject type is refused", func(t *testing.T) {
 		for _, c := range []struct{ old, key string }{
 			{"relation: owner, ", "relation"},
-			{"subject_source: field, ", "subject_source"},
+			{"subject_source: caller, ", "subject_source"},
 			{", subject_type: user", "subject_type"},
 		} {
 			fault := expectRefusal(t, td03Project(t, edit(t, td03, c.old, "")), "relationship", "entities[0].relationships[0]."+c.key)
@@ -337,7 +346,7 @@ func TestDeclareAuthorization(t *testing.T) {
 	})
 
 	t.Run("ST-DECL-UC06-R07-T01 An entity a collection reads with no resource type is refused, naming the entity", func(t *testing.T) {
-		service := edit(t, edit(t, td03, "    resource_type: document\n", ""), "    relationships:\n      - {relation: owner, subject_source: field, subject_field: owner_id, subject_type: user}\n", "")
+		service := edit(t, edit(t, td03, "    resource_type: document\n", ""), "    relationships:\n      - "+td03CallerOwner+"\n", "")
 		expectRefusal(t, td03Project(t, service), "authorization-coverage", `"Todo"`, "no resource type")
 	})
 

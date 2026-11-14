@@ -180,6 +180,10 @@ func manifestSource(models []tableModel, key string) string {
 		fmt.Fprintf(&b, "{Schema: %q, Name: %q,\n", "public", table.name)
 		b.WriteString("Columns: []manifest.Column{\n")
 		for _, column := range table.columns {
+			if column.manifestDefault != "" {
+				fmt.Fprintf(&b, "{Name: %q, Type: %q, NotNull: %t, Default: %q},\n", column.name, column.typ, column.notNull, column.manifestDefault)
+				continue
+			}
 			fmt.Fprintf(&b, "{Name: %q, Type: %q, NotNull: %t},\n", column.name, column.typ, column.notNull)
 		}
 		b.WriteString("},\nConstraints: []manifest.Constraint{\n")

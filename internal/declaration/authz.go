@@ -35,6 +35,9 @@ type AuthzSchema struct {
 	definitions map[string]schemaDefinition
 	// caveatParameters holds the parameter names of every caveat.
 	caveatParameters map[string]bool
+	// wildcards holds each type#name of a relation or permission that can grant a wildcard subject
+	// (wildcardReach).
+	wildcards map[string]bool
 }
 
 // schemaDefinition is one definition of the schema: each relation with the subject types it admits, and the names
@@ -42,6 +45,19 @@ type AuthzSchema struct {
 type schemaDefinition struct {
 	relations   map[string][]string
 	permissions map[string]bool
+	// subjects maps each relation to the subjects it admits, each with its relation and whether it is a wildcard
+	// such as user:*.
+	subjects map[string][]schemaSubject
+	// rewrites maps each permission to its expression.
+	rewrites map[string]*core.UsersetRewrite
+}
+
+// schemaSubject is one subject that a relation admits: a type, the relation of a userset such as group#member, and
+// whether it is the wildcard of the type, such as user:*.
+type schemaSubject struct {
+	namespace string
+	relation  string
+	wildcard  bool
 }
 
 // SchemaError is a .zed schema that does not compile: its path, the line where compiling stopped and why.
@@ -84,15 +100,17 @@ func CompileAuthzSchema(schemaPath string, source []byte) (*AuthzSchema, error) 
 		}
 	}
 	for _, definition := range compiled.ObjectDefinitions {
-		entry := schemaDefinition{relations: map[string][]string{}, permissions: map[string]bool{}}
+		entry := schemaDefinition{relations: map[string][]string{}, permissions: map[string]bool{}, subjects: map[string][]schemaSubject{}, rewrites: map[string]*core.UsersetRewrite{}}
 		for _, relation := range definition.GetRelation() {
 			if relation.GetUsersetRewrite() != nil {
 				entry.permissions[relation.GetName()] = true
+				entry.rewrites[relation.GetName()] = relation.GetUsersetRewrite()
 				continue
 			}
 			var subjects []string
 			for _, allowed := range relation.GetTypeInformation().GetAllowedDirectRelations() {
 				subjects = append(subjects, allowed.GetNamespace())
+				entry.subjects[relation.GetName()] = append(entry.subjects[relation.GetName()], schemaSubject{namespace: allowed.GetNamespace(), relation: allowed.GetRelation(), wildcard: allowed.GetPublicWildcard() != nil})
 			}
 			entry.relations[relation.GetName()] = subjects
 		}
@@ -101,6 +119,7 @@ func CompileAuthzSchema(schemaPath string, source []byte) (*AuthzSchema, error) 
 	if err := schema.checkReferences(compiled.ObjectDefinitions, caveats); err != nil {
 		return nil, err
 	}
+	schema.wildcards = schema.wildcardReach()
 	return schema, nil
 }
 
@@ -191,6 +210,22 @@ func (s *AuthzSchema) Defines(typeName string) bool {
 	return ok
 }
 
+// Relations gives the names of the relations that the schema declares on the type, in sorted order, and none for a
+// type that the schema does not define. The command generator gives them to the runtime, which clears each on the
+// resource of a deleted row (ST-SUP-Q118).
+func (s *AuthzSchema) Relations(typeName string) []string {
+	definition, ok := s.definitions[typeName]
+	if !ok {
+		return nil
+	}
+	names := make([]string, 0, len(definition.relations))
+	for name := range definition.relations {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // grants tells whether a relation of the schema admits the subject type.
 func (s *AuthzSchema) grants(subjectType string) bool {
 	for _, definition := range s.definitions {
@@ -232,6 +267,7 @@ func CheckAuthorization(service *types.ServiceDeclaration, project fs.FS) []Vali
 	faults = append(faults, validateSchemaNames(service, schema)...)
 	faults = append(faults, validateWrittenRelations(service, schema)...)
 	faults = append(faults, validateSystemPrincipal(service, schema)...)
+	faults = append(faults, checkProvisioningSchema(service, schema)...)
 	return faults
 }
 
@@ -702,4 +738,92 @@ func slotSettings(service *types.ServiceDeclaration) []Setting {
 		settings = append(settings, resolved(fmt.Sprintf("slots[%d].runs_as", i), slot.RunsAs, types.RunsAsTenant))
 	}
 	return settings
+}
+
+// reachesWildcard tells whether the relation or permission name of the type can grant a wildcard subject, such as
+// user:*, so that every subject of that type holds it (wildcardReach).
+func (s *AuthzSchema) reachesWildcard(typeName, name string) bool {
+	return s.wildcards[typeName+"#"+name]
+}
+
+// wildcardReach computes, for every relation and permission of the schema, whether it can grant a wildcard subject:
+// a relation that admits a wildcard; a relation that admits a userset whose relation reaches one; or a permission
+// whose expression reaches one through its relations and arrows. A union reaches one when any part does, an
+// intersection when every part does, and an exclusion when its base does. Each rule is monotone, so the answer is
+// the least fixed point: every node starts at no wildcard, and each pass over the schema sets the nodes that now
+// reach one, until a pass sets none. A cycle with no wildcard stays at no wildcard. Each pass is linear in the
+// size of the schema, and there are at most as many passes as nodes, so no schema makes checking slow.
+func (s *AuthzSchema) wildcardReach() map[string]bool {
+	reach := map[string]bool{}
+	for changed := true; changed; {
+		changed = false
+		for typeName, definition := range s.definitions {
+			for name := range definition.subjects {
+				if !reach[typeName+"#"+name] && s.relationReaches(definition.subjects[name], reach) {
+					reach[typeName+"#"+name], changed = true, true
+				}
+			}
+			for name, rewrite := range definition.rewrites {
+				if !reach[typeName+"#"+name] && s.rewriteReaches(typeName, rewrite, reach) {
+					reach[typeName+"#"+name], changed = true, true
+				}
+			}
+		}
+	}
+	return reach
+}
+
+// relationReaches tells whether a relation with the subjects given reaches a wildcard, by the nodes found so far.
+func (s *AuthzSchema) relationReaches(subjects []schemaSubject, reach map[string]bool) bool {
+	for _, subject := range subjects {
+		if subject.wildcard || subject.relation != "" && subject.relation != "..." && reach[subject.namespace+"#"+subject.relation] {
+			return true
+		}
+	}
+	return false
+}
+
+// rewriteReaches tells whether a permission expression of the type reaches a wildcard, by the nodes found so far.
+func (s *AuthzSchema) rewriteReaches(typeName string, rewrite *core.UsersetRewrite, reach map[string]bool) bool {
+	child := func(c *core.SetOperation_Child) bool {
+		switch {
+		case c.GetComputedUserset() != nil:
+			return reach[typeName+"#"+c.GetComputedUserset().GetRelation()]
+		case c.GetTupleToUserset() != nil || c.GetFunctionedTupleToUserset() != nil:
+			tupleset, computed := c.GetTupleToUserset().GetTupleset().GetRelation(), c.GetTupleToUserset().GetComputedUserset().GetRelation()
+			if f := c.GetFunctionedTupleToUserset(); f != nil {
+				tupleset, computed = f.GetTupleset().GetRelation(), f.GetComputedUserset().GetRelation()
+			}
+			for _, subject := range s.definitions[typeName].subjects[tupleset] {
+				if subject.wildcard || reach[subject.namespace+"#"+computed] {
+					return true
+				}
+			}
+			return false
+		case c.GetUsersetRewrite() != nil:
+			return s.rewriteReaches(typeName, c.GetUsersetRewrite(), reach)
+		}
+		return false
+	}
+	switch {
+	case rewrite.GetUnion() != nil:
+		for _, c := range rewrite.GetUnion().GetChild() {
+			if child(c) {
+				return true
+			}
+		}
+		return false
+	case rewrite.GetIntersection() != nil:
+		children := rewrite.GetIntersection().GetChild()
+		for _, c := range children {
+			if !child(c) {
+				return false
+			}
+		}
+		return len(children) > 0
+	case rewrite.GetExclusion() != nil:
+		children := rewrite.GetExclusion().GetChild()
+		return len(children) > 0 && child(children[0])
+	}
+	return false
 }

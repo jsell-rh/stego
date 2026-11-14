@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/jsell-rh/stego/internal/declaration"
 	"github.com/jsell-rh/stego/internal/gen"
@@ -166,20 +167,22 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			Destinations:    declaredDestinations(svcDecl, componentNames),
 			QueryStreams:    declaration.QueryStreams(svcDecl, facts),
 		}
-		if compName == authorizationComponent && svcDecl.Authorization != nil && svcDecl.Authorization.SchemaPath != "" {
-			// The authorization component reads the schema that the declaration names (ST-SUP-RC29).
-			ctx.Inputs, err = captureGeneratorInputs(input.ProjectDir, outDirName,
-				[]gen.InputFile{{Path: svcDecl.Authorization.SchemaPath, MaxBytes: declaration.MaxSchemaBytes}}, resolved.InputSnapshots)
-			if err != nil {
-				return nil, fmt.Errorf("generator %q inputs: %w", compName, err)
-			}
+		var inputs []gen.InputFile
+		if schemaReader[compName] && svcDecl.Authorization != nil && svcDecl.Authorization.SchemaPath != "" {
+			// The authorization component reads the schema that the declaration names (ST-SUP-RC29), and the command
+			// and rest-api components read the relations of each resource type from it, which a delete of a row
+			// clears (ST-SUP-Q118).
+			inputs = append(inputs, gen.InputFile{Path: svcDecl.Authorization.SchemaPath, MaxBytes: declaration.MaxSchemaBytes})
 		}
 		if provider, ok := generator.(gen.InputProvider); ok {
 			names, err := provider.InputFiles(ctx.ComponentConfig)
 			if err != nil {
 				return nil, fmt.Errorf("generator %q inputs: %w", compName, err)
 			}
-			ctx.Inputs, err = captureGeneratorInputs(input.ProjectDir, outDirName, names, resolved.InputSnapshots)
+			inputs = append(inputs, names...)
+		}
+		if len(inputs) > 0 {
+			ctx.Inputs, err = captureGeneratorInputs(input.ProjectDir, outDirName, inputs, resolved.InputSnapshots)
 			if err != nil {
 				return nil, fmt.Errorf("generator %q inputs: %w", compName, err)
 			}
@@ -321,4 +324,19 @@ func declaredDestinations(svcDecl *types.ServiceDeclaration, componentNames []st
 		}
 	}
 	return out
+}
+
+// unemittedInvariants refuses, for generation, each declared invariant (ST-DECL-EN17): no generator emits one yet as the constraint of
+// the store that ST-STD-TXN-R17 names, so a generation that went on would give a service that does not enforce a
+// rule that checking accepted. The error names each invariant, its kind and its entity, and no file is written.
+func unemittedInvariants(invariants []types.DeclaredInvariant) error {
+	if len(invariants) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(invariants))
+	for _, invariant := range invariants {
+		names = append(names, fmt.Sprintf("%s (%s on %s)", invariant.Name, invariant.Kind, invariant.On))
+	}
+	return fmt.Errorf("no generator emits a declared invariant yet, so the service would not enforce %s; remove the invariants until a component emits them (ST-STD-TXN-R17)",
+		strings.Join(names, ", "))
 }
