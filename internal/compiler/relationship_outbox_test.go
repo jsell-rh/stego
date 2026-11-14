@@ -35,10 +35,9 @@ overrides:
 entities:
 `
 
-// td03OnRuntimePath is the declaration of ST-DECL-TD03 in the form that the runtime data path, the only data path
-// (ST-SUP-RC20-OC39), generates: a create of the top-level Todo is public with a reason (ST-SUP-RC29-OC01), and a
-// public create may not write a field-sourced relationship, since the client would choose the subject (ST-SUP-Q118),
-// so the owner relationship takes its subject from the caller (ST-DECL-UC06-R04-T04).
+// td03OnRuntimePath is the declaration of ST-DECL-TD03, which is in the runtime data path form already (a public
+// create, an owner that the caller is: ST-SUP-RC29-OC01, ST-SUP-Q118), with the settings that a generated service
+// needs and that checking does not: the audit-log acceptance and relationshipOverrides.
 func td03OnRuntimePath(t *testing.T) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(td03Folder, "service.yaml"))
@@ -47,8 +46,6 @@ func td03OnRuntimePath(t *testing.T) string {
 	}
 	service := string(data)
 	for _, edit := range [][2]string{
-		{"permissions: {create: edit,", "public_reasons: {create: a new todo has no resource to decide on before it exists}\n    permissions: {create: public,"},
-		{"{relation: owner, subject_source: field, subject_field: owner_id, subject_type: user}", "{relation: owner, subject_source: caller, subject_type: user}"},
 		{"  - {component: tenancy,", "  - {component: audit-log, accepted_until: 2027-04-30, reason: the runtime data path audits each write}\n  - {component: tenancy,"},
 		{"entities:\n", relationshipOverrides},
 	} {
