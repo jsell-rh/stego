@@ -1019,6 +1019,16 @@ func TestRevocationWiring(t *testing.T) {
 			t.Fatalf("a read of a denied document that names bob's pending revocation answered %d %v %s after %s; a plain read %d %s; want the plain 404 after the cap of 3 s with Authz-Revocation: pending",
 				waited.code, waited.header, waited.body, waited.took, plain.code, plain.body)
 		}
+		// A waited read of a document that does not exist answers as the waited read of the denied one: the same
+		// status, the same Authz-Revocation, the same wait to the cap, and the same body but for the time and the id.
+		missingID := "00000000-0000-4000-8000-0000000000a2"
+		missing := s.do(t, &bob, http.MethodGet, basePath+"/documents/"+missingID, "", authz.RevocationAfterHeader, pending, "Prefer", "wait=5")
+		unnamed := func(r reply, id string) string { return strings.ReplaceAll(untimed(r), id, "<id>") }
+		if missing.code != waited.code || unnamed(missing, missingID) != unnamed(waited, denied) ||
+			missing.header.Get(authz.RevocationHeader) != waited.header.Get(authz.RevocationHeader) || missing.took < 2500*time.Millisecond {
+			t.Fatalf("a waited read of a missing document answered %d %v %s after %s; the waited read of the denied document %d %v %s after %s; want the same answer after the cap of 3 s",
+				missing.code, missing.header, missing.body, missing.took, waited.code, waited.header, waited.body, waited.took)
+		}
 		// Two reads of tenant t1 hold its 2 places, so a status wait of t1 answers at once.
 		_, created = s.create(t, alice, "k-oc42-2d")
 		own := location(t, created)
