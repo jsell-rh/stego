@@ -5,8 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/types"
@@ -84,7 +84,7 @@ func runEmitted(t *testing.T, project, id string, postgres bool) {
 		t.Skip("STEGO_TEST_POSTGRES_DSN is not set")
 	}
 	output := goCommand(t, project, "test", "-count=1", "-timeout=60s", "-v", "-run", "^TestEmitted$/^"+id+"_", "./internal/idempotency")
-	if !strings.Contains(output, "--- PASS: TestEmitted/"+id+"_") {
+	if !ownPass(output, "TestEmitted", id) {
 		t.Fatalf("the emitted test %s did not run and pass:\n%s", id, output)
 	}
 }
@@ -105,5 +105,26 @@ func TestEmittedPackage(t *testing.T) {
 	})
 	t.Run("ST-SUP-RC30-OC04-T06 The purge job deletes the expired key rows and keeps the live ones", func(t *testing.T) {
 		runEmitted(t, project, "ST-SUP-RC30-OC04-T06", true)
+	})
+}
+
+// ownPass tells whether output, the text of go test -v, holds the pass line of the subtest of id itself, directly
+// under a test whose name matches parent, a regular expression. A subtest one level down has the same name prefix,
+// but go test indents its line four more spaces, so its pass never counts as the pass of its parent
+// (ST-STD-CODE-R07).
+func ownPass(output, parent, id string) bool {
+	return regexp.MustCompile(`(?m)^    --- PASS: ` + parent + `/` + regexp.QuoteMeta(id) + `_`).MatchString(output)
+}
+
+func TestOwnPass(t *testing.T) {
+	t.Run("ST-STD-CODE-R07-T08 In the idempotency wrapper, a pass of a subtest under the subtest of a record is not its pass", func(t *testing.T) {
+		output := "=== RUN   TestEmitted/ST-X-T01_a\n        --- PASS: TestEmitted/ST-X-T01_a/child (0.00s)\n    --- FAIL: TestEmitted/ST-X-T01_a (0.00s)\n" +
+			"    --- PASS: TestEmitted/ST-X-T02_b (0.00s)\n        --- FAIL: TestEmitted/ST-X-T02_b/child (0.00s)\n    --- PASS: TestEmitted/ST-X-T03_c/d (0.00s)\n"
+		if ownPass(output, "TestEmitted", "ST-X-T01") {
+			t.Fatal("a failed subtest counts as passed because a subtest under it passed")
+		}
+		if !ownPass(output, "TestEmitted", "ST-X-T02") || !ownPass(output, "TestEmitted", "ST-X-T03") {
+			t.Fatal("a passed subtest, also one whose title holds a slash, does not count as passed")
+		}
 	})
 }

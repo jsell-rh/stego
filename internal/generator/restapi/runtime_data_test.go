@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -338,7 +339,7 @@ func (run *crudRun) passed(t *testing.T, p *crudProject, endpoint, key, id strin
 		run.output, run.err = p.goCommand([]string{"STEGO_TEST_SPICEDB=" + endpoint, "STEGO_TEST_SPICEDB_KEY=" + key},
 			"test", "-count=1", "-timeout=300s", "-v", "-run", "^TestCrud$", "./check")
 	})
-	if !strings.Contains(run.output, "--- PASS: TestCrud/"+id+"_") {
+	if !ownPass(run.output, "TestCrud", id) {
 		t.Fatalf("the check %s of the generated service did not run and pass (go test: %v):\n%s", id, run.err, run.output)
 	}
 }
@@ -1101,6 +1102,27 @@ func TestChangeEvents(t *testing.T) {
 			if files, _, err := new(Generator).Generate(c); err == nil || files != nil || !strings.Contains(err.Error(), "ST-SUP-RC20-OC40") {
 				t.Errorf("%s: generation gave %d files and %v, want a refusal that names ST-SUP-RC20-OC40", name, len(files), err)
 			}
+		}
+	})
+}
+
+// ownPass tells whether output, the text of go test -v, holds the pass line of the subtest of id itself, directly
+// under a test whose name matches parent, a regular expression. A subtest one level down has the same name prefix,
+// but go test indents its line four more spaces, so its pass never counts as the pass of its parent
+// (ST-STD-CODE-R07).
+func ownPass(output, parent, id string) bool {
+	return regexp.MustCompile(`(?m)^    --- PASS: ` + parent + `/` + regexp.QuoteMeta(id) + `_`).MatchString(output)
+}
+
+func TestOwnPass(t *testing.T) {
+	t.Run("ST-STD-CODE-R07-T02 In the restapi wrapper, a pass of a subtest under the subtest of a record is not its pass", func(t *testing.T) {
+		output := "=== RUN   TestCrud/ST-X-T01_a\n        --- PASS: TestCrud/ST-X-T01_a/child (0.00s)\n    --- FAIL: TestCrud/ST-X-T01_a (0.00s)\n" +
+			"    --- PASS: TestCrud/ST-X-T02_b (0.00s)\n        --- FAIL: TestCrud/ST-X-T02_b/child (0.00s)\n    --- PASS: TestCrud/ST-X-T03_c/d (0.00s)\n"
+		if ownPass(output, "TestCrud", "ST-X-T01") {
+			t.Fatal("a failed subtest counts as passed because a subtest under it passed")
+		}
+		if !ownPass(output, "TestCrud", "ST-X-T02") || !ownPass(output, "TestCrud", "ST-X-T03") {
+			t.Fatal("a passed subtest, also one whose title holds a slash, does not count as passed")
 		}
 	})
 }
