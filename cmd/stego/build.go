@@ -35,6 +35,7 @@ func runBuild(args []string) error {
 		flags.StringVar(&options.Target, "target", "", "entry point path within the module")
 		flags.StringVar(&options.Go, "go", "", "bin/go in the selected official SDK")
 		flags.StringVar(&options.Output, "output", "", "new module cache directory")
+		flags.StringVar(&options.RuntimeFolder, "runtime-folder", "", "registry/runtime of a STEGO checkout, for a source with no runtime folder; it must hash to the runtime pin")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
