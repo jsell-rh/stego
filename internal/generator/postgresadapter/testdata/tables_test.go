@@ -65,8 +65,11 @@ func database(t *testing.T, cfg *pgx.ConnConfig, admin *sql.DB) (*pgx.ConnConfig
 	db := stdlib.OpenDB(*own)
 	t.Cleanup(func() {
 		db.Close()
-		if _, err := admin.Exec("DROP DATABASE " + pgx.Identifier{name}.Sanitize() + " WITH (FORCE)"); err != nil {
-			t.Error(err)
+		// The drop gets 30 seconds, and a drop that fails is logged: the cleanup alone never fails the test.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := admin.ExecContext(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
+			t.Logf("pgtest: cleanup failed: drop the database %s: %v", name, err)
 		}
 	})
 	if _, err := db.Exec(tenancy.Roles); err != nil {

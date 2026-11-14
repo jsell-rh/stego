@@ -104,9 +104,12 @@ func newFixture(t *testing.T, opts ...func(*Settings)) *fixture {
 	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+f.db+" OWNER "+ownerRole); err != nil {
 		t.Fatalf("create the database: %v", err)
 	}
+	// The drop gets 30 seconds of its own, and a drop that fails is logged: the cleanup alone never fails the test.
 	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 		if _, err := admin.ExecContext(ctx, "DROP DATABASE "+f.db+" WITH (FORCE)"); err != nil {
-			t.Errorf("drop the database %s: %v", f.db, err)
+			t.Logf("pgtest: cleanup failed: drop the database %s: %v", f.db, err)
 		}
 	})
 	f.owner = f.open(ownerRole, nil)
