@@ -34,18 +34,18 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261114080012-1b014d2a5177
+        module_version: v0.0.0-20261114081936-886a8d337128
         vcs: git
-        revision: 1b014d2a51771ab0e8e9e6f2cecd7cd09f9db1c5
+        revision: 886a8d3371285f183ef08f88e911eda6e0ee57a4
         source_state: clean
     service_name: user-management
     service_hash: bf9ae6f59e42415acf7e472f491e4544a532f496a834c92a946f82bc5aa4d40b
     registry_sha: env-override
-    registry_content_sha256: bca3b32f5bd7ccce78cb421ecedee82d0b9c9e65b43348195368d644cd98fa39
+    registry_content_sha256: 829da03bad57a4788b3dc337f4f941b1b2a5858daa2cd77bccb7edd9c299fed7
     components:
         audit-log:
-            version: 1.1.0
-            sha: f16032b07588ef1b61f6e63cc0a5076eafee42cad6f876b9c1a92437f8d7475f
+            version: 1.1.1
+            sha: 74f40ccbc8e5a268528c3c762e698723d25d33076ab0b8209787224c092ef4e7
         command:
             version: 1.1.0
             sha: 7ce0af8ecdd872c586157b44348731c32275d472ed20510117e192199c0fcd03
@@ -77,8 +77,8 @@ last_applied:
             version: 4.4.0
             sha: 46a495453bbf57bd05b6f33722c6198fa63ba590af980bb38423c3b69b395d99
         spicedb-authz:
-            version: 1.1.2
-            sha: 7c4fe9dbf3d5ae5e27ae6f857e342230a4dd82af6f2b63058da06873f7c3abbd
+            version: 1.1.3
+            sha: 0c598b52bdbac237b646bfa292cbba217d0b0db9b616942d828a0bbc7dd59822
         tenancy:
             version: 1.1.0
             sha: 57e4b1a3b3685cc088047b654afd683399cc532e9b3913206796afd097cf4bc8
