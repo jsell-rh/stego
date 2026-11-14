@@ -946,8 +946,8 @@ func generateMigrate(ns string, rowSecurity string, steps []schemaStep) (gen.Fil
 	// Each schema step comes after the component's own migrations, in the order of the schema history, with the
 	// empty compatible_with set of a step at expand (ST-SUP-RC01-OC22, ST-SUP-RC01-OC27).
 	// A step on a table with rows is its migration, with its constraints NOT VALID, then one migration for each
-	// index that it builds CONCURRENTLY, then the migration that validates its constraints (ST-SUP-RC01-OC22,
-	// ST-SUP-RC01-OC38).
+	// index that it builds CONCURRENTLY, then, for a rename, the migration of its sync trigger, then the migration
+	// that validates its constraints (ST-SUP-RC01-OC22, ST-SUP-RC01-OC38).
 	for _, step := range steps {
 		switch {
 		case step.Index != "":

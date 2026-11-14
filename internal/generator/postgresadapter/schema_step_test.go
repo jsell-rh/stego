@@ -90,6 +90,31 @@ func boardBase(ns, tenancyNS string) gen.Context {
 	return runtimeService(ns, tenancyNS, boardEntities(), boardCollections(false))
 }
 
+// boardRenameBase is the release before a rename: the owned entity Board with the unique field title of 1 to 40
+// characters, which the list of boards searches, and the optional field note. title is unique, so the release
+// before accepts the sync trigger of its rename only with the unique key of heading (decision on ST-GEN-Q18 (a)).
+func boardRenameBase(ns, tenancyNS string) gen.Context {
+	n, one := 40, 1
+	entities := []types.Entity{{Name: "Board", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString, MinLength: &one, MaxLength: &n, Unique: true},
+		{Name: "note", Type: types.FieldTypeString, Optional: true}}}}
+	return runtimeService(ns, tenancyNS, entities, boardCollections(false))
+}
+
+// boardRename is boardRenameBase with the rename board-title-rename of Board.title to heading at expand, with the
+// entities as the compiler gives them (gen.StoredNames): the field keeps its API name title, in the column heading.
+func boardRename(ns, tenancyNS string) gen.Context {
+	ctx := boardRenameBase(ns, tenancyNS)
+	ctx.Entities[0].Fields[0].Name = "heading"
+	ctx.SchemaChanges = []types.SchemaChange{{ID: "board-title-rename", Kind: "rename", Entity: "Board", Field: "heading", From: "title"}}
+	ctx.SchemaHistory = []types.SchemaStep{{Change: "board-title-rename", Phase: "expand"}}
+	entities, err := gen.StoredNames(ctx.Entities, nil, ctx.Collections, ctx.SchemaChanges)
+	if err != nil {
+		panic(err)
+	}
+	ctx.Entities = entities
+	return ctx
+}
+
 // tenancyFiles generates the tenancy component of the service ctx into its tenancy namespace.
 func tenancyFiles(t *testing.T, ctx gen.Context) []gen.File {
 	t.Helper()
@@ -192,12 +217,45 @@ func TestSchemaSteps(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RC01-OC22-T02 Generation refuses a step that is not the expand step of an add, or an add that the rows cannot take", func(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC22-T06 A rename adds its sync trigger in a migration after the indexes of its new column", func(t *testing.T) {
+		files, _, err := new(postgresadapter.Generator).Generate(boardRename("boards", "boardtenancy"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		migrate := generated(t, files, "boards/migrate.go")
+		registered := regexp.MustCompile(`Register(?:SQL|Step|IndexStep|ValidateStep)\("([^"]+)"`).FindAllStringSubmatch(migrate, -1)
+		var order []string
+		for _, match := range registered {
+			order = append(order, match[1])
+		}
+		name := "step_0001_board-title-rename_expand"
+		want := []string{"001_initial", "100_tenancy_row_security", name, name + "_index_01", name + "_index_02", postgresadapter.SyncMigrationName(name), name + "_validate"}
+		if !slices.Equal(order, want) || !slices.IsSorted(order) {
+			t.Errorf("migrate.go registers %v, want %v in byte order", order, want)
+		}
+		// The unique index of heading is built before the trigger copies title into it (decision on ST-GEN-Q18 (a)).
+		indexes := generated(t, files, "boards/migrations/"+name+"_index_01.sql") + generated(t, files, "boards/migrations/"+name+"_index_02.sql")
+		if !strings.Contains(indexes, `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "boards_heading_key" ON public."boards" ("tenant_id", "heading")`) {
+			t.Errorf("the index migrations of the rename do not build the unique key of heading:\n%s", indexes)
+		}
+		body, sync := generated(t, files, "boards/migrations/"+name+".sql"), generated(t, files, "boards/migrations/"+name+"_sync.sql")
+		if strings.Contains(body, "CREATE TRIGGER") || strings.Contains(body, "stego_steps") || strings.Contains(body, "stego_schema") {
+			t.Errorf("the migration %s adds the sync trigger or the backfill before the indexes:\n%s", name, body)
+		}
+		if !strings.Contains(sync, `CREATE TRIGGER "boards_heading_sync" BEFORE INSERT OR UPDATE ON public."boards"`) || !strings.Contains(sync, "INSERT INTO stego_schema.backfills") {
+			t.Errorf("the migration %s_sync does not add the sync trigger and the backfill row:\n%s", name, sync)
+		}
+		if !strings.Contains(migrate, `RegisterStep("`+name+`_sync", `) {
+			t.Errorf("migrate.go does not register %s_sync as a step migration", name)
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC22-T02 Generation refuses a step that is not the expand step of an add or a rename, or an add that the rows cannot take", func(t *testing.T) {
 		refused := map[string]func(*gen.Context){
-			"rename": func(ctx *gen.Context) {
-				ctx.Entities[0].Fields[0].Name = "heading"
-				ctx.SchemaChanges = append(ctx.SchemaChanges, types.SchemaChange{ID: "board-title-rename", Kind: "rename", Entity: "Board", Field: "heading", From: "title"})
-				ctx.SchemaHistory = append(ctx.SchemaHistory, types.SchemaStep{Change: "board-title-rename", Phase: "expand"})
+			"retype": func(ctx *gen.Context) {
+				ctx.Entities[0].Fields[2].Type = types.FieldTypeInt64
+				ctx.SchemaChanges = append(ctx.SchemaChanges, types.SchemaChange{ID: "board-rank-retype", Kind: "retype", Entity: "Board", Field: "rank", From: "int32", Conversion: "int32_to_int64", InverseConversion: "int64_to_int32"})
+				ctx.SchemaHistory = append(ctx.SchemaHistory, types.SchemaStep{Change: "board-rank-retype", Phase: "expand"})
 			},
 			"is not built": func(ctx *gen.Context) {
 				ctx.SchemaHistory = append(ctx.SchemaHistory, types.SchemaStep{Change: "add-card", Phase: "contract"})
@@ -277,12 +335,12 @@ func TestSchemaMarker(t *testing.T) {
 
 	t.Run("ST-SUP-RC01-OC43-T01 Generation refuses a ledgered migration that is not the baseline, the tenancy row-level security or a step", func(t *testing.T) {
 		for _, name := range []string{"001_initial", "100_tenancy_row_security", "step_0001_add-card_expand", "step_0012_note-title-rename_contract",
-			"step_0002_add-board-note_expand_index_01", "step_0002_add-board-note_expand_validate"} {
+			"step_0002_add-board-note_expand_index_01", "step_0002_add-board-note_expand_validate", "step_0003_note-rename_expand_sync"} {
 			if err := postgresadapter.CheckLedgerName(name); err != nil {
 				t.Errorf("%s is refused: %v", name, err)
 			}
 		}
-		for _, name := range []string{"101_x", "002_audit", "200_outbox", "step_1_add-card_expand", "step_0001_add-card_backfill", "step_0001_add-card_expand_index_1", "step_0001_add-card_expand_valid", "step_0001_add-card_validate", "step_0001_Add_expand", "zz_late", ""} {
+		for _, name := range []string{"101_x", "002_audit", "200_outbox", "step_1_add-card_expand", "step_0001_add-card_backfill", "step_0001_add-card_expand_index_1", "step_0001_add-card_expand_valid", "step_0001_add-card_validate", "step_0001_add-card_sync", "step_0001_add-card_expand_synced", "step_0001_Add_expand", "zz_late", ""} {
 			if err := postgresadapter.CheckLedgerName(name); err == nil || !strings.Contains(err.Error(), "ST-SUP-RC01-OC43") {
 				t.Errorf("%s is accepted, or its refusal does not name ST-SUP-RC01-OC43: %v", name, err)
 			}

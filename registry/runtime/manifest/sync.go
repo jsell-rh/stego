@@ -298,46 +298,73 @@ type tableColumn struct {
 	notNull, hasDefault, derived, builtin bool
 }
 
-// stepColumns reads the columns of the table rel, and the names of the columns of its primary key and of each of its
-// unique indexes.
-func stepColumns(ctx context.Context, tx *sql.Tx, rel uint32) (map[string]tableColumn, map[string]bool, error) {
+// stepColumns reads the columns of the table rel.
+func stepColumns(ctx context.Context, tx *sql.Tx, rel uint32) (map[string]tableColumn, error) {
 	columns := map[string]tableColumn{}
 	rows, err := tx.QueryContext(ctx, `SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod), a.attnotnull, a.atthasdef,
   a.attgenerated <> '' OR a.attidentity <> '', `+builtinTypeSQL+`
   FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
   WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped`, rel)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	for rows.Next() {
 		var n string
 		var c tableColumn
 		if err := rows.Scan(&n, &c.typ, &c.notNull, &c.hasDefault, &c.derived, &c.builtin); err != nil {
 			rows.Close()
-			return nil, nil, err
+			return nil, err
 		}
 		columns[n] = c
 	}
-	if err := closed(rows); err != nil {
-		return nil, nil, err
-	}
-	keyed := map[string]bool{}
-	rows, err = tx.QueryContext(ctx, `SELECT COALESCE(a.attname, '') FROM pg_catalog.pg_index i
-  CROSS JOIN LATERAL pg_catalog.unnest(i.indkey::pg_catalog.int2[]) AS k(n)
-  LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.n
-  WHERE i.indrelid = $1 AND (i.indisunique OR i.indisprimary)`, rel)
-	if err != nil {
-		return nil, nil, err
-	}
-	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err != nil {
-			rows.Close()
-			return nil, nil, err
+	return columns, closed(rows)
+}
+
+// stepKey is one primary key or unique index of a table, as the step rules read it: its name, its key columns in
+// order (an expression is an empty name), and exact, which tells that it is valid and ready, not deferrable, treats
+// nulls as distinct, has no expression and no predicate, and has the default operator classes and collations.
+type stepKey struct {
+	name           string
+	columns        []string
+	primary, exact bool
+}
+
+// keyedPair tells whether the keys of the table t let a sync trigger move K into U (ST-SUP-RP15-LC02 rule 2). K is
+// in no primary key. K is in no unique key, or in exactly one: a unique index that the manifest names, in the exact
+// form, whose key is the columns of the primary key but its last, the key id, and then K alone; and then U has the
+// same unique key, and no other, in the exact form, named as UniqueName names it, so that both columns stay unique
+// while both releases run (decision on ST-GEN-Q18 (a), orchestrator under the owner's delegation, 2026-11-13).
+func keyedPair(t Table, keys []stepKey, k, u string) bool {
+	var primary []string
+	var withK, withU []stepKey
+	for _, key := range keys {
+		if key.primary {
+			primary = key.columns
 		}
-		keyed[n] = true
+		if slices.Contains(key.columns, k) {
+			if key.primary {
+				return false
+			}
+			withK = append(withK, key)
+		}
+		if slices.Contains(key.columns, u) {
+			withU = append(withU, key)
+		}
 	}
-	return columns, keyed, closed(rows)
+	if len(withK) == 0 {
+		return true
+	}
+	if len(withK) != 1 || len(withU) != 1 || len(primary) == 0 || primary[len(primary)-1] != "id" {
+		return false
+	}
+	lead := primary[:len(primary)-1]
+	kKey, uKey := withK[0], withU[0]
+	named := slices.ContainsFunc(t.Indexes, func(i Index) bool {
+		return i.Name == kKey.name && !i.Lookup && i.Predicate == "" && slices.Equal(i.Columns, kKey.columns)
+	})
+	return named && kKey.exact && uKey.exact && !uKey.primary &&
+		slices.Equal(kKey.columns, append(slices.Clone(lead), k)) && slices.Equal(uKey.columns, append(slices.Clone(lead), u)) &&
+		uKey.name == UniqueName(t.Name, []string{u})
 }
 
 // fixedColumns are the columns that the runtime library writes on each entity table, which a sync trigger never
@@ -394,9 +421,10 @@ type syncTrigger struct {
 
 // acceptSync tells whether the trigger n of the entity table t (rel) is the sync trigger of a later step in its strict
 // template form (ST-SUP-RP15-LC02 rules 2 to 6), and gives the oid of its function and its columns K and U. Rule 1,
-// the scope, and rule 7 are the caller's. used are the columns that another sync trigger of the table moves.
+// the scope, and rule 7 are the caller's. keys are the primary key and the unique indexes of the table, and used the
+// columns that another sync trigger of the table moves.
 func acceptSync(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, steps *stepState, columns map[string]tableColumn,
-	keyed, used map[string]bool) (uint32, [2]string, bool, error) {
+	keys []stepKey, used map[string]bool) (uint32, [2]string, bool, error) {
 	var tr syncTrigger
 	err := tx.QueryRowContext(ctx, `SELECT t.tgtype, t.tgenabled::text, t.tgparentid,
   t.tgqual IS NULL AND t.tgnargs = 0,
@@ -452,7 +480,7 @@ func acceptSync(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, 
 		k, u := pair[0], pair[1]
 		kc, kok := columns[k]
 		uc, uok := columns[u]
-		if !kok || !uok || !listed[k] || listed[u] || keyed[k] || fixedColumns[k] || used[k] || used[u] || uc.derived || uc.hasDefault || kc.derived {
+		if !kok || !uok || !listed[k] || listed[u] || !keyedPair(t, keys, k, u) || fixedColumns[k] || used[k] || used[u] || uc.derived || uc.hasDefault || kc.derived {
 			continue
 		}
 		candidates = append(candidates, pair)

@@ -36,10 +36,11 @@ var (
 	backfillDuplicates = builtin("schema.backfill.duplicate_groups", Counter, Warn, backfillClass, "change")
 	backfillCompleted  = builtin("schema.backfill.completed", Event, Info, backfillClass, "change")
 	backfillStalled    = builtin("schema.backfill.stalled", Event, Error, backfillClass, "change")
+	backfillThrottled  = builtin("schema.backfill.throttled", Counter, Warn, backfillClass, "change", "reason")
 )
 
 // builtinObservations are the built-in observations, whose names no declared observation may take.
-var builtinObservations = []*Observation{telemetryStarted, telemetryStopped, serviceReady, serviceStopping, serviceFailed, httpDiagnostic, workerRunFailed, workerTickSkipped, workerTenantUnreached, backfillRows, backfillFailedRows, backfillDuplicates, backfillCompleted, backfillStalled}
+var builtinObservations = []*Observation{telemetryStarted, telemetryStopped, serviceReady, serviceStopping, serviceFailed, httpDiagnostic, workerRunFailed, workerTickSkipped, workerTenantUnreached, backfillRows, backfillFailedRows, backfillDuplicates, backfillCompleted, backfillStalled, backfillThrottled}
 
 // builtinName tells whether name is the name of a built-in observation.
 func builtinName(name string) bool {
@@ -236,4 +237,9 @@ func (b Backfill) BackfillCompleted(change string) {
 // BackfillStalled sends schema.backfill.stalled.
 func (b Backfill) BackfillStalled(change string) {
 	b.core.builtin(context.Background(), backfillStalled, 1, change)
+}
+
+// BackfillThrottled adds one to schema.backfill.throttled, with the reason: replica_lag or batch_time.
+func (b Backfill) BackfillThrottled(change, reason string) {
+	b.core.builtin(context.Background(), backfillThrottled, 1, change, reason)
 }

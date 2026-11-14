@@ -246,6 +246,45 @@ INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');
 		}
 	})
 
+	t.Run("ST-SUP-RP15-LC02-T04 Check accepts K in one single-field unique key only when U has the same unique key", func(t *testing.T) {
+		// The manifest of the release before names the unique key of note; the step gives note_v2 the same key.
+		unique := stepManifest()
+		unique.Tables[1].Indexes = append(unique.Tables[1].Indexes, Index{Name: "books_note_key", Columns: []string{"tenant_id", "note"}})
+		const (
+			kKey = "CREATE UNIQUE INDEX books_note_key ON public.books (tenant_id, note);\n"
+			uKey = "CREATE UNIQUE INDEX books_note_v2_key ON public.books (tenant_id, note_v2);\n"
+		)
+		base := kKey + note(t)
+		stepCase(t, "K and U each in the same single-field unique key", base+uKey+noteSync, unique, false)
+		pagesKey := stepManifest()
+		pagesKey.Tables[1].Indexes = append(pagesKey.Tables[1].Indexes, Index{Name: "books_note_pages_key", Columns: []string{"tenant_id", "note", "pages"}})
+		bare := stepManifest()
+		bare.Tables[1].Indexes = append(bare.Tables[1].Indexes, Index{Name: "books_note_key", Columns: []string{"note"}})
+		twoKeys := unique
+		twoKeys.Tables = append([]Table{}, unique.Tables...)
+		twoKeys.Tables[1].Indexes = append(append([]Index{}, unique.Tables[1].Indexes...), Index{Name: "books_note_pages_key", Columns: []string{"tenant_id", "note", "pages"}})
+		for _, c := range []struct {
+			name, setup string
+			m           Manifest
+		}{
+			{"U has no unique key", base + noteSync, unique},
+			{"U's unique key is not valid", base + uKey + noteSync + "UPDATE pg_catalog.pg_index SET indisvalid = false WHERE indexrelid = 'public.books_note_v2_key'::pg_catalog.regclass;\n", unique},
+			{"U's unique key has a predicate", base + "CREATE UNIQUE INDEX books_note_v2_key ON public.books (tenant_id, note_v2) WHERE pages IS NULL;\n" + noteSync, unique},
+			{"U's unique key treats nulls as not distinct", base + "CREATE UNIQUE INDEX books_note_v2_key ON public.books (tenant_id, note_v2) NULLS NOT DISTINCT;\n" + noteSync, unique},
+			{"U's unique key has another name", base + "CREATE UNIQUE INDEX books_note_v2_uq ON public.books (tenant_id, note_v2);\n" + noteSync, unique},
+			{"U's unique key has no tenant column", base + "CREATE UNIQUE INDEX books_note_v2_key ON public.books (note_v2);\n" + noteSync, unique},
+			{"U is in a second unique key", base + uKey + "CREATE UNIQUE INDEX books_note_v2_pages_key ON public.books (tenant_id, note_v2, pages);\n" + noteSync, unique},
+			{"K's unique key has two fields", "CREATE UNIQUE INDEX books_note_pages_key ON public.books (tenant_id, note, pages);\n" + note(t) +
+				"CREATE UNIQUE INDEX books_note_v2_pages_key ON public.books (tenant_id, note_v2, pages);\n" + noteSync, pagesKey},
+			{"K's unique key has two fields and U's one", "CREATE UNIQUE INDEX books_note_pages_key ON public.books (tenant_id, note, pages);\n" + note(t) + uKey + noteSync, pagesKey},
+			{"K is in two unique keys", base + "CREATE UNIQUE INDEX books_note_pages_key ON public.books (tenant_id, note, pages);\n" + uKey + noteSync, twoKeys},
+			{"K's unique key is not the manifest's", base + uKey + noteSync, stepManifest()},
+			{"K's unique key has no tenant column", "CREATE UNIQUE INDEX books_note_key ON public.books (note);\n" + note(t) + uKey + noteSync, bare},
+		} {
+			stepCase(t, c.name, c.setup, c.m, true)
+		}
+	})
+
 	t.Run("ST-SUP-RP15-LC02-T03 An optional trigger may be missing, and is exact when present, never by a prefix", func(t *testing.T) {
 		source := mustSource(t, "note", "note_v2")
 		optional := stepManifest()
