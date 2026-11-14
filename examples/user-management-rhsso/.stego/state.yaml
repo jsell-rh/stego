@@ -77,8 +77,8 @@ last_applied:
             version: 2.1.0
             sha: e4603ffda52e0f41c2d8a71a46ebcd2303a8e4263854a76b209b0cc47e147fff
         spicedb-authz:
-            version: 1.1.1
-            sha: be0d196f906d67588feaeef1b9a2b8d5b8c7ca46a5124c6e90d6b98c85e0aaf1
+            version: 1.1.2
+            sha: 7c4fe9dbf3d5ae5e27ae6f857e342230a4dd82af6f2b63058da06873f7c3abbd
         tenancy:
             version: 1.1.0
             sha: 57e4b1a3b3685cc088047b654afd683399cc532e9b3913206796afd097cf4bc8
@@ -140,7 +140,7 @@ last_applied:
         internal/api/runtime.go: 58d242276cb02d89bf6310c612283aace856e3d155868ba973ba7f97704e0945
         internal/api/validation.go: cc1aa843f9ef54e7f81d836a8be2271b884c8c40efee70fd97ed23575e00bf85
         internal/auditlog/audit.go: a18d0b5be27531bebccf58133dc6cb87198a44d7a7d694871557bfbf96d2f420
-        internal/authz/authz.go: 95d3ff8a41fe39f19d282afc711822da7f47e5665b7b07af1e8fe80092116099
+        internal/authz/authz.go: 4b095561a2cd28976350d60b0a1d70815d324dba5afc2331ef5a372525f2c1ed
         internal/authz/schema.zed: 66e37233215abea13af5f4cb43b28314cbfb27c01017b0568c0e001096f76e7e
         internal/outbox/outbox.go: 5f090d5ae397ff12f1e888f4d3fa758131767e7cc1ec5102fe6962e2397b410a
         internal/stegoruntime/runtime.go: f70f91576a098fac8de7c757e94d665472e38a6a7b115cb117e30eaecc9254bf

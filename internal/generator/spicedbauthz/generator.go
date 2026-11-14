@@ -401,7 +401,11 @@ func Migration(runtimeRole, relayRole, outboxRelayRole, workerRole string) (stri
 `)
 	for _, e := range p.Entities {
 		table := databaseSchema + `.\"` + e.Table + `\"`
-		fmt.Fprintf(&b, "\tstatements.WriteString(\"ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s text NOT NULL DEFAULT '' CHECK (octet_length(%s) <= 4096);\\n\")\n", table, TokenColumn, TokenColumn)
+		// The column is added only when the catalog does not hold it: ADD COLUMN IF NOT EXISTS takes ACCESS
+		// EXCLUSIVE on the table even when the column is there, so a run again of the job would wait behind each
+		// long transaction of the running release, and each read and write of the table would queue behind it. The
+		// catalog read and the regclass name take no lock on the table.
+		fmt.Fprintf(&b, "\tstatements.WriteString(\"DO $authz$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = '%s'::regclass AND attname = '%s' AND NOT attisdropped) THEN ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s text NOT NULL DEFAULT '' CHECK (octet_length(%s) <= 4096); END IF; END $authz$;\\n\")\n", table, TokenColumn, table, TokenColumn, TokenColumn)
 		fmt.Fprintf(&b, "\tstatements.WriteString(\"GRANT SELECT (%s, id), UPDATE (%s) ON %s TO \" + worker + \";\\n\")\n", TenantColumn, TokenColumn, table)
 	}
 	b.WriteString(`	return text + statements.String(), nil
