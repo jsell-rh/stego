@@ -1,14 +1,14 @@
 kind: archetype
 name: rpc-service
 language: go
-version: 1.107.0
+version: 1.108.0
 # The runtime library that every service of this archetype imports (ST-SUP-INV10). It is the module in
 # registry/runtime, released with the common registry by the tag registry/runtime/<version>; sum is the go.sum hash
 # of that folder at the version. A new runtime version moves it in a new archetype version.
 runtime:
   module: github.com/jsell-rh/stego/registry/runtime
-  version: v0.99.0
-  sum: h1:PWjNdv4lqbTE/mKGCIHYEXyqyYVHMhvTlZ/qRZLhfAg=
+  version: v0.100.0
+  sum: h1:i0sk2qlwRCx965qGYwgNIeJiNEZxEo1BbuidO/qVJCA=
 components:
   - postgres-adapter
   - domain-probe

@@ -72,6 +72,12 @@ func TestManifest(t *testing.T) {
 			{"a dropped foreign key", "ALTER TABLE authz.authz_revocation_tuples DROP CONSTRAINT authz_revocation_tuples_revocation_id_fkey",
 				"ALTER TABLE authz.authz_revocation_tuples ADD CONSTRAINT authz_revocation_tuples_revocation_id_fkey FOREIGN KEY (revocation_id) REFERENCES authz.authz_revocations (id)",
 				"constraint authz_revocation_tuples_revocation_id_fkey is missing"},
+			// Decision on ST-SUP-Q123 (b): the manifest names the plain lookup index of the tuples of a revocation.
+			{"a dropped lookup index", "DROP INDEX authz.authz_revocation_tuples_revocation",
+				"CREATE INDEX authz_revocation_tuples_revocation ON authz.authz_revocation_tuples (revocation_id)", "index authz_revocation_tuples_revocation is missing"},
+			{"a lookup index on other columns", "DROP INDEX authz.authz_revocation_tuples_revocation; CREATE INDEX authz_revocation_tuples_revocation ON authz.authz_revocation_tuples (tenant_id)",
+				"DROP INDEX authz.authz_revocation_tuples_revocation; CREATE INDEX authz_revocation_tuples_revocation ON authz.authz_revocation_tuples (revocation_id)",
+				"index authz_revocation_tuples_revocation does not have the columns (revocation_id) of the manifest"},
 		} {
 			if _, err := e.admin.ExecContext(ctx, c.change); err != nil {
 				t.Fatalf("%s: %v", c.name, err)

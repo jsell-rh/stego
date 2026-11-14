@@ -12,36 +12,36 @@ last_applied:
             .stego/config.yaml:
                 exists: true
                 sha256: 1f22e1d31edec033c594c2564b8069aa79b45707f2319448a8c234843177b8e9
-                mode: 436
+                mode: 420
             authz/schema.zed:
                 exists: true
                 sha256: 4725e50f47889dcb4c6e55070d8787ff4edf1a83cc264e30a3b1b513648d6542
-                mode: 436
+                mode: 420
             go.mod:
                 exists: true
-                sha256: 237e076b88db6d80497fb222eb1cfecef37a1dcde289dfc6c306d50355213551
-                mode: 436
+                sha256: 32bdfe49191e246f45c193c248d0f85da410234e69ad2d9ce0ecf5a2d99786c5
+                mode: 420
             go.sum:
                 exists: true
-                sha256: c0d3569ebcc33e362865eabd91bb5b75d21d048334cc075a19bc2039cd9a5d2b
-                mode: 436
+                sha256: 564e98d2017bcc81ae7d4c0d9b1d4fc74d86dbf735877bf6aa31a3f8e511db64
+                mode: 420
             service.yaml:
                 exists: true
                 sha256: 59eb019ac9584302b5674f2fe6b6da7392c364b74e7d578e3e55c98f7eb227ca
-                mode: 436
-        sha256: dd8ce70d7159cbee22a66c4aa002976d9173b0427900f2212ed2dd44d258fc2e
+                mode: 420
+        sha256: 6ab320a6a5fcac71fdaaf010c1ed98d8ec789bc0224d1299f1c62f8f6aaf4e0d
     compiler_build:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: (devel)
-        vcs: unknown
-        revision: unknown
-        source_state: unknown
+        module_version: v0.0.0-20261114153202-58dcebe86166
+        vcs: git
+        revision: 58dcebe8616627a9954b6ebc3cdc59366e88b665
+        source_state: clean
     service_name: user-management
     service_hash: 59eb019ac9584302b5674f2fe6b6da7392c364b74e7d578e3e55c98f7eb227ca
     registry_sha: env-override
-    registry_content_sha256: f324c13e88da61c1e0fdb337689099d1df50c1d2f133b9f85964af422b4972b3
+    registry_content_sha256: 1e4b94ab28a6c3accd596e35f0bd8feb747355c562b487651e8857eee0e63bba
     components:
         audit-log:
             version: 1.1.1
@@ -65,8 +65,8 @@ last_applied:
             version: 2.1.0
             sha: f9e7ee9c85ef6e0b7304429e7a6ba59f6e99c5bd249720221fe76d529574e465
         postgres-adapter:
-            version: 6.2.0
-            sha: b949a4ac00015f1e401334edffd23b1633fa29ba88124a0db046ca593fb3906c
+            version: 6.3.0
+            sha: 8de719e30b8d8e1d432588600c48dd9a4bd3a56fcfba926e704a4d481006146b
         query:
             version: 1.1.0
             sha: 9b4a5a4b5afcbc9d23c6d02d78b3a227ff445b857bef9e73c547af184d7226e0
@@ -149,7 +149,7 @@ last_applied:
         internal/storage/migrations/001_initial.sql: ab78775163028811859a9a67ca89769c43529c4a72451340e6551134668393f9
         internal/storage/runtime_access.go: a2cf0172d9113da261aff6cca3349d065ba2fe748a2af36cfd915cdfc3157fce
         internal/storage/schema_generation.go: eac0cae3fc272d0dfc546f23a7fbd19d5579a530dbc0331be3aa08f7969860c5
-        internal/storage/schema_manifest.go: 72985979aec491dabc20eb17a504a296422bba3fb9125184220ba262a0fb7eee
+        internal/storage/schema_manifest.go: c485eebb2aeafc6307b0725c44d865bcd084e9dc6e5febd10a03e309e6281ca1
         internal/storage/tables.go: 327a9ad18567353433f3d21c6ce77cc4cd10332c8fb40aa35b5dd0441a061f4e
         internal/tenancy/migrations/roles.sql: 131dcb112a94f82ead145bcb5797c5915ad94a230564e2181883d19944450fc9
         internal/tenancy/migrations/row_security.sql: caccad6f4187109df25ad4a8ee109608014161ef8c2dd5ef91ba2e503bd78c84
@@ -194,9 +194,9 @@ last_applied:
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160
     archetype:
         name: rest-crud
-        version: 3.107.0
+        version: 3.108.0
         runtime:
             module: github.com/jsell-rh/stego/registry/runtime
-            version: v0.99.0
-            sum: h1:PWjNdv4lqbTE/mKGCIHYEXyqyYVHMhvTlZ/qRZLhfAg=
+            version: v0.100.0
+            sum: h1:i0sk2qlwRCx965qGYwgNIeJiNEZxEo1BbuidO/qVJCA=
         imports_runtime: true

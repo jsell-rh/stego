@@ -74,6 +74,12 @@ func TestManifest(t *testing.T) {
 			{"a dropped check", "ALTER TABLE " + table + " DROP CONSTRAINT idempotency_keys_check",
 				"ALTER TABLE " + table + " ADD CONSTRAINT idempotency_keys_check CHECK (status <> 'completed' OR response_code IS NOT NULL)",
 				"constraint idempotency_keys_check is missing"},
+			// Decision on ST-SUP-Q123 (b): the manifest names the plain lookup index of the purge.
+			{"a dropped lookup index", "DROP INDEX " + schema + ".idempotency_keys_expires_at",
+				"CREATE INDEX idempotency_keys_expires_at ON " + table + " (expires_at)", "index idempotency_keys_expires_at is missing"},
+			{"a lookup index on other columns", "DROP INDEX " + schema + ".idempotency_keys_expires_at; CREATE INDEX idempotency_keys_expires_at ON " + table + " (expires_at, key)",
+				"DROP INDEX " + schema + ".idempotency_keys_expires_at; CREATE INDEX idempotency_keys_expires_at ON " + table + " (expires_at)",
+				"index idempotency_keys_expires_at does not have the columns (expires_at) of the manifest"},
 		} {
 			if _, err := admin.ExecContext(ctx, c.change); err != nil {
 				t.Fatalf("%s: %v", c.name, err)

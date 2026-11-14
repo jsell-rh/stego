@@ -459,6 +459,44 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		}
 	})
 
+	t.Run("ST-SUP-RC01-OC12-T10 The schema manifest names each search index as a lookup index, and a database without one does not satisfy it", func(t *testing.T) {
+		noteCfg, noted := database(t, cfg, admin)
+		migrate(t, noteCfg, noted, func(ctx context.Context, conn *sql.Conn) error { return boardsnote.Migrate(ctx, conn) }, "boardsnote_access.json")
+		if _, err := noted.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
+			t.Fatal(err)
+		}
+		runtime := noteCfg.Copy()
+		runtime.User, runtime.Password = tenancy.RuntimeRole, "tables-check"
+		reader := stdlib.OpenDB(*runtime)
+		defer reader.Close()
+		ctx := context.Background()
+		if err := manifest.Check(ctx, reader, owned(boardsnote.SchemaManifest)); err != nil {
+			t.Fatalf("the database that the migrations made does not hold the schema manifest: %v", err)
+		}
+		// Decision on ST-SUP-Q123 (b): a dropped search index is a fault of the class other, which a start alerts and
+		// the migration job refuses (ST-SUP-RP14-LC06, ST-SUP-RP14-LC03).
+		for _, c := range []struct{ name, change, fault string }{
+			{"a dropped search index", `DROP INDEX public."boards_note_search"`, "table public.boards: index boards_note_search is missing"},
+			{"a search index on other columns", `CREATE INDEX "boards_note_search" ON public."boards" ("note")`,
+				"table public.boards: index boards_note_search does not have the columns (tenant_id, note) of the manifest"},
+		} {
+			if _, err := noted.Exec(c.change); err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+			err := manifest.Check(ctx, reader, owned(boardsnote.SchemaManifest))
+			var mismatch *manifest.Mismatch
+			if !errors.As(err, &mismatch) || len(mismatch.Faults) != 1 || mismatch.Faults[0] != c.fault || manifest.FaultClass(mismatch.Faults[0]) != "other" {
+				t.Errorf("%s: Check gave %v, want the one fault %q of the class other", c.name, err, c.fault)
+			}
+		}
+		if _, err := noted.Exec(`DROP INDEX public."boards_note_search"; CREATE INDEX "boards_note_search" ON public."boards" ("tenant_id", "note")`); err != nil {
+			t.Fatal(err)
+		}
+		if err := manifest.Check(ctx, reader, owned(boardsnote.SchemaManifest)); err != nil {
+			t.Fatalf("Check refused the restored database: %v", err)
+		}
+	})
+
 	// renamed migrates the release before the rename, writes the board first with the title "first" as that
 	// release, and migrates the rename at expand; it gives the database and the ID of the board.
 	renamed := func(t *testing.T) (*pgx.ConnConfig, *sql.DB, string) {

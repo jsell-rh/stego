@@ -1302,7 +1302,10 @@ func Manifest(schema, runtimeRole, relayRole, outboxRelayRole string, hookRoles 
 				Definition: "FOREIGN KEY (revocation_id) REFERENCES " + schema + ".authz_revocations(id)"},
 			check("authz_revocation_tuples", "tenant_id", tenant),
 			check("authz_revocation_tuples", "state", "CHECK ((state = ANY (ARRAY['pending'::text, 'done'::text, 'parked'::text, 'discarded'::text])))")},
-		Indexes:     []manifest.Index{{Name: "authz_revocation_tuples_pkey", Columns: []string{"message_id"}}},
+		// The lookup index of the tuples of a revocation: a start without it alerts and starts (decision on
+		// ST-SUP-Q123 (b), orchestrator under the owner's delegation, 2026-11-14).
+		Indexes: []manifest.Index{{Name: "authz_revocation_tuples_pkey", Columns: []string{"message_id"}},
+			{Name: "authz_revocation_tuples_revocation", Columns: []string{"revocation_id"}, Lookup: true}},
 		RowSecurity: true, Policies: tenantPolicy("authz_revocation_tuples"),
 		Triggers: []manifest.Trigger{{Name: "authz_revocation_tuple_check", Timing: "AFTER", Row: true, Events: []string{"INSERT"},
 			Function: manifest.Function{Name: schema + ".authz_revocation_tuple_check", Language: "plpgsql", Source: checkSource,

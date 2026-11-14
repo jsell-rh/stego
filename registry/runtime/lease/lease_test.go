@@ -795,6 +795,79 @@ func TestStoppedHolder(t *testing.T) {
 			t.Fatalf("the lease row holds %q after the takeover, want other", h)
 		}
 	})
+	t.Run("ST-SUP-RP09-LC04-T05 A holder that runs a statement under the lease and then stops keeps the lease row no longer than its lease", func(t *testing.T) {
+		// Review of PR #309, L1: the idle timeout counts only idle time, so a holder that worked 1.5 s in the
+		// transaction and then stopped kept the row 1.5 s past the expiry. transaction_timeout counts the statement too.
+		var version int
+		if err := openDatabase(t).other.QueryRow("SELECT current_setting('server_version_num')::integer").Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		if version < 170000 {
+			t.Skipf("PostgreSQL %d has no transaction_timeout", version)
+		}
+		// The bound is the transaction's only: a pooled session keeps no transaction_timeout after the write.
+		{
+			d := openDatabase(t)
+			ctx := context.Background()
+			if err := Declare(ctx, d.other, "stego.local"); err != nil {
+				t.Fatal(err)
+			}
+			conn, err := d.db.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = conn.Close() }()
+			local := acquire(t, newClient(t, conn, "stego.local", "local", Settings{TTL: 2 * time.Second, Renew: time.Second}))
+			var inside, after string
+			if err := local.WithToken(ctx, func(ctx context.Context, tx *sql.Tx, _ int64) error {
+				return tx.QueryRowContext(ctx, "SELECT current_setting('transaction_timeout')").Scan(&inside)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := conn.QueryRowContext(ctx, "SELECT current_setting('transaction_timeout')").Scan(&after); err != nil || inside == "0" || after != "0" {
+				t.Fatalf("the transaction timeout is %s in the write and %s after it (%v), want a bound in the write and 0 after it", inside, after, err)
+			}
+		}
+		for _, work := range []string{"0", "1.5", "4"} {
+			t.Run("work "+work+" s then stop", func(t *testing.T) {
+				d := openDatabase(t)
+				ctx := context.Background()
+				if err := Declare(ctx, d.other, "stego.stop"); err != nil {
+					t.Fatal(err)
+				}
+				a := acquire(t, newClient(t, d.db, "stego.stop", "a", Settings{TTL: 2 * time.Second, Renew: time.Second}))
+				tx, err := d.db.BeginTx(ctx, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() { _ = tx.Rollback() }()
+				if _, err := a.Fence(ctx, tx); err != nil {
+					t.Fatal(err)
+				}
+				// The work: a statement of 4 s runs past the expiry, and the server ends it.
+				_, _ = tx.ExecContext(ctx, "SELECT pg_catalog.pg_sleep("+work+")")
+				// The process "stops": no statement and no timer of the holder.
+				_, _, expires := d.leaseRow(t, "stego.stop")
+				b := newClient(t, d.other, "stego.stop", "b", Settings{TTL: 2 * time.Second, Renew: time.Second})
+				var got time.Time
+				for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+					actx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+					_, err := b.Acquire(actx)
+					cancel()
+					if err == nil {
+						got = time.Now()
+						break
+					}
+				}
+				if got.IsZero() {
+					t.Fatal("the other holder never took the lease")
+				}
+				if late := got.Sub(expires); late > 500*time.Millisecond {
+					t.Fatalf("the other holder took the lease %v after the expiry, want at most 500 ms", late)
+				}
+			})
+		}
+	})
 }
 
 // within receives from ch, and fails the test when nothing comes within 10 seconds.

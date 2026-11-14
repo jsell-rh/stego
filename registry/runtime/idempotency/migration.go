@@ -100,7 +100,9 @@ func Manifest(schema, purgeRole, runtimeRole string) (manifest.Manifest, error) 
 	}
 	return manifest.Manifest{
 		Tables: []manifest.Table{{Schema: schema, Name: "idempotency_keys", Columns: columns, Constraints: constraints,
-			Indexes:     []manifest.Index{{Name: "idempotency_keys_pkey", Columns: []string{"tenant_id", "principal_id", "key"}}},
+			// The lookup index of the purge: a start without it alerts and starts (decision on ST-SUP-Q123 (b)).
+			Indexes: []manifest.Index{{Name: "idempotency_keys_pkey", Columns: []string{"tenant_id", "principal_id", "key"}},
+				{Name: "idempotency_keys_expires_at", Columns: []string{"expires_at"}, Lookup: true}},
 			RowSecurity: true, Policies: policies, CheckGrants: true, Grants: grants}},
 		Functions: []manifest.Function{{Name: schema + "." + PurgeFunction, Args: "timestamptz, integer", Language: "plpgsql",
 			Source: strings.ReplaceAll(source, "%1$I", schema), SecurityDefiner: true, Config: []string{"search_path=pg_catalog, pg_temp"},
