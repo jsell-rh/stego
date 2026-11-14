@@ -50,7 +50,13 @@ var changeID = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // SyncVersions are the versions of the sync template that this release accepts. A change of the template or of the
 // conversion list is a new version, and a release must accept both versions before a step uses the new one.
-var SyncVersions = []int{1}
+var SyncVersions = []int{1, 2}
+
+// SyncVersion is the version of the sync template that a step of this release gives: version 2, which on UPDATE also
+// sets U from K when U is unset and neither column changed, so that a write of the release before to another column
+// of a row that the backfill has not moved yet meets the completeness CHECK of the step (CompleteDefinition; decision
+// on ST-SUP-Q120 (c), orchestrator under the owner's delegation, 2026-11-14).
+const SyncVersion = 2
 
 // syncTemplates are the bodies of the template versions: %[1]s is K and %[2]s is U, each as quote_ident gives it,
 // %[3]s the conversion of NEW.K to the type of U and %[4]s the conversion of NEW.U to the type of K, %[5]s the change
@@ -60,7 +66,8 @@ var SyncVersions = []int{1}
 // nothing (ST-SUP-RC01-OC32). Else the writer marker SchemaStepSetting picks the direction: when it names the change,
 // the writer is the release of the step, which writes only U, and the function sets K from U; when it does not, the
 // writer is the release before, which writes only K, and the function sets U from K, by a conversion that never
-// raises (ST-SUP-RC01-OC33). On UPDATE it sets the other column only when one of the two changed. It refuses a write
+// raises (ST-SUP-RC01-OC33). On UPDATE it sets the other column only when one of the two changed; version 2 also sets
+// U from K when U is unset (decision on ST-SUP-Q120 (c)). It refuses a write
 // that sets both columns to values that differ after the conversion, with a fixed message that holds no row value:
 // an UPDATE that changes both, and an INSERT of the release before that sets U, which has no default
 // (ST-SUP-RC01-OC23, ST-SUP-RC01-OC13; decisions on ST-GEN-Q17 and on finding F3).
@@ -91,6 +98,35 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
+`, 2: `
+BEGIN
+  IF pg_catalog.current_setting('stego.backfill_change', true) = %[5]s AND CURRENT_USER = %[6]s THEN
+    RETURN NEW;
+  END IF;
+  IF pg_catalog.strpos(',' || pg_catalog.current_setting('stego.schema_step', true) || ',', ',' || %[5]s || ',') > 0 THEN
+    IF TG_OP = 'INSERT' THEN
+      NEW.%[1]s := %[4]s;
+    ELSIF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s OR NEW.%[2]s IS DISTINCT FROM OLD.%[2]s THEN
+      IF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s AND NEW.%[2]s IS DISTINCT FROM OLD.%[2]s AND NEW.%[1]s IS DISTINCT FROM %[4]s THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
+      END IF;
+      NEW.%[1]s := %[4]s;
+    ELSIF NEW.%[2]s IS NULL THEN
+      NEW.%[2]s := %[3]s;
+    END IF;
+  ELSIF TG_OP = 'INSERT' THEN
+    IF NEW.%[2]s IS NOT NULL AND NEW.%[2]s IS DISTINCT FROM %[3]s THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
+    END IF;
+    NEW.%[2]s := %[3]s;
+  ELSIF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s OR NEW.%[2]s IS DISTINCT FROM OLD.%[2]s OR NEW.%[2]s IS NULL THEN
+    IF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s AND NEW.%[2]s IS DISTINCT FROM OLD.%[2]s AND NEW.%[2]s IS DISTINCT FROM %[3]s THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
+    END IF;
+    NEW.%[2]s := %[3]s;
+  END IF;
+  RETURN NEW;
+END;
 `}
 
 // Conversion is one conversion of the fixed list: its name, the types of K and U as format_type gives them (both
@@ -101,6 +137,9 @@ END;
 // ST-DECL-INV63 makes total.
 type Conversion struct {
 	Name, From, To, Forward, Back, Guard string
+	// Deparsed is the Guard as pg_get_constraintdef writes it with the search path pg_catalog, with %[1]s for the
+	// column, which CompleteDefinition reads.
+	Deparsed string
 }
 
 // SyncConversions are the conversions of the sync template, the same for each version of SyncVersions. No
@@ -111,7 +150,7 @@ var SyncConversions = func() []Conversion {
 		{Name: "identity", Forward: "%s", Back: "%s"},
 		{Name: "integer-bigint", From: "integer", To: "bigint", Forward: "CAST(%s AS pg_catalog.int8)", Back: "CAST(%s AS pg_catalog.int4)"},
 		{Name: "bigint-integer", From: "bigint", To: "integer", Forward: "CAST(%s AS pg_catalog.int4)", Back: "CAST(%s AS pg_catalog.int8)",
-			Guard: "%s BETWEEN -2147483648 AND 2147483647"},
+			Guard: "%s BETWEEN -2147483648 AND 2147483647", Deparsed: "((%[1]s >= '-2147483648'::integer) AND (%[1]s <= 2147483647))"},
 	}
 	for _, t := range []struct{ format, catalog string }{
 		{"integer", "int4"}, {"bigint", "int8"}, {"numeric", "numeric"}, {"boolean", "bool"}, {"uuid", "uuid"},
@@ -119,7 +158,7 @@ var SyncConversions = func() []Conversion {
 		list = append(list,
 			Conversion{Name: t.catalog + "-text", From: t.format, To: "text", Forward: "CAST(%s AS pg_catalog.text)", Back: "CAST(%s AS pg_catalog." + t.catalog + ")"},
 			Conversion{Name: "text-" + t.catalog, From: "text", To: t.format, Forward: "CAST(%s AS pg_catalog." + t.catalog + ")", Back: "CAST(%s AS pg_catalog.text)",
-				Guard: "pg_catalog.pg_input_is_valid(%s, 'pg_catalog." + t.catalog + "')"})
+				Guard: "pg_catalog.pg_input_is_valid(%s, 'pg_catalog." + t.catalog + "')", Deparsed: "pg_input_is_valid(%[1]s, 'pg_catalog." + t.catalog + "'::text)"})
 	}
 	return list
 }()
@@ -389,12 +428,21 @@ var (
 	syncFill   = regexp.MustCompile(` ELSE ('(?:[^']|'')*'|NULL) END\)`)
 )
 
+// syncMatch is what syncPair finds of a sync function: its columns K and U, its template version, its conversion,
+// and whether it gives the fill value of the change.
+type syncMatch struct {
+	k, u       string
+	version    int
+	conversion Conversion
+	hasFill    bool
+}
+
 // syncPair finds the columns K and U, the version and the conversion for which SyncSource gives source with the
 // backfill role owner, among the pairs that pairs gives; ok is false when none does.
-func syncPair(source, owner string, pairs [][2]string, columns map[string]tableColumn) (k, u string, version int, c Conversion, ok bool) {
+func syncPair(source, owner string, pairs [][2]string, columns map[string]tableColumn) (syncMatch, bool) {
 	change := syncChange.FindStringSubmatch(source)
 	if change == nil {
-		return "", "", 0, Conversion{}, false
+		return syncMatch{}, false
 	}
 	s := Sync{Change: change[1], Owner: owner}
 	if fill := syncFill.FindStringSubmatch(source); fill != nil && fill[1] != "NULL" {
@@ -411,12 +459,12 @@ func syncPair(source, owner string, pairs [][2]string, columns map[string]tableC
 					continue
 				}
 				if text, err := SyncSource(v, s); err == nil && text == source {
-					return pair[0], pair[1], v, conv, true
+					return syncMatch{k: pair[0], u: pair[1], version: v, conversion: conv, hasFill: s.HasFill}, true
 				}
 			}
 		}
 	}
-	return "", "", 0, Conversion{}, false
+	return syncMatch{}, false
 }
 
 // syncTrigger is a trigger that the manifest does not name, as the step rules read it.
@@ -431,11 +479,11 @@ type syncTrigger struct {
 }
 
 // acceptSync tells whether the trigger n of the entity table t (rel) is the sync trigger of a later step in its strict
-// template form (ST-SUP-RP15-LC02 rules 2 to 6), and gives the oid of its function and its columns K and U. Rule 1,
+// template form (ST-SUP-RP15-LC02 rules 2 to 6), and gives the oid of its function and what syncPair finds of it. Rule 1,
 // the scope, and rule 7 are the caller's. keys are the primary key and the unique indexes of the table, and used the
 // columns that another sync trigger of the table moves.
 func acceptSync(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, steps *stepState, columns map[string]tableColumn,
-	keys []stepKey, used map[string]bool) (uint32, [2]string, bool, error) {
+	keys []stepKey, used map[string]bool) (uint32, syncMatch, bool, error) {
 	var tr syncTrigger
 	err := tx.QueryRowContext(ctx, `SELECT t.tgtype, t.tgenabled::text, t.tgparentid,
   t.tgqual IS NULL AND t.tgnargs = 0,
@@ -451,18 +499,18 @@ func acceptSync(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, 
 		&tr.attrs, &tr.function, &tr.language, &tr.source, &tr.config, &tr.definer, &tr.fits, &tr.strict, &tr.retset, &tr.owner,
 		&tr.schema, &tr.bound)
 	if err != nil {
-		return 0, [2]string{}, false, err
+		return 0, syncMatch{}, false, err
 	}
 	// Rule 5: BEFORE, FOR EACH ROW, on INSERT OR UPDATE only, no WHEN condition, no argument, enabled, no clone.
 	if tr.tgtype != triggerRow|triggerBefore|triggerInsert|triggerUpdate || !tr.plain || tr.parent != 0 ||
 		(tr.enabled != "O" && tr.enabled != "A") {
-		return 0, [2]string{}, false, nil
+		return 0, syncMatch{}, false, nil
 	}
 	// Rule 4: plpgsql, SECURITY INVOKER, only the setting SyncConfig, returns trigger with no argument, volatile, not
 	// strict, owned by the owner of the manifest, in the held schema of the sync functions, bound to this trigger only.
 	if steps.schema == "" || steps.owner == "" || tr.language != "plpgsql" || tr.definer || tr.config != SyncConfig || !tr.fits ||
 		tr.strict || tr.retset || tr.owner != steps.owner || tr.schema != steps.schema || tr.bound != 1 {
-		return 0, [2]string{}, false, nil
+		return 0, syncMatch{}, false, nil
 	}
 	// Rule 2: the pair. K is a column of the manifest and U a column that it does not list.
 	listed := map[string]bool{}
@@ -473,7 +521,7 @@ func acceptSync(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, 
 	if tr.attrs != "" {
 		attrs := strings.Split(tr.attrs, "\x1f")
 		if len(attrs) != 2 {
-			return 0, [2]string{}, false, nil
+			return 0, syncMatch{}, false, nil
 		}
 		pairs = [][2]string{{attrs[0], attrs[1]}, {attrs[1], attrs[0]}}
 	} else {
@@ -497,19 +545,20 @@ func acceptSync(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, 
 		candidates = append(candidates, pair)
 	}
 	// Rules 3, 4 and 6: the body is the template of a version of this release, for the pair and one conversion.
-	k, u, _, _, ok := syncPair(tr.source, steps.owner, candidates, columns)
+	match, ok := syncPair(tr.source, steps.owner, candidates, columns)
+	k, u := match.k, match.u
 	if !ok {
-		return 0, [2]string{}, false, nil
+		return 0, syncMatch{}, false, nil
 	}
 	// QuoteIdent must be the quote_ident of the server, so a keyword list that falls behind refuses the trigger.
 	var qk, qu string
 	if err := tx.QueryRowContext(ctx, `SELECT pg_catalog.quote_ident($1), pg_catalog.quote_ident($2)`, k, u).Scan(&qk, &qu); err != nil {
-		return 0, [2]string{}, false, err
+		return 0, syncMatch{}, false, err
 	}
 	if qk != QuoteIdent(k) || qu != QuoteIdent(u) {
-		return 0, [2]string{}, false, nil
+		return 0, syncMatch{}, false, nil
 	}
-	return tr.function, [2]string{k, u}, true, nil
+	return tr.function, match, true, nil
 }
 
 // acceptForeignKey tells whether the foreign key n of the entity table t (rel) is the foreign key of a later add step
@@ -563,6 +612,43 @@ func acceptForeignKey(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n st
 		return len(ownCols) == 2 && ownCols[1] == "id" && len(fromCols) == 2 && fromCols[0] == ownCols[0] && ownCols[0] == refCols[0], nil
 	}
 	return false, nil
+}
+
+// CompleteName gives the name of the completeness CHECK of the step at expand that adds the column column to the
+// table: <table>_<column>_complete, cut as CheckName cuts a name.
+func CompleteName(table, column string) string {
+	n := table + "_" + column + "_complete"
+	if len(n) <= 63 {
+		return n
+	}
+	return n[:46] + "_" + digestPrefix(n)
+}
+
+// CompleteExpression gives the expression of the completeness CHECK of a step whose sync trigger moves K into U by
+// the conversion c: U is set wherever K is set, (U IS NOT NULL) OR (K IS NULL). Where the conversion can fail and
+// the change declares no fill value (hasFill false), the forward conversion gives NULL for a value that does not
+// convert, so the CHECK also holds where the guard of c fails. The step adds it NOT VALID with its sync trigger, and
+// the backfill validates it before it marks the change complete, so that VALIDATE CONSTRAINT, which reads every row
+// past row-level security, proves that no row of any tenant was left unmoved (decision on ST-SUP-Q120 (c),
+// orchestrator under the owner's delegation, 2026-11-14).
+func CompleteExpression(k, u string, c Conversion, hasFill bool) string {
+	qk, qu := QuoteIdent(k), QuoteIdent(u)
+	expression := "(" + qu + " IS NOT NULL) OR (" + qk + " IS NULL)"
+	if c.Guard != "" && !hasFill {
+		expression += " OR (NOT " + fmt.Sprintf(c.Guard, qk) + ")"
+	}
+	return expression
+}
+
+// CompleteDefinition gives the completeness CHECK of CompleteExpression as pg_get_constraintdef writes it with the
+// search path pg_catalog, with no NOT VALID.
+func CompleteDefinition(k, u string, c Conversion, hasFill bool) string {
+	qk, qu := QuoteIdent(k), QuoteIdent(u)
+	definition := "(" + qu + " IS NOT NULL) OR (" + qk + " IS NULL)"
+	if c.Guard != "" && !hasFill {
+		definition += " OR (NOT " + fmt.Sprintf(c.Deparsed, qk) + ")"
+	}
+	return "CHECK ((" + definition + "))"
 }
 
 // CheckName gives the name that PostgreSQL and the generator give the CHECK of the column of a table:
