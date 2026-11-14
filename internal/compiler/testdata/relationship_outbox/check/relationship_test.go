@@ -51,7 +51,6 @@ import (
 const (
 	issuer   = "https://issuer.todo.test/realms/r1"
 	audience = "todo-svc"
-	password = "relationship-check"
 	basePath = "/api/todo/v1"
 )
 
@@ -430,6 +429,12 @@ func start(t *testing.T) *service {
 	t.Cleanup(func() { s.admin.Close() })
 	_, err = s.admin.Exec(tenancy.Roles)
 	must(t, err)
+	// The roles belong to the whole server, so their login password is new for each run, from crypto/rand: a role
+	// that a killed run leaves behind cannot be logged in to with a password that the source holds.
+	secret := make([]byte, 16)
+	_, err = rand.Read(secret)
+	must(t, err)
+	password := hex.EncodeToString(secret)
 	for _, role := range []string{stegoruntime.RuntimeRole, stegoruntime.WorkerRole, stegoruntime.RelayRole, stegoruntime.OwnerRole} {
 		_, err := s.admin.Exec("ALTER ROLE " + quote(role) + " LOGIN PASSWORD '" + password + "'")
 		must(t, err)
