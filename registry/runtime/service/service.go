@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"google.golang.org/grpc"
@@ -139,7 +140,8 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	if svc.pool, err = tenant.Open(ctx, pools); err != nil {
 		return nil, err
 	}
-	if err := checkSchema(ctx, svc.pool, p); err != nil {
+	classes, err := checkSchema(ctx, svc.pool, p)
+	if err != nil {
 		return nil, err
 	}
 	if svc.auditDB, err = tenant.Open(ctx, pools); err != nil {
@@ -172,6 +174,10 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	}
 	if svc.probes, err = probe.Start(svc.telemetry, nil); err != nil {
 		return nil, err
+	}
+	// A database that does not satisfy the schema manifest is an alert, not a refusal (F10, owner, 2026-11-13).
+	for _, class := range classes {
+		svc.probes.SchemaMismatch(ctx, class)
 	}
 	source := authn.KeySource{URL: s.KeysURL, File: s.KeysFile, CAFile: s.CAFile}
 	switch {
@@ -212,49 +218,72 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	return svc, nil
 }
 
-// checkSchema refuses a database that does not hold the schema manifest of the service, of the audit record, of the outbox, of the authorization runtime and of the key table
-// (ST-SUP-RP14-LC06): it reads the catalog as the runtime role before New opens anything else, so a refused start
-// writes nothing and serves no request. The failure record of the process holds no error text, so it logs the
-// faults, which name only objects of the catalog. The audit triggers' functions are those that the audit DDL makes
-// for the declared anchor period (Parts.Workers.AnchorPeriod), and audit_maintain is the one of the declared retention
+// checkSchema checks the database against the schema manifest of the service, of the audit record, of the outbox, of
+// the authorization runtime and of the key table (ST-SUP-RP14-LC06): it reads the catalog as the runtime role before
+// New opens anything else. A database that does not satisfy the manifest is an alert and not a refusal (decision on
+// finding F10 of the schema-change research, owner, 2026-11-13): checkSchema logs each fault on a line of its own at
+// the level error, with its class (manifest.FaultClass), which names only objects of the catalog and no row value,
+// and gives the classes of the faults, each once, so that New emits the probe observation schema.manifest.mismatch
+// for each class and starts; the migration job refuses the same database. Any other failure of the check,
+// and parts that give no manifest, it refuses. The audit triggers' functions are those that the audit DDL makes for
+// the declared anchor period (Parts.Workers.AnchorPeriod), and audit_maintain is the one of the declared retention
 // (Parts.Workers.RetentionMonths).
-func checkSchema(ctx context.Context, db *sql.DB, p Parts) error {
+func checkSchema(ctx context.Context, db *sql.DB, p Parts) ([]string, error) {
 	// The check runs as the runtime role, which alone may run audit_maintain.
 	var runtimeRole string
 	if err := db.QueryRowContext(ctx, "SELECT current_user").Scan(&runtimeRole); err != nil {
-		return fmt.Errorf("service: read the runtime role: %w", err)
+		return nil, fmt.Errorf("service: read the runtime role: %w", err)
 	}
+	want, err := joinedManifest(p, runtimeRole)
+	if err != nil {
+		return nil, err
+	}
+	err = manifest.Check(ctx, db, want)
+	var mismatch *manifest.Mismatch
+	if errors.As(err, &mismatch) {
+		var classes []string
+		for _, fault := range mismatch.Faults {
+			class := manifest.FaultClass(fault)
+			slog.ErrorContext(ctx, "service: the database does not satisfy the schema manifest; the service starts, and the migration job refuses it",
+				"class", class, "fault", fault)
+			if !slices.Contains(classes, class) {
+				classes = append(classes, class)
+			}
+		}
+		return classes, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("service: %w", err)
+	}
+	return nil, nil
+}
+
+// joinedManifest is the schema manifest that New checks at the start and the migration job checks at its end: the
+// manifest of the declared parts (Parts.Schema) joined with the manifests of the audit record, the outbox, the
+// authorization runtime and the key table for the runtime role runtimeRole, owned by the owner role of the parts.
+func joinedManifest(p Parts, runtimeRole string) (manifest.Manifest, error) {
 	record, err := audit.Manifest(audit.Config{AnchorPeriod: p.Workers.AnchorPeriod, RetentionMonths: p.Workers.RetentionMonths, RuntimeRole: runtimeRole})
 	if err != nil {
-		return fmt.Errorf("service: the manifest of the audit record: %w", err)
+		return manifest.Manifest{}, fmt.Errorf("service: the manifest of the audit record: %w", err)
 	}
 	queue, err := outbox.Manifest(p.OutboxRelayRole, runtimeRole, p.WorkerRole)
 	if err != nil {
-		return fmt.Errorf("service: the manifest of the outbox: %w", err)
+		return manifest.Manifest{}, fmt.Errorf("service: the manifest of the outbox: %w", err)
 	}
 	// The outbox relay role owns the state hook functions of the authorization runtime too, so its manifest is in
 	// the check, or the confined relay role would own functions that the manifest does not name.
 	revocations, err := authz.Manifest(p.AuthzSchema, runtimeRole, p.RelayRole, p.OutboxRelayRole, p.WorkerRole)
 	if err != nil {
-		return fmt.Errorf("service: the manifest of the authorization runtime: %w", err)
+		return manifest.Manifest{}, fmt.Errorf("service: the manifest of the authorization runtime: %w", err)
 	}
 	// The migration job makes the key table in idempotency.KeySchema, where Wrap and Purge name it.
 	keys, err := idempotency.Manifest(idempotency.KeySchema, p.PurgeRole, runtimeRole)
 	if err != nil {
-		return fmt.Errorf("service: the manifest of the key table: %w", err)
+		return manifest.Manifest{}, fmt.Errorf("service: the manifest of the key table: %w", err)
 	}
 	want := manifest.Join(p.Schema, record, queue, revocations, keys)
 	want.Owner = p.OwnerRole
-	err = manifest.Check(ctx, db, want)
-	var mismatch *manifest.Mismatch
-	if errors.As(err, &mismatch) {
-		slog.ErrorContext(ctx, "service: the database does not satisfy the schema manifest, and the service does not start",
-			"faults", mismatch.Faults)
-	}
-	if err != nil {
-		return fmt.Errorf("service: %w", err)
-	}
-	return nil
+	return want, nil
 }
 
 // reach checks that SpiceDB answers its health check within ReachTimeout, so a service whose SpiceDB cannot be

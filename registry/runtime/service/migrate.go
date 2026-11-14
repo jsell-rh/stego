@@ -15,6 +15,7 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/audit/auditsink"
 	"github.com/jsell-rh/stego/registry/runtime/idempotency"
 	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/otel"
 	"github.com/jsell-rh/stego/registry/runtime/probe"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
@@ -41,6 +42,7 @@ const (
 	StepRuntimeGrants       = "runtime_grants"
 	StepAuditPartitions     = "audit_partitions"
 	StepSchemaAgain         = "authorization_schema_again"
+	StepManifest            = "manifest"
 	StepBackfill            = "backfill"
 )
 
@@ -73,6 +75,11 @@ type Migration struct {
 	// WriteSchema writes the authorization schema of the release to SpiceDB, which refuses a schema that removes a
 	// definition or a relation that has relationships (ST-SUP-RC29-OC23).
 	WriteSchema func(ctx context.Context, conn grpc.ClientConnInterface) error
+	// Parts are the declared parts of the service, which service.New takes: the job checks the database against the
+	// same joined schema manifest at its end (StepManifest), and refuses a database that does not satisfy it, as the
+	// start of a pod only alerts (decision on finding F10 of the schema-change research, owner, 2026-11-13, and the
+	// orchestrator under the owner's delegation, 2026-11-14).
+	Parts *Parts
 	// Grants are the GRANT statements of the runtime role, each without its grantee.
 	Grants []string
 	// TenantSchema is the schema of the tenant list stego_tenants, which the tables step makes with the migration
@@ -163,8 +170,8 @@ const (
 // on a database that it made, so the job runs on every release.
 func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	if m.OwnerRole == "" || m.RuntimeRole == "" || m.WorkerRole == "" || m.PurgeRole == "" || m.OutboxRelayRole == "" || m.TenantConfig == nil || m.LedgerCheck == nil || m.Ledger == nil ||
-		m.WriteSchema == nil || m.Outbox == "" || m.Audit == "" || m.Authorization == "" {
-		return failed(StepSettings, errors.New("the migration job needs its roles, the adapter, the ledger, the migration texts and the schema writer"))
+		m.WriteSchema == nil || m.Outbox == "" || m.Audit == "" || m.Authorization == "" || m.Parts == nil {
+		return failed(StepSettings, errors.New("the migration job needs its roles, the adapter, the ledger, the migration texts, the schema writer and the declared parts"))
 	}
 	keys, err := idempotency.Migration(m.PurgeRole, m.RuntimeRole)
 	if err != nil {
@@ -279,10 +286,28 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	if err := step(StepSchemaAgain, func() error { return m.WriteSchema(ctx, spice) }); err != nil {
 		return err
 	}
+	// After the texts, which make again the objects that they own, and before the backfills, the job refuses a
+	// database that does not satisfy the joined schema manifest of the service (F10).
+	if err := step(StepManifest, func() error { return checkManifest(ctx, conn, m) }); err != nil {
+		return err
+	}
 	// The backfill runs after the job lock is released: two jobs of the database share it under the lease of each
 	// change, so one moves rows and the other waits for the lease (ST-GEN-UC13-R01).
 	unlock()
 	return step(StepBackfill, func() error { return runBackfills(parent, db, m) })
+}
+
+// checkManifest checks the catalog of the database on the job's one connection (manifest.CheckCatalog), as the
+// owner role with the search path public, pg_temp, against the schema manifest that service.New checks
+// (joinedManifest) for the runtime role of m. The checks of the session, its search path and its
+// session_replication_role, are those of the service's own sessions, which the start check reads. A
+// mismatch is a *manifest.Mismatch, which names each fault; the failure record names the step only.
+func checkManifest(ctx context.Context, conn *sql.Conn, m Migration) error {
+	want, err := joinedManifest(*m.Parts, m.RuntimeRole)
+	if err != nil {
+		return err
+	}
+	return manifest.CheckCatalog(ctx, conn, want)
 }
 
 // BackfillLeaseName gives the lease of the backfill of a schema change: stego.backfill.<change ID>

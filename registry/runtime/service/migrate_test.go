@@ -58,7 +58,7 @@ func TestMigrate(t *testing.T) {
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
 		want := []string{StepOwnerRole, StepJobLock, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepOutboxSequence, StepAuditTables, StepAuditSink,
-			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain, StepBackfill}
+			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain, StepManifest, StepBackfill}
 		run := func(m Migration) (*steps, error) {
 			s := &steps{backends: map[int]bool{}}
 			stepped = s.record(t)
@@ -1034,6 +1034,43 @@ func TestMigrateLocks(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP14-LC03-T13 The migration job refuses at its end a database that does not satisfy the schema manifest, which the start of a pod only alerts", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatal(err)
+		}
+		// The same change that ST-SUP-RP14-LC06-T01 starts on with an alert. No migration text makes the column
+		// again, so the database still does not satisfy the manifest when the job ends its texts.
+		if _, err := f.admin.Exec("ALTER TABLE public.orders ALTER COLUMN status TYPE character varying(20)"); err != nil {
+			t.Fatal(err)
+		}
+		var steps []string
+		stepped = func(step string, _ *sql.Conn) { steps = append(steps, step) }
+		defer func() { stepped = nil }()
+		err := Migrate(context.Background(), settings, f.migration(nil))
+		if Stage(err) != "migrate."+StepManifest || !errors.Is(err, manifest.ErrNotSatisfied) ||
+			!strings.Contains(err.Error(), "table public.orders: column status has the type character varying(20)") {
+			t.Fatalf("the job on a database with another column type gave %v at the stage %q, want the refusal of the step %s that names the column", err, Stage(err), StepManifest)
+		}
+		if slices.Contains(steps, StepBackfill) || len(steps) == 0 || steps[len(steps)-1] != StepManifest {
+			t.Fatalf("the refused job ran the steps %v, want it to end at %s, before %s", steps, StepManifest, StepBackfill)
+		}
+		// The parts are needed: a job with none is refused at the start.
+		bare := f.migration(nil)
+		bare.Parts = nil
+		if err := Migrate(context.Background(), settings, bare); Stage(err) != "migrate."+StepSettings {
+			t.Fatalf("the job with no declared parts gave %v at the stage %q, want %s", err, Stage(err), StepSettings)
+		}
+		if _, err := f.admin.Exec("ALTER TABLE public.orders ALTER COLUMN status TYPE text"); err != nil {
+			t.Fatal(err)
+		}
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatalf("the job after the column was made again gave %v", err)
+		}
+	})
+
 	t.Run("ST-SUP-RP14-LC03-T08 Two jobs started at once run one after the other, and both pass", func(t *testing.T) {
 		endpoint, key := startSpiceDB(t)
 		f := newFixture(t)
@@ -1344,8 +1381,21 @@ DROP POLICY IF EXISTS orders_tenant ON public.orders;
 CREATE POLICY orders_tenant ON public.orders USING (tenant_id = current_setting('app.tenant', true))
   WITH CHECK (tenant_id = current_setting('app.tenant', true));`
 
-// migration is the migration job of the test service, with a schema writer that writes into calls.
+// ordersManifest is the schema manifest of the orders table of ordersDDL.
+func ordersManifest() manifest.Manifest {
+	return manifest.Manifest{Tables: []manifest.Table{{Schema: "public", Name: "orders", RowSecurity: true,
+		Indexes: []manifest.Index{{Name: "orders_pkey", Columns: []string{"tenant_id", "id"}}},
+		Columns: []manifest.Column{{Name: "tenant_id", Type: "text", NotNull: true}, {Name: "status", Type: "text", NotNull: true},
+			{Name: "version", Type: "bigint", Default: "1"}, {Name: "authz_token", Type: "text", Default: "''::text"}},
+		Policies: []manifest.Policy{{Name: "orders_tenant", Command: "*", Using: "(tenant_id = current_setting('app.tenant'::text, true))",
+			WithCheck: "(tenant_id = current_setting('app.tenant'::text, true))"}}}}}
+}
+
+// migration is the migration job of the test service, with a schema writer that writes into calls. Its declared
+// parts have the manifest of the orders table, which the job checks at its end.
 func (f *fixture) migration(calls *int) Migration {
+	declared := parts(nil, nil)
+	declared.Schema = ordersManifest()
 	t := f.t
 	queue, err := outbox.Migration(f.outboxRelay, f.runtime, f.worker)
 	if err != nil {
@@ -1361,6 +1411,7 @@ func (f *fixture) migration(calls *int) Migration {
 	}
 	return Migration{
 		OwnerRole: f.owner, RuntimeRole: f.runtime, WorkerRole: f.worker, PurgeRole: f.purge, OutboxRelayRole: f.outboxRelay, TenantConfig: tenantConfig(nil),
+		Parts: &declared,
 		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error {
 			var foreign bool
 			if err := conn.QueryRowContext(ctx, `SELECT to_regclass('public.foreign_orders') IS NOT NULL`).Scan(&foreign); err != nil {

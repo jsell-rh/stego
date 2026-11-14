@@ -528,7 +528,26 @@ const Timeout = 30 * time.Second
 // states it, and each rule, extra permissive policy and extra trigger that it does not allow (ST-SUP-RC01-OC12). It reads only the catalog, so the runtime
 // role of the service can run it, and it writes nothing. An invalid manifest, or a catalog it cannot read, is an
 // error too, so the caller fails closed.
-func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
+// Beginner is a database or one connection of it, on which Check opens its transaction: the main pool of the
+// runtime role at the start of a service, or the one connection of the migration job.
+type Beginner interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+}
+
+func Check(ctx context.Context, db Beginner, m Manifest) (err error) {
+	return check(ctx, db, m, true)
+}
+
+// CheckCatalog is Check with no check of the session: not of its search path and not of its
+// session_replication_role, which are those of the service's own sessions that Check reads at the start of a pod.
+// The migration job runs it on its own connection, as the owner role with its own fixed search path, at its end
+// (decision on finding F10 of the schema-change research, owner, 2026-11-13).
+func CheckCatalog(ctx context.Context, db Beginner, m Manifest) error {
+	return check(ctx, db, m, false)
+}
+
+// check is Check, with the checks of the session when session is set.
+func check(ctx context.Context, db Beginner, m Manifest, session bool) (err error) {
 	if db == nil {
 		return errors.New("manifest: Check needs a database")
 	}
@@ -551,19 +570,21 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		return fmt.Errorf("manifest: read the catalog: %w", err)
 	}
 	var faults []string
-	found, err := checkSearchPath(ctx, tx, m, strings.Split(path, "\x1f"), role)
-	if err != nil {
-		return fmt.Errorf("manifest: read the catalog of the search path: %w", err)
-	}
-	faults = append(faults, found...)
-	// session_replication_role replica or local skips each ordinary trigger, so the triggers of the manifest
-	// would not run in this session or in the sessions of its role.
-	var replication string
-	if err := tx.QueryRowContext(ctx, "SELECT pg_catalog.current_setting('session_replication_role')").Scan(&replication); err != nil {
-		return fmt.Errorf("manifest: read the catalog: %w", err)
-	}
-	if replication != "origin" {
-		faults = append(faults, "the session runs with session_replication_role "+replication+", which skips the triggers")
+	if session {
+		found, err := checkSearchPath(ctx, tx, m, strings.Split(path, "\x1f"), role)
+		if err != nil {
+			return fmt.Errorf("manifest: read the catalog of the search path: %w", err)
+		}
+		faults = append(faults, found...)
+		// session_replication_role replica or local skips each ordinary trigger, so the triggers of the manifest
+		// would not run in this session or in the sessions of its role.
+		var replication string
+		if err := tx.QueryRowContext(ctx, "SELECT pg_catalog.current_setting('session_replication_role')").Scan(&replication); err != nil {
+			return fmt.Errorf("manifest: read the catalog: %w", err)
+		}
+		if replication != "origin" {
+			faults = append(faults, "the session runs with session_replication_role "+replication+", which skips the triggers")
+		}
 	}
 	tables, entities, shared := map[uint32]bool{}, map[uint32]bool{}, map[uint32]bool{}
 	for _, t := range m.Tables {
@@ -609,7 +630,7 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		}
 		faults = append(faults, found...)
 	}
-	found, err = checkNames(ctx, tx, m, named)
+	found, err := checkNames(ctx, tx, m, named)
 	if err != nil {
 		return fmt.Errorf("manifest: read the catalog of the functions: %w", err)
 	}
