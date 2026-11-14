@@ -259,6 +259,18 @@ DO $do$ BEGIN
 	END IF;
 END $do$;
 
+DO $do$ BEGIN
+	-- Before v0.31.0 the relay functions belonged to the shared role stego_outbox_relay. This release has no upgrade
+	-- path from it (ST-SUP-Q121 (b)): the text refuses such a queue with the remedy, before it makes anything, instead
+	-- of failing on a function that it may not replace.
+	IF {{relay_text}} <> 'stego_outbox_relay' AND EXISTS (SELECT 1 FROM pg_catalog.pg_proc AS p
+		JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace JOIN pg_catalog.pg_roles AS r ON r.oid = p.proowner
+		WHERE n.nspname = 'stego_outbox' AND r.rolname = 'stego_outbox_relay') THEN
+		RAISE EXCEPTION 'outbox: the relay functions of stego_outbox belong to the shared role stego_outbox_relay of a runtime before v0.31.0, and this release has no upgrade path from it; as a superuser, run DROP OWNED BY stego_outbox_relay and DROP ROLE stego_outbox_relay in this database, then run the migration job again'
+			USING ERRCODE = 'object_not_in_prerequisite_state';
+	END IF;
+END $do$;
+
 CREATE TABLE IF NOT EXISTS stego_outbox.messages (
 	id uuid PRIMARY KEY,
 	sequence bigint GENERATED ALWAYS AS IDENTITY UNIQUE NOT NULL,

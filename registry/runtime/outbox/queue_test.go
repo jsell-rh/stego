@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
@@ -1564,6 +1565,52 @@ func TestQueueMigration(t *testing.T) {
 		var create bool
 		if err := login.QueryRowContext(ctx, "SELECT has_schema_privilege($1, 'stego_outbox', 'CREATE')", f.relay).Scan(&create); err != nil || create {
 			t.Fatalf("the relay role keeps CREATE on stego_outbox: %v, %v", create, err)
+		}
+	})
+}
+
+func TestSharedRelayRole(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC19-T11 A queue whose relay functions belong to the shared role stego_outbox_relay is refused with the remedy, and passes after it", func(t *testing.T) {
+		f := newMigrationFixture(t)
+		ctx := context.Background()
+		db, err := sql.Open("pgx", pgtest.Database(t, "outbox_shared"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = db.Close() }()
+		// The queue of a runtime before v0.31.0: a relay function of the shared role. The role is of the server,
+		// so it is made only when it is missing, and dropped at the end.
+		if _, err := f.root.ExecContext(ctx, `DO $$ BEGIN CREATE ROLE stego_outbox_relay NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$`); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = f.root.ExecContext(context.Background(), "DROP ROLE IF EXISTS stego_outbox_relay") })
+		for _, statement := range []string{
+			"CREATE SCHEMA stego_outbox",
+			"CREATE FUNCTION stego_outbox.claim(timestamptz, integer, uuid, bigint) RETURNS integer LANGUAGE sql AS 'SELECT 1'",
+			"ALTER FUNCTION stego_outbox.claim(timestamptz, integer, uuid, bigint) OWNER TO stego_outbox_relay",
+		} {
+			if _, err := db.ExecContext(ctx, statement); err != nil {
+				t.Fatalf("%s: %v", statement, err)
+			}
+		}
+		_, err = db.ExecContext(ctx, f.ddl)
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "55000" || !strings.Contains(pgErr.Message, "stego_outbox_relay") ||
+			!strings.Contains(pgErr.Message, "DROP OWNED BY stego_outbox_relay") || !strings.Contains(pgErr.Message, "run the migration job again") {
+			t.Fatalf("the migration on a queue of the shared relay role gave %v, want a refusal (55000) that names stego_outbox_relay and the remedy", err)
+		}
+		var made bool
+		if err := db.QueryRowContext(ctx, "SELECT to_regclass('stego_outbox.messages') IS NOT NULL").Scan(&made); err != nil || made {
+			t.Fatalf("the refused migration made the queue table (%v): %v", made, err)
+		}
+		// The remedy that the refusal names, and the migration passes.
+		for _, statement := range []string{"DROP OWNED BY stego_outbox_relay", "DROP ROLE stego_outbox_relay"} {
+			if _, err := db.ExecContext(ctx, statement); err != nil {
+				t.Fatalf("%s: %v", statement, err)
+			}
+		}
+		if _, err := db.ExecContext(ctx, f.ddl); err != nil {
+			t.Fatalf("the migration after the remedy: %v", err)
 		}
 	})
 }
