@@ -319,7 +319,8 @@ func TestRevocationWait(t *testing.T) {
 		}
 	})
 	t.Run("ST-SUP-RP06-LC24-T02 A waiting call holds no pooled connection", func(t *testing.T) {
-		r := newRevocationEnv(t, 600*time.Millisecond, 10)
+		// The cap of 2 s keeps every wait open while the test samples the pool, from 0.2 s to 0.7 s.
+		r := newRevocationEnv(t, 2*time.Second, 10)
 		location := r.create("u-7@t1", "k-lc24-2", "o5", nil).Response.Header.Get(authz.RevocationLocationHeader)
 		var wg sync.WaitGroup
 		for range 5 {
@@ -327,16 +328,21 @@ func TestRevocationWait(t *testing.T) {
 			go func() { defer wg.Done(); r.status("u-7@t1", location, "wait=5") }()
 		}
 		time.Sleep(200 * time.Millisecond)
-		// Between two reads a wait holds no connection: the pool has no connection in use, apart from a read that
-		// runs at this moment, which is short.
-		busy := 0
-		for range 20 {
-			busy = max(busy, r.pool.Stats().InUse)
+		// Between two reads a wait holds no connection. The five waits poll at the same times, so a sample can see
+		// their five short reads at once; but a wait that held its connection would keep one in use at every
+		// sample. So the pool must have no connection in use at some samples.
+		idle, busy := 0, 0
+		for range 50 {
+			if n := r.pool.Stats().InUse; n == 0 {
+				idle++
+			} else {
+				busy = max(busy, n)
+			}
 			time.Sleep(10 * time.Millisecond)
 		}
 		wg.Wait()
-		if busy > 2 {
-			t.Fatalf("five waits held up to %d pooled connections, want at most the reads that run at one moment", busy)
+		if idle == 0 {
+			t.Fatalf("five waits kept a pooled connection in use at each of 50 samples (up to %d), want none between two reads", busy)
 		}
 	})
 }
