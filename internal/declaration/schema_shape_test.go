@@ -43,6 +43,11 @@ func TestSchemaShape(t *testing.T) {
 			"64 parentheses open":                  shapeSchema("", nested(MaxSchemaNesting)),
 			"64 parentheses open in a caveat body": "caveat cav(n int) {\n\t" + strings.Repeat("(", MaxSchemaNesting) + "n > 0" + strings.Repeat(")", MaxSchemaNesting) + "\n}\n" + shapeSchema("", "own"),
 			"exclusions nested 64 deep":            shapeSchema("", exclusions(MaxSchemaNesting/2)),
+			// Review of PR #302, M3 and L2: the bounds on caveats.
+			"a caveat parameter type 8 deep":               caveatOfType("list", MaxCaveatTypeNesting) + shapeSchema("", "own"),
+			"a map of a list of a map, and types after it": "caveat cav(a map<list<map<int>>>, b list<list<list<list<list<list<list<list<int>>>>>>>>, c map<string>) {\n\ta.size() > 0 && b.size() > 0 && c.size() > 0\n}\n" + shapeSchema("", "own"),
+			"64 caveats":                     caveats(MaxCaveats, 4) + shapeSchema("", "own"),
+			"caveat bodies of 64 KiB in all": caveats(2, MaxCaveatBodyBytes/2) + shapeSchema("", "own"),
 		}
 		for name, source := range accepted {
 			t.Run(name, func(t *testing.T) {
@@ -97,6 +102,54 @@ func TestSchemaShape(t *testing.T) {
 			start := time.Now()
 			_, err := CompileAuthzSchema("authz/schema.zed", []byte(shapeSchema("", strings.Repeat("(", depth)+"own"+strings.Repeat(")", depth))))
 			expectShapeFault(t, err, 6, MaxSchemaNesting)
+			if elapsed := time.Since(start); elapsed > time.Second/4 {
+				t.Fatalf("the refusal took %v, want well under 1 s", elapsed)
+			}
+		})
+		// Review of PR #302, M3: the CEL checker took 16 s on a list type 4000 deep, and ran out of memory at 150000.
+		t.Run("a caveat parameter type 9 deep", func(t *testing.T) {
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(caveatOfType("list", MaxCaveatTypeNesting+1)+shapeSchema("", "own")))
+			expectShapeFault(t, err, 1, MaxCaveatTypeNesting)
+		})
+		t.Run("a map type 9 deep after a closed type", func(t *testing.T) {
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte("caveat cav(a list<list<int>>,\n\tb "+strings.Repeat("map<", MaxCaveatTypeNesting+1)+"int"+strings.Repeat(">", MaxCaveatTypeNesting+1)+") {\n\ta.size() > 0\n}\n"+shapeSchema("", "own")))
+			expectShapeFault(t, err, 2, MaxCaveatTypeNesting)
+		})
+		t.Run("a caveat parameter type of 1 MiB", func(t *testing.T) {
+			source := caveatOfType("list", (MaxSchemaBytes-300)/6) + shapeSchema("", "own")
+			if len(source) > MaxSchemaBytes {
+				t.Fatalf("the schema has %d bytes, more than MaxSchemaBytes", len(source))
+			}
+			start := time.Now()
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(source))
+			expectShapeFault(t, err, 1, MaxCaveatTypeNesting)
+			if elapsed := time.Since(start); elapsed > time.Second/4 {
+				t.Fatalf("the refusal took %v, want well under 1 s", elapsed)
+			}
+		})
+		// Review of PR #302, L2: the CEL compiler took about 0.9 s for each caveat body of 95 KB.
+		t.Run("65 caveats", func(t *testing.T) {
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(caveats(MaxCaveats+1, 4)+shapeSchema("", "own")))
+			expectShapeFault(t, err, 3*MaxCaveats+1, MaxCaveats)
+		})
+		t.Run("caveat bodies of 64 KiB and one byte in all", func(t *testing.T) {
+			source := caveats(1, MaxCaveatBodyBytes/2) + caveats(1, MaxCaveatBodyBytes/2+1) + shapeSchema("", "own")
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(source))
+			expectShapeFault(t, err, 6, MaxCaveatBodyBytes)
+		})
+		t.Run("a caveat body of 64 KiB and one byte with no end", func(t *testing.T) {
+			source := shapeSchema("", "own") + strings.TrimSuffix(caveats(1, MaxCaveatBodyBytes+1), "}\n")
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(source))
+			var fault *SchemaError
+			if !errors.As(err, &fault) || !strings.Contains(fault.Message, fmt.Sprint(MaxCaveatBodyBytes)) {
+				t.Fatalf("got %v, want a fault that names the limit %d", err, MaxCaveatBodyBytes)
+			}
+		})
+		t.Run("ten caveat bodies of 95 KB", func(t *testing.T) {
+			source := caveats(10, 95000) + shapeSchema("", "own")
+			start := time.Now()
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(source))
+			expectShapeFault(t, err, 3, MaxCaveatBodyBytes)
 			if elapsed := time.Since(start); elapsed > time.Second/4 {
 				t.Fatalf("the refusal took %v, want well under 1 s", elapsed)
 			}
@@ -157,6 +210,22 @@ func TestSchemaShape(t *testing.T) {
 // tripleQuoted is a caveat whose body is a CEL comparison with a triple-quoted string over three lines that holds
 // an open brace (review of PR #302, M1).
 const tripleQuoted = "caveat c(s string) {\n\ts == \"\"\"\n{\n\"\"\"\n}\n"
+
+// caveatOfType gives a caveat with one parameter of the type kind nested depth deep, such as list<list<int>>.
+func caveatOfType(kind string, depth int) string {
+	return "caveat cav(a " + strings.Repeat(kind+"<", depth) + "int" + strings.Repeat(">", depth) + ") {\n\ta.size() > 0\n}\n"
+}
+
+// caveats gives n caveats of three lines each, whose bodies have size bytes between their braces: a CEL comparison
+// and spaces. A size of less than 9 gives the comparison alone.
+func caveats(n, size int) string {
+	var b strings.Builder
+	for i := range n {
+		expr := "\n\tn > 0"
+		fmt.Fprintf(&b, "caveat cav%d(n int) {%s%s\n}\n", i, expr, strings.Repeat(" ", max(size-len(expr)-1, 0)))
+	}
+	return b.String()
+}
 
 // nested gives the relation own in depth parentheses.
 func nested(depth int) string {
