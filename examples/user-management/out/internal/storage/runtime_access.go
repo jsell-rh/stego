@@ -39,7 +39,7 @@ var ErrForeignTables = errors.New("the database holds tables of the declaration 
 var declaredTables = []string{"organizations", "users", "org_settings", "activity_entries"}
 
 // CheckLedger reads the database and refuses it, with ErrForeignTables, when its ledger is not a prefix of the
-// migrations of this release, or when it has no ledger and holds a table of the declaration. It writes nothing; the
+// migrations of this release, with rows after them only within their compatible_with sets, or when it has no ledger and holds a table of the declaration. It writes nothing; the
 // migration job calls it before its first write (ST-SUP-RC01-OC41).
 func CheckLedger(ctx context.Context, db Database) error {
 	if ctx == nil || db == nil {
@@ -65,14 +65,10 @@ func CheckLedger(ctx context.Context, db Database) error {
 		if err != nil {
 			return err
 		}
-		registered := orderedMigrations()
-		if len(applied) > len(registered) {
+		// A row after the migrations of this release passes only within its compatible_with set
+		// (ST-SUP-RC01-OC28).
+		if checkLedger(applied, orderedMigrations()) != nil {
 			return ErrForeignTables
-		}
-		for i, row := range applied {
-			if row.Name != registered[i].Name || row.Digest != registered[i].Digest {
-				return ErrForeignTables
-			}
 		}
 		return nil
 	})
