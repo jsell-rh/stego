@@ -296,5 +296,5 @@ var faultSamples = map[string]string{
 	// a trigger, and a constraint named "trigger t".
 	"table public.audit_event: partition public.\"x: column a\": trigger evil is a trigger that the manifest does not name":                          "trigger",
 	"table public.audit_event: partition public.\"x: rule r\": the partition grants a privilege on it or on a column to another role than its owner": "grant",
-	"table public.audit_event: partition public.\"x: policy p\": trigger t is missing":                                                             "policy",
+	"table public.audit_event: partition public.\"x: policy p\": trigger t is missing":                                                               "policy",
 }
