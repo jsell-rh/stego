@@ -186,6 +186,9 @@ type fakeSpiceDB struct {
 	decisions int
 	// refuseDeletes makes the fake refuse each delete with INVALID_ARGUMENT, which the relay parks.
 	refuseDeletes bool
+	// hold, when it is not nil, makes each write wait until it is closed, so a test fixes the moment of a delivery
+	// without a race against the start of the relay.
+	hold chan struct{}
 }
 
 func (f *fakeSpiceDB) token() string {
@@ -286,6 +289,16 @@ func (f *fakeSpiceDB) WriteRelationships(ctx context.Context, request *v1.WriteR
 			c.deletes = append(c.deletes, r)
 		default:
 			return nil, status.Error(codes.InvalidArgument, "the fake takes TOUCH and DELETE only")
+		}
+	}
+	f.mu.Lock()
+	hold := f.hold
+	f.mu.Unlock()
+	if hold != nil {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
 	c.committed = f.committed(append(append([]relationship{}, c.touches...), c.deletes...), nil)
@@ -899,17 +912,26 @@ func TestRevocationWiring(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RC29-OC19-T01 Prefer wait returns at the delivery, and the cap cuts a longer wait", func(t *testing.T) {
-		stopped := make(chan func(), 1)
-		go func() { time.Sleep(time.Second); stopped <- s.startRelay(t) }()
-		r := s.do(t, &alice, http.MethodGet, paths["t1/"+alice.subject], "", "Prefer", "wait=2")
-		stop := <-stopped
-		if r.state(t) != "complete" || r.header.Get("Preference-Applied") != "wait=2" || r.took < 900*time.Millisecond || r.took > 2*time.Second {
-			t.Fatalf("a wait of 2 s with the relay from 1 s answered %v %s after %s, want complete before 2 s with Preference-Applied: wait=2", r.header, r.body, r.took)
+		// The relay runs before the wait starts, but the fake holds its write until 300 ms into the wait, so the
+		// delivery cannot come before then, and the start of the relay under load is not in the time measured.
+		// The answer must come at the delivery: complete, after the release and before the cap of 3 s ends.
+		hold := make(chan struct{})
+		s.fake.mu.Lock()
+		s.fake.hold = hold
+		s.fake.mu.Unlock()
+		defer func() { s.fake.mu.Lock(); s.fake.hold = nil; s.fake.mu.Unlock() }()
+		stop := s.startRelay(t)
+		go func() { time.Sleep(300 * time.Millisecond); close(hold) }()
+		r := s.do(t, &alice, http.MethodGet, paths["t1/"+alice.subject], "", "Prefer", "wait=3")
+		if r.state(t) != "complete" || r.header.Get("Preference-Applied") != "wait=3" || r.took < 250*time.Millisecond || r.took >= 3*time.Second {
+			t.Fatalf("a wait of 3 s with the delivery from 300 ms answered %v %s after %s, want complete before the cap with Preference-Applied: wait=3", r.header, r.body, r.took)
 		}
 		stop()
+		// With no relay, a wait of 30 s ends at the cap of 3 s. The upper bound has headroom for load, and stays
+		// below the default cap of 10 s, which a cap setting not passed to the runtime would give.
 		_, created := s.create(t, alice, "k-oc19-1")
 		r = s.do(t, &alice, http.MethodGet, location(t, created), "", "Prefer", "wait=30")
-		if r.state(t) != "pending" || r.header.Get("Preference-Applied") != "wait=3" || r.took < 2500*time.Millisecond || r.took > 6*time.Second {
+		if r.state(t) != "pending" || r.header.Get("Preference-Applied") != "wait=3" || r.took < 2500*time.Millisecond || r.took > 9*time.Second {
 			t.Fatalf("a wait of 30 s with no relay answered %v %s after %s, want pending after the cap of 3 s with Preference-Applied: wait=3", r.header, r.body, r.took)
 		}
 	})
