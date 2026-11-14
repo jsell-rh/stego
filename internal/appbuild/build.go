@@ -367,8 +367,8 @@ func recordModuleSources(modules []Module, cache *ModuleCacheRecord) {
 			continue
 		}
 		for _, cached := range cache.Modules {
-			if cached.Source == RuntimeFolderSource && cached.Path == current.Path && cached.Version == current.Version && cached.Sum == current.Sum {
-				current.Source = RuntimeFolderSource
+			if runtimeSource(cached.Source) && cached.Path == current.Path && cached.Version == current.Version && cached.Sum == current.Sum {
+				current.Source = cached.Source
 			}
 		}
 	}

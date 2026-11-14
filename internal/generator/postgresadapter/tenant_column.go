@@ -86,3 +86,18 @@ func runtimePrivileges(ctx gen.Context, entity types.Entity) []string {
 	}
 	return []string{"SELECT", "INSERT", "UPDATE", "DELETE"}
 }
+
+// TenantRowSecurity gives the row-level security of the table of one owned entity: it enables and forces row-level
+// security, drops the tenant policy and creates it again, with USING and WITH CHECK that compare the tenant column
+// key with the tenant setting of the transaction (ST-SUP-RC27-OC03). The tenancy component writes it for each owned
+// entity of the baseline in its migration, and the step that adds an owned entity writes it after the table, so both
+// give the same text for one table.
+func TenantRowSecurity(entity, key string) string {
+	setting := "pg_catalog.current_setting('app.tenant', true)"
+	table := "public." + sqlIdentifier(tableName(entity))
+	column := sqlIdentifier(key)
+	return fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY;\n", table) +
+		fmt.Sprintf("ALTER TABLE %s FORCE ROW LEVEL SECURITY;\n", table) +
+		fmt.Sprintf("DROP POLICY IF EXISTS %s ON %s;\n", TenantPolicy, table) +
+		fmt.Sprintf("CREATE POLICY %s ON %s USING (%s = %s) WITH CHECK (%s = %s);\n", TenantPolicy, table, column, setting, column, setting)
+}

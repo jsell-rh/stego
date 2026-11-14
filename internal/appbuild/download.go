@@ -80,7 +80,7 @@ const RuntimeModule = "github.com/jsell-rh/stego/registry/runtime"
 // zip hash fixes it. A test holds this table equal to the archetypes'
 // pins; a moved pin changes it in the same change (ST-BLD-UC02-R05).
 var runtimePins = map[string]string{
-	"v0.89.0": "h1:GHE/icGqCNLEM+Ru5mXwcfNIq2FfRJtuwlJD9e2Ve9c=",
+	"v0.91.0": "h1:fuAKmV2gzUJE+nUM8z6WZ0K+la5ZlRijirN09QM54cU=",
 }
 
 // RuntimePins gives a copy of the runtime pins that this binary trusts, by
@@ -269,6 +269,20 @@ const maxGoModBytes = 1 << 20
 // it (ST-BLD-UC02-R05).
 const RuntimeFolderSource = "source:" + RuntimeFolder
 
+// RuntimeCheckoutSource names the runtime folder registry/runtime of a STEGO
+// checkout that --runtime-folder names as the source of a module. Like
+// RuntimeFolderSource, only the runtime pin can have it, and only when the
+// folder hashes to the pin that the binary carries. A user project holds no
+// runtime folder, so it builds with no published runtime tag (F7 (b),
+// ST-BLD-Q02).
+const RuntimeCheckoutSource = "checkout:" + RuntimeFolder
+
+// runtimeSource tells whether source names a runtime folder as the source of
+// the runtime pin: of the source revision or of a STEGO checkout.
+func runtimeSource(source string) bool {
+	return source == RuntimeFolderSource || source == RuntimeCheckoutSource
+}
+
 // DownloadOptions selects the source revision and the new cache directory.
 type DownloadOptions struct {
 	Source   string
@@ -277,6 +291,10 @@ type DownloadOptions struct {
 	Target   string
 	Go       string
 	Output   string
+	// RuntimeFolder is the runtime folder registry/runtime of a STEGO
+	// checkout, for a source that holds no runtime folder. Empty when the
+	// source revision's own folder or the module proxy supplies the pin.
+	RuntimeFolder string
 }
 
 // Download fills a new directory with the module download cache for one
@@ -356,9 +374,28 @@ func Download(ctx context.Context, options DownloadOptions) (*ModuleCacheRecord,
 	if err != nil {
 		return nil, err
 	}
-	served, err := stageRuntimeFolder(ctx, filepath.Join(snapshot, filepath.FromSlash(RuntimeFolder)), pin, sums, modSums, filepath.Join(root, "runtime-proxy"), filepath.Join(root, "tmp"), defaultRuntimeTrust())
+	folder, folderSource := filepath.Join(snapshot, filepath.FromSlash(RuntimeFolder)), RuntimeFolderSource
+	if o.RuntimeFolder != "" {
+		// A STEGO checkout's runtime folder supplies the pin only for a source
+		// that has none of its own, and only when go.mod requires the pin; it
+		// passes every check of the source revision's folder.
+		if _, err := os.Lstat(folder); !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("--runtime-folder %s: the source revision holds its own runtime folder %s; expected no --runtime-folder", o.RuntimeFolder, RuntimeFolder)
+		}
+		if pin == nil {
+			return nil, fmt.Errorf("--runtime-folder %s: go.mod requires no runtime library %s; expected no --runtime-folder", o.RuntimeFolder, RuntimeModule)
+		}
+		if _, err := os.Lstat(filepath.Join(o.RuntimeFolder, "go.mod")); err != nil {
+			return nil, fmt.Errorf("--runtime-folder %s: expected the runtime folder %s of a STEGO checkout, with its go.mod", o.RuntimeFolder, RuntimeFolder)
+		}
+		folder, folderSource = o.RuntimeFolder, RuntimeCheckoutSource
+	}
+	served, err := stageRuntimeFolder(ctx, folder, pin, sums, modSums, filepath.Join(root, "runtime-proxy"), filepath.Join(root, "tmp"), defaultRuntimeTrust())
 	if err != nil {
 		return nil, err
+	}
+	if o.RuntimeFolder != "" && served == nil {
+		return nil, fmt.Errorf("--runtime-folder %s: the folder supplies no runtime pin", o.RuntimeFolder)
 	}
 	if served != nil {
 		env, err = withRuntimeProxy(env, filepath.Join(root, "runtime-proxy"))
@@ -384,7 +421,7 @@ func Download(ctx context.Context, options DownloadOptions) (*ModuleCacheRecord,
 	for index := range modules {
 		modules[index].Source = ProxySource
 		if served != nil && modules[index].Path == served.path && modules[index].Version == served.version {
-			modules[index].Source = RuntimeFolderSource
+			modules[index].Source = folderSource
 		}
 	}
 	download, _, err := inventory(filepath.Join(cacheRoot, "cache", "download"), maxFiles, maxBytes)
@@ -851,7 +888,7 @@ func validateModuleCacheRecord(record *ModuleCacheRecord) error {
 		if module.Check(cached.Path, cached.Version) != nil || !validModuleSum(cached.Sum) {
 			return fmt.Errorf("module cache record lists an invalid module %s %s", cached.Path, cached.Version)
 		}
-		if cached.Source != ProxySource && (cached.Source != RuntimeFolderSource || cached.Path != RuntimeModule) {
+		if cached.Source != ProxySource && (!runtimeSource(cached.Source) || cached.Path != RuntimeModule) {
 			return fmt.Errorf("module cache record names the source %q for %s %s; only the runtime library can come from %s", cached.Source, cached.Path, cached.Version, RuntimeFolder)
 		}
 		if index > 0 {
@@ -943,6 +980,16 @@ func prepareDownload(options DownloadOptions) (DownloadOptions, error) {
 	options.Go, err = filepath.EvalSymlinks(options.Go)
 	if err != nil {
 		return options, err
+	}
+	if options.RuntimeFolder != "" {
+		// The folder itself must not be a link (stageRuntimeFolder refuses
+		// one), so only its path is made absolute and clean.
+		if options.RuntimeFolder, err = filepath.Abs(options.RuntimeFolder); err != nil {
+			return options, err
+		}
+		if !outside(options.RuntimeFolder, options.Output) {
+			return options, fmt.Errorf("module cache target %s is inside the runtime folder %s; expected a folder outside it", options.Output, options.RuntimeFolder)
+		}
 	}
 	parent, err := filepath.EvalSymlinks(filepath.Dir(options.Output))
 	if err != nil {
