@@ -865,6 +865,11 @@ func TestMigrateLocks(t *testing.T) {
 		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
 			t.Fatal(err)
 		}
+		// A purge policy of the key table is gone, so the run again has a change to make, which needs ACCESS
+		// EXCLUSIVE on the table; a run with nothing to change takes no such lock (T11).
+		if _, err := f.admin.Exec("DROP POLICY idempotency_keys_purge_delete ON public.idempotency_keys"); err != nil {
+			t.Fatal(err)
+		}
 		// A long transaction of the running release reads the key table and holds it.
 		long, err := f.admin.Begin()
 		if err != nil {
@@ -925,6 +930,103 @@ func TestMigrateLocks(t *testing.T) {
 			}
 		case <-time.After(60 * time.Second):
 			t.Fatal("the job did not end within 60 s after the long transaction ended")
+		}
+	})
+
+	t.Run("ST-SUP-RP14-LC03-T12 A run again of the job with nothing to change takes no lock that conflicts with the writes of the running release, and a run after a change of the catalog makes the objects again", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatal(err)
+		}
+		before := catalogObjects(t, f.admin)
+		// A transaction of the running release holds ROW EXCLUSIVE, the lock of a write, on each table that the job
+		// made, apart from the table of the test ledger, whose text the adapter's ledger runs only once. A statement
+		// of the job that needs SHARE or a stronger lock on one of them waits until its lock timeout.
+		writer, err := f.admin.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = writer.Rollback() }()
+		var tables []string
+		rows, err := writer.Query(`SELECT pg_catalog.quote_ident(n.nspname) || '.' || pg_catalog.quote_ident(c.relname) FROM pg_catalog.pg_class AS c
+ JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE c.relkind IN ('r', 'p') AND n.nspname IN ('public', 'stego_outbox', 'stego_audit_sink')
+ AND c.relname <> 'orders' ORDER BY 1`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var table string
+			if err := rows.Scan(&table); err != nil {
+				t.Fatal(err)
+			}
+			tables = append(tables, table)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		for _, table := range []string{"public.idempotency_keys", "stego_outbox.messages", "public.audit_event", "public.authz_revocation_tuples", "stego_audit_sink.entries"} {
+			if !slices.Contains(tables, table) {
+				t.Fatalf("the job made the tables %v, want %s among them", tables, table)
+			}
+		}
+		if _, err := writer.Exec("LOCK TABLE " + strings.Join(tables, ", ") + " IN ROW EXCLUSIVE MODE"); err != nil {
+			t.Fatal(err)
+		}
+		waits := make(chan string, 64)
+		retried = func(step string) { waits <- step }
+		defer func() { retried = nil }()
+		ran := make(chan error, 1)
+		go func() { ran <- Migrate(context.Background(), settings, f.migration(nil)) }()
+		select {
+		case step := <-waits:
+			_ = writer.Rollback()
+			<-ran
+			t.Fatalf("the step %s of a run with nothing to change waited for a lock that a write of the release holds", step)
+		case err := <-ran:
+			if err != nil {
+				t.Fatalf("the run with nothing to change gave %v while the release writes", err)
+			}
+		case <-time.After(60 * time.Second):
+			t.Fatal("the run with nothing to change did not end within 60 s")
+		}
+		if err := writer.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		if after := catalogObjects(t, f.admin); !slices.Equal(after, before) {
+			t.Fatalf("the run with nothing to change changed the catalog:\n%v\nwant\n%v", after, before)
+		}
+		// Each kind of object changes in the catalog: row-level security that is no longer forced, a dropped and a
+		// changed policy, a policy on other roles, a dropped index, a dropped trigger, a disabled trigger and a
+		// dropped constraint trigger. The run again makes each one as the text states it.
+		for _, statement := range []string{
+			"ALTER TABLE stego_outbox.messages NO FORCE ROW LEVEL SECURITY",
+			"ALTER TABLE public.audit_chain_heads DISABLE ROW LEVEL SECURITY",
+			"DROP POLICY idempotency_keys_purge_delete ON public.idempotency_keys",
+			"ALTER POLICY messages_tenant ON stego_outbox.messages USING (true)",
+			"ALTER POLICY tenant_wall ON public.audit_event WITH CHECK (true)",
+			"ALTER POLICY authz_revocations_tenant ON public.authz_revocations TO " + f.runtime,
+			"ALTER POLICY messages_relay_select ON stego_outbox.messages TO " + f.runtime + ", " + f.outboxRelay,
+			"DROP INDEX stego_outbox.messages_done",
+			"DROP INDEX public.idempotency_keys_expires_at",
+			"DROP INDEX public.authz_revocation_tuples_revocation",
+			"DROP TRIGGER audit_retention_checkpoints_reject_statement ON public.audit_retention_checkpoints",
+			"ALTER TABLE public.audit_anchor_boundaries DISABLE TRIGGER audit_anchor_boundaries_guard",
+			"DROP TRIGGER authz_revocation_tuple_check ON public.authz_revocation_tuples",
+		} {
+			if _, err := f.admin.Exec(statement); err != nil {
+				t.Fatalf("%s: %v", statement, err)
+			}
+		}
+		if changed := catalogObjects(t, f.admin); slices.Equal(changed, before) {
+			t.Fatal("the changes of the catalog are not seen")
+		}
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatal(err)
+		}
+		if after := catalogObjects(t, f.admin); !slices.Equal(after, before) {
+			t.Fatalf("the run after the changes of the catalog left:\n%v\nwant\n%v", after, before)
 		}
 	})
 
@@ -1168,6 +1270,38 @@ func newFixture(t *testing.T) *fixture {
 	})
 	fixtureOwner, fixtureWorker, fixtureOutboxRelay, fixtureRelay, fixturePurge = f.owner, f.worker, f.outboxRelay, f.relay, f.purge
 	return f
+}
+
+// catalogObjects gives the row-level security, the policies, the indexes and the triggers of the tables of the job, by
+// name and as the catalog gives their definitions, in one order.
+func catalogObjects(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	rows, err := db.Query(`SELECT 'table ' || c.oid::regclass::text || ' ' || c.relrowsecurity || ' ' || c.relforcerowsecurity
+ FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+ WHERE c.relkind IN ('r', 'p') AND n.nspname IN ('public', 'stego_outbox', 'stego_audit_sink')
+UNION ALL SELECT 'policy ' || p.polrelid::regclass::text || ' ' || p.polname || ' ' || p.polcmd::text || ' ' || p.polpermissive ||
+ ' ' || (SELECT string_agg(CASE WHEN r = 0 THEN 'public' ELSE r::regrole::text END, ',' ORDER BY 1) FROM unnest(p.polroles) AS r) ||
+ ' ' || coalesce(pg_get_expr(p.polqual, p.polrelid), '-') || ' ' || coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '-') FROM pg_catalog.pg_policy AS p
+UNION ALL SELECT 'index ' || pg_get_indexdef(i.indexrelid) FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_class AS c ON c.oid = i.indexrelid
+ JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname IN ('public', 'stego_outbox', 'stego_audit_sink')
+UNION ALL SELECT 'trigger ' || pg_get_triggerdef(g.oid) || ' ' || g.tgenabled::text FROM pg_catalog.pg_trigger AS g WHERE NOT g.tgisinternal
+ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var objects []string
+	for rows.Next() {
+		var object string
+		if err := rows.Scan(&object); err != nil {
+			t.Fatal(err)
+		}
+		objects = append(objects, object)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return objects
 }
 
 func mustURL(t *testing.T, text string) *url.URL {

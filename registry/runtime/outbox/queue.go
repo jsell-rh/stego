@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/jsell-rh/stego/registry/runtime/internal/catalogfirst"
 	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
@@ -85,7 +86,7 @@ func Migration(relayRole, runtimeRole, workerRole string) (string, error) {
 		return "", errors.New("outbox: the relay, runtime and worker roles must be three roles")
 	}
 	return strings.NewReplacer("{{relay}}", `"`+relayRole+`"`, "{{relay_text}}", "'"+relayRole+"'",
-		"{{runtime}}", `"`+runtimeRole+`"`, "{{worker}}", `"`+workerRole+`"`).Replace(migration), nil
+		"{{runtime}}", `"`+runtimeRole+`"`, "{{worker}}", `"`+workerRole+`"`).Replace(migrationHead + queueObjects + migrationTail), nil
 }
 
 // Manifest gives what the code of the outbox needs of the database that Migration makes for the same roles
@@ -157,7 +158,7 @@ func Manifest(relayRole, runtimeRole, workerRole string) (manifest.Manifest, err
 	}
 	wall := "(tenant_id = current_setting('app.tenant'::text, true))"
 	policies := []manifest.Policy{
-		{Name: "messages_tenant", Command: "*", Using: wall, WithCheck: wall, Roles: []string{runtimeRole, workerRole}},
+		{Name: "messages_tenant", Command: catalogfirst.EveryCommand, Using: wall, WithCheck: wall, Roles: []string{runtimeRole, workerRole}},
 		{Name: "messages_relay_select", Command: "r", Using: "true", Roles: []string{relayRole}},
 		{Name: "messages_relay_update", Command: "w", Using: "true", WithCheck: "true", Roles: []string{relayRole}},
 		{Name: "messages_relay_delete", Command: "d", Using: "true", Roles: []string{relayRole}},
@@ -238,7 +239,7 @@ var relayFunctions = []string{
 	"stego_outbox.resolve(timestamptz, uuid, text, text, text)",
 }
 
-const migration = `CREATE SCHEMA IF NOT EXISTS stego_outbox;
+const migrationHead = `CREATE SCHEMA IF NOT EXISTS stego_outbox;
 
 DO $do$ BEGIN
 	-- Only a role with CREATEROLE can run CREATE ROLE, even for a role that exists, so the text creates the role
@@ -343,25 +344,41 @@ BEGIN
 	END IF;
 END $do$;
 
-CREATE INDEX IF NOT EXISTS messages_open_order ON stego_outbox.messages (tenant_id, destination, resource_key, sequence)
-	WHERE state NOT IN ('done', 'discarded');
-CREATE INDEX IF NOT EXISTS messages_due ON stego_outbox.messages (available_at, sequence)
-	WHERE state IN ('pending', 'dispatching', 'outcome_unknown', 'reconciling');
-CREATE INDEX IF NOT EXISTS messages_done ON stego_outbox.messages (done_at) WHERE state = 'done';
+`
 
-ALTER TABLE stego_outbox.messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stego_outbox.messages FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS messages_tenant ON stego_outbox.messages;
-CREATE POLICY messages_tenant ON stego_outbox.messages TO {{runtime}}, {{worker}}
+// queueObjects are the indexes, the row-level security and the four policies of the queue, each read in the catalog
+// first, so a run of the migration job that changes nothing takes no lock on the queue that conflicts with an
+// enqueue or a claim of the running release; a missing or changed object is made again.
+var queueObjects = func() string {
+	const queue = "'stego_outbox.messages'"
+	index := func(name, create string) string {
+		return catalogfirst.Unless(catalogfirst.Exists("'stego_outbox."+name+"'"), create)
+	}
+	policy := func(p catalogfirst.Policy, create string) string {
+		p.Relation = queue
+		return catalogfirst.Unless(p.Holds(), "DROP POLICY IF EXISTS "+p.Name+" ON stego_outbox.messages;\n"+create)
+	}
+	relay := []string{"{{relay_text}}"}
+	return index("messages_open_order", `CREATE INDEX IF NOT EXISTS messages_open_order ON stego_outbox.messages (tenant_id, destination, resource_key, sequence)
+	WHERE state NOT IN ('done', 'discarded');`) +
+		index("messages_due", `CREATE INDEX IF NOT EXISTS messages_due ON stego_outbox.messages (available_at, sequence)
+	WHERE state IN ('pending', 'dispatching', 'outcome_unknown', 'reconciling');`) +
+		index("messages_done", `CREATE INDEX IF NOT EXISTS messages_done ON stego_outbox.messages (done_at) WHERE state = 'done';`) +
+		"\n" + catalogfirst.Unless(catalogfirst.RowSecurity(queue), `ALTER TABLE stego_outbox.messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stego_outbox.messages FORCE ROW LEVEL SECURITY;`) +
+		policy(catalogfirst.Policy{Name: "messages_tenant", Command: catalogfirst.EveryCommand, Roles: []string{"'{{runtime}}'", "'{{worker}}'"},
+			Using: catalogfirst.TenantForm, Check: catalogfirst.TenantForm}, `CREATE POLICY messages_tenant ON stego_outbox.messages TO {{runtime}}, {{worker}}
 	USING (tenant_id = pg_catalog.current_setting('app.tenant', true))
-	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
-DROP POLICY IF EXISTS messages_relay_select ON stego_outbox.messages;
-CREATE POLICY messages_relay_select ON stego_outbox.messages FOR SELECT TO {{relay}} USING (true);
-DROP POLICY IF EXISTS messages_relay_update ON stego_outbox.messages;
-CREATE POLICY messages_relay_update ON stego_outbox.messages FOR UPDATE TO {{relay}} USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS messages_relay_delete ON stego_outbox.messages;
-CREATE POLICY messages_relay_delete ON stego_outbox.messages FOR DELETE TO {{relay}} USING (true);
+	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));`) +
+		policy(catalogfirst.Policy{Name: "messages_relay_select", Command: "r", Roles: relay, Using: catalogfirst.TrueForm},
+			`CREATE POLICY messages_relay_select ON stego_outbox.messages FOR SELECT TO {{relay}} USING (true);`) +
+		policy(catalogfirst.Policy{Name: "messages_relay_update", Command: "w", Roles: relay, Using: catalogfirst.TrueForm, Check: catalogfirst.TrueForm},
+			`CREATE POLICY messages_relay_update ON stego_outbox.messages FOR UPDATE TO {{relay}} USING (true) WITH CHECK (true);`) +
+		policy(catalogfirst.Policy{Name: "messages_relay_delete", Command: "d", Roles: relay, Using: catalogfirst.TrueForm},
+			`CREATE POLICY messages_relay_delete ON stego_outbox.messages FOR DELETE TO {{relay}} USING (true);`)
+}()
 
+const migrationTail = `
 REVOKE ALL ON stego_outbox.messages FROM PUBLIC;
 GRANT USAGE ON SCHEMA stego_outbox TO {{runtime}}, {{worker}};
 GRANT USAGE, CREATE ON SCHEMA stego_outbox TO {{relay}};
