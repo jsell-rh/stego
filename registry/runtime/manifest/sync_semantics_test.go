@@ -81,7 +81,6 @@ func formRow(t *testing.T, admin *sql.DB, prelude, statement string, id int) (k,
 	return
 }
 
-
 func TestSyncSemantics(t *testing.T) {
 	ns := func(s string) sql.NullString { return sql.NullString{String: s, Valid: true} }
 	null := sql.NullString{}
@@ -266,4 +265,3 @@ func TestSyncSemantics(t *testing.T) {
 		}
 	})
 }
-

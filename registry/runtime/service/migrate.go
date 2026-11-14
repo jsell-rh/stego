@@ -135,7 +135,7 @@ var stepped func(step string, conn *sql.Conn)
 var retried func(step string)
 
 // jobLock is the key of the job lock: the session advisory lock that the migration job holds from its start to its
-// end, so a second job of the same database waits for the first, within its time limit, and does not race it on the
+// backfill step, so a second job of the same database waits for the first, within its time limit, and does not race it on the
 // objects that both make (followups P2: two jobs at once failed on pg_type with 23505).
 const jobLock = "1937007983,1785684555"
 
@@ -157,7 +157,7 @@ const (
 // with the lease table and the row of the controller lease (ControllerLease); the grants of
 // the runtime role; the audit partitions of this month and the next; and WriteSchema again, so the release ends on
 // its own schema. It stops at the first step that fails, with a StepError that names the step. After the owner role
-// it takes the job lock, which it holds to its end, so a second job of the database waits for it (StepJobLock); and
+// it takes the job lock, which it holds until the backfill, so a second job of the database waits for it (StepJobLock); and
 // it runs the tenant list and each migration text under a lock timeout of 1 s, and again after a pause when a lock
 // wait ends at that timeout, at most 10 times, so no read or write of the running release queues long behind it. Each step runs again
 // on a database that it made, so the job runs on every release.
@@ -214,9 +214,14 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	}); err != nil {
 		return err
 	}
-	defer func() {
-		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "SELECT pg_catalog.pg_advisory_unlock("+jobLock+")")
-	}()
+	locked := true
+	unlock := func() {
+		if locked {
+			locked = false
+			_, _ = conn.ExecContext(context.WithoutCancel(ctx), "SELECT pg_catalog.pg_advisory_unlock("+jobLock+")")
+		}
+	}
+	defer unlock()
 	if err := step(StepLedgerCheck, func() error { return m.LedgerCheck(ctx, conn) }); err != nil {
 		return err
 	}
@@ -277,6 +282,9 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	if err := step(StepSchemaAgain, func() error { return m.WriteSchema(ctx, spice) }); err != nil {
 		return err
 	}
+	// The backfill runs after the job lock is released: two jobs of the database share it under the lease of each
+	// change, so one moves rows and the other waits for the lease (ST-GEN-UC13-R01).
+	unlock()
 	return step(StepBackfill, func() error { return runBackfills(parent, db, m) })
 }
 

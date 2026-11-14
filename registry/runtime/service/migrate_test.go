@@ -878,6 +878,91 @@ func TestMigrateLocks(t *testing.T) {
 	})
 }
 
+func TestMigrateLockAndLease(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T09 Two jobs started at once run their schema steps one after the other and their backfills under the lease", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f, m, _ := renameJob(t)
+		runtimeGrants(t, f)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		var (
+			mu         sync.Mutex
+			started    sync.WaitGroup
+			afterLock  = map[*sql.Conn]time.Time{} // when each job passed the job lock
+			atBackfill = map[*sql.Conn]time.Time{} // when each job came to the backfill step
+		)
+		started.Add(2)
+		stepped = func(step string, conn *sql.Conn) {
+			switch step {
+			case StepOwnerRole:
+				started.Done()
+				started.Wait()
+			case StepLedgerCheck:
+				mu.Lock()
+				afterLock[conn] = time.Now()
+				mu.Unlock()
+			case StepBackfill:
+				mu.Lock()
+				atBackfill[conn] = time.Now()
+				mu.Unlock()
+				// Each job waits here until the other one also comes to its backfill, which it can only when the job
+				// lock is free while a backfill runs.
+				deadline := time.After(45 * time.Second)
+				for {
+					mu.Lock()
+					both := len(atBackfill) == 2
+					mu.Unlock()
+					if both {
+						return
+					}
+					select {
+					case <-deadline:
+						return
+					case <-time.After(50 * time.Millisecond):
+					}
+				}
+			}
+		}
+		defer func() { stepped = nil }()
+		errs := make(chan error, 2)
+		for i := range 2 {
+			job := m
+			job.Holder = fmt.Sprintf("job-%d", i)
+			go func() { errs <- Migrate(context.Background(), settings, job) }()
+		}
+		for range 2 {
+			if err := <-errs; err != nil {
+				t.Fatalf("one of two jobs started at once gave %v at the stage %s, want both to pass", err, Stage(err))
+			}
+		}
+		if len(atBackfill) != 2 || len(afterLock) != 2 {
+			t.Fatalf("%d jobs came to the backfill and %d passed the job lock, want 2 and 2", len(atBackfill), len(afterLock))
+		}
+		var first, second *sql.Conn
+		for conn := range afterLock {
+			if first == nil || afterLock[conn].Before(afterLock[first]) {
+				first, second = conn, first
+			} else {
+				second = conn
+			}
+		}
+		if afterLock[second].Before(atBackfill[first]) {
+			t.Errorf("the second job passed the job lock at %v, before the first job ended its schema steps at %v", afterLock[second], atBackfill[first])
+		}
+		if gap := atBackfill[second].Sub(atBackfill[first]); gap > 30*time.Second {
+			t.Errorf("the second job came to its backfill %v after the first, which waited for it: the job lock was held through the backfill", gap)
+		}
+		var moved int64
+		var completed bool
+		if err := f.admin.QueryRowContext(context.Background(), `SELECT rows_moved, completed_at IS NOT NULL FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`).Scan(&moved, &completed); err != nil || moved != 24 || !completed {
+			t.Fatalf("the checkpoint has %d moved, complete %v (error %v); want each of the 24 rows moved once, and complete", moved, completed, err)
+		}
+		var unmoved int
+		if err := f.admin.QueryRowContext(context.Background(), `SELECT count(*) FROM public.boards WHERE heading IS DISTINCT FROM title`).Scan(&unmoved); err != nil || unmoved != 0 {
+			t.Fatalf("%d rows have no new value equal to the old one (error %v)", unmoved, err)
+		}
+	})
+}
+
 func TestMain(m *testing.M) {
 	code := pgtest.Main(m)
 	stopSpiceDB()

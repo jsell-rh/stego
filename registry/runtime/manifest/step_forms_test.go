@@ -45,7 +45,6 @@ func formFaults(t *testing.T, admin, reader *sql.DB, setup string, m Manifest) [
 	return mismatch.Faults
 }
 
-
 func TestStepCheckForms(t *testing.T) {
 	t.Run("ST-SUP-RP15-LC01-T12 acceptCheck refuses each hostile CHECK form", func(t *testing.T) {
 		const userFns = hostileFunctions +
