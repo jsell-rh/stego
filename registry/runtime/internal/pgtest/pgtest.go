@@ -125,9 +125,12 @@ func Database(t testing.TB, prefix string) string {
 	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
 		t.Fatalf("pgtest: create the database %s: %v", name, err)
 	}
+	// The drop gets 30 seconds, and a drop that fails is logged: the cleanup alone never fails the test.
 	t.Cleanup(func() {
-		if _, err := admin.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)"); err != nil {
-			t.Errorf("pgtest: drop the database %s: %v", name, err)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := admin.ExecContext(ctx, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)"); err != nil {
+			t.Logf("pgtest: cleanup failed: drop the database %s: %v", name, err)
 		}
 	})
 	u, err := url.Parse(server)
