@@ -196,7 +196,7 @@ func TestSchemaShape(t *testing.T) {
 			source := caveats(10, 95000) + shapeSchema("", "own")
 			start := time.Now()
 			_, err := CompileAuthzSchema("authz/schema.zed", []byte(source))
-			expectShapeFault(t, err, 3, MaxCaveatBodyBytesEach)
+			expectShapeFault(t, err, 2, MaxCaveatBodyBytesEach)
 			if elapsed := time.Since(start); elapsed > time.Second/4 {
 				t.Fatalf("the refusal took %v, want well under 1 s", elapsed)
 			}

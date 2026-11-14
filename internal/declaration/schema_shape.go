@@ -117,6 +117,17 @@ func checkSchemaShape(schemaPath string, source []byte) error {
 				return fault(line, "the caveat bodies have more than %d bytes, the most that checking compiles", MaxCaveatBodyBytes)
 			}
 			return nil
+		}
+		// The lexer gives each space as a token of its own, so a body beyond its bytes is refused at the first token
+		// past the bound, a space or a comment too, and not only at its closing brace (review of PR #302, M6).
+		if body > 0 && int(token.Position)-bodyStart > MaxCaveatBodyBytesEach {
+			if at := int(token.Position); at > seen && at <= len(source) {
+				line += bytes.Count(source[seen:at], []byte{'\n'})
+				seen = at
+			}
+			return fault(line, "a caveat body has more than %d bytes, the most that checking compiles", MaxCaveatBodyBytesEach)
+		}
+		switch token.Kind {
 		case lexer.TokenTypeWhitespace, lexer.TokenTypeNewline, lexer.TokenTypeSyntheticSemicolon,
 			lexer.TokenTypeSinglelineComment, lexer.TokenTypeMultilineComment:
 			continue
@@ -165,9 +176,6 @@ func checkSchemaShape(schemaPath string, source []byte) error {
 					open--
 				}
 				if body--; body == 0 {
-					if size := int(token.Position) - bodyStart; size > MaxCaveatBodyBytesEach {
-						return fault(line, "a caveat body has more than %d bytes, the most that checking compiles", MaxCaveatBodyBytesEach)
-					}
 					if bodyBytes += int(token.Position) - bodyStart; bodyBytes > MaxCaveatBodyBytes {
 						return fault(line, "the caveat bodies have more than %d bytes, the most that checking compiles", MaxCaveatBodyBytes)
 					}
