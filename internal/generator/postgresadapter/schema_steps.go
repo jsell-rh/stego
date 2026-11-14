@@ -308,7 +308,7 @@ func StepBackfill(change types.SchemaChange, phase string) string {
 	return ""
 }
 
-// syncTemplate is version 1 of the sync function template of the runtime library
+// syncTemplate is version 2 of the sync function template of the runtime library
 // (registry/runtime/manifest.SyncSource, ST-SUP-RP15-LC02): %[1]s is K and %[2]s is U, as quote_ident gives them,
 // %[3]s the conversion of NEW.K to the type of U and %[4]s the conversion of NEW.U to the type of K, %[5]s the change
 // ID and %[6]s the backfill role, each as a string literal. The compiler does not depend on the runtime module, so
@@ -328,13 +328,15 @@ BEGIN
         RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
       END IF;
       NEW.%[1]s := %[4]s;
+    ELSIF NEW.%[2]s IS NULL THEN
+      NEW.%[2]s := %[3]s;
     END IF;
   ELSIF TG_OP = 'INSERT' THEN
     IF NEW.%[2]s IS NOT NULL AND NEW.%[2]s IS DISTINCT FROM %[3]s THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
     END IF;
     NEW.%[2]s := %[3]s;
-  ELSIF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s OR NEW.%[2]s IS DISTINCT FROM OLD.%[2]s THEN
+  ELSIF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s OR NEW.%[2]s IS DISTINCT FROM OLD.%[2]s OR NEW.%[2]s IS NULL THEN
     IF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s AND NEW.%[2]s IS DISTINCT FROM OLD.%[2]s AND NEW.%[2]s IS DISTINCT FROM %[3]s THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
     END IF;
@@ -345,7 +347,7 @@ END;
 `
 
 // syncSource gives the source of the sync function of a rename of k to u, with the identity conversion, for the
-// change and the backfill role owner, as registry/runtime/manifest.SyncSource gives it for version 1.
+// change and the backfill role owner, as registry/runtime/manifest.SyncSource gives it for version 2.
 func syncSource(change, owner, k, u string) string {
 	qk, qu := deparsedName(k), deparsedName(u)
 	return fmt.Sprintf(syncTemplate, qk, qu, "NEW."+qk, "NEW."+qu, sqlString(change), sqlString(owner))
@@ -384,7 +386,7 @@ CREATE OR REPLACE FUNCTION stego_schema.backfill_checkpoint(text, bytea, bigint,
  RETURNS bigint LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
  AS $stego_backfill$DECLARE n bigint;
 BEGIN
-  PERFORM 1 FROM public.leases l WHERE l.name = $10 AND l.holder = $11 AND l.token = $8 AND l.expires_at > pg_catalog.clock_timestamp() FOR SHARE;
+  PERFORM 1 FROM public.leases l WHERE l.name = $10 AND $10 = 'stego.backfill.' || $1 AND l.holder = $11 AND l.token = $8 AND l.expires_at > pg_catalog.clock_timestamp() FOR SHARE;
   IF NOT FOUND THEN
     RETURN 0;
   END IF;
@@ -444,7 +446,8 @@ func renameSQL(ctx gen.Context, before, after []tableModel, change types.SchemaC
 		return nil, fmt.Errorf("the rename of %s.%s changes the column type from %s to %s; a rename keeps the type, and a retype changes it", change.Entity, change.From, k.typ, u.typ)
 	}
 	trigger := SyncTriggerName(change.Entity, change.Field)
-	if !validTriggerName(trigger) {
+	complete := CompleteCheckName(change.Entity, change.Field)
+	if !validTriggerName(trigger) || !validTriggerName(complete) {
 		return nil, fmt.Errorf("the sync trigger name %s is not a name the schema check accepts", trigger)
 	}
 	table := "public." + sqlIdentifier(name)
@@ -460,6 +463,12 @@ func renameSQL(ctx gen.Context, before, after []tableModel, change types.SchemaC
 	// that U has its unique key, valid, before the trigger moves K into it (ST-SUP-RP15-LC02 rule 2).
 	fmt.Fprintf(&out.sync, "CREATE SCHEMA IF NOT EXISTS %s;\n", StepSchema)
 	out.sync.WriteString(syncFunction(trigger, syncSource(change.ID, owner, change.From, change.Field)) + ";\n")
+	// The completeness CHECK comes NOT VALID in the transaction of the trigger, and before it, so that its ACCESS
+	// EXCLUSIVE lock is the first lock of the transaction on the table and no write of the release before lands
+	// between the two; it checks no row that is there, and each write after it meets it, which the trigger of
+	// version 2 fills. The backfill validates it before it marks the change complete (decision on ST-SUP-Q120 (c),
+	// orchestrator under the owner's delegation, 2026-11-14).
+	fmt.Fprintf(&out.sync, "ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s) NOT VALID;\n", table, sqlIdentifier(complete), completeExpression(change.From, change.Field))
 	fmt.Fprintf(&out.sync, "CREATE TRIGGER %s BEFORE INSERT OR UPDATE ON %s FOR EACH ROW EXECUTE FUNCTION %s.%s();\n",
 		sqlIdentifier(trigger), table, StepSchema, sqlIdentifier(trigger))
 	// The functions revoke EXECUTE from PUBLIC and grant it to no role: only the owner role, which runs the backfill
@@ -479,6 +488,23 @@ func renameSQL(ctx gen.Context, before, after []tableModel, change types.SchemaC
 	}
 	return out, nil
 }
+
+// CompleteCheckName gives the name of the completeness CHECK of the expand step of a rename that adds the column
+// column to the table of the entity: <table>_<column>_complete, cut as sqlName cuts a name
+// (registry/runtime/manifest.CompleteName).
+func CompleteCheckName(entity, column string) string {
+	return sqlName(tableName(entity), column, "complete")
+}
+
+// completeExpression gives the expression of the completeness CHECK of a rename of k to u, with the identity
+// conversion, as registry/runtime/manifest.CompleteExpression gives it: u is set wherever k is set.
+func completeExpression(k, u string) string {
+	return "(" + deparsedName(u) + " IS NOT NULL) OR (" + deparsedName(k) + " IS NULL)"
+}
+
+// completeDefinition gives the completeness CHECK of a rename of k to u as pg_get_constraintdef writes it, as
+// registry/runtime/manifest.CompleteDefinition gives it.
+func completeDefinition(k, u string) string { return "CHECK ((" + completeExpression(k, u) + "))" }
 
 // validTriggerName tells whether a trigger name has 63 bytes at most and no control character.
 func validTriggerName(name string) bool {

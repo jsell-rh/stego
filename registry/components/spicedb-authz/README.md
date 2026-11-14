@@ -31,7 +31,8 @@ the component generates the package internal/authz with:
 
 The settings are alert_bound (default 5s), the delivery alert bound of a
 revocation, and watch_interval (default 1s), the time between two reads of
-the oldest age of the authz outbox messages.
+the oldest age of the authz outbox messages. The alert bound is at most 10m,
+and the watch interval is from 100ms to the alert bound (ST-SUP-RC29-OC24).
 
 The component needs pooled tenancy with the tenant column tenant_id: every
 resource ID at the provider is tenant-qualified, and the relay stores the

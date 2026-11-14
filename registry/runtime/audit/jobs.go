@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jsell-rh/stego/registry/runtime/internal/catalogfirst"
 	"github.com/jsell-rh/stego/registry/runtime/lease"
 	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
@@ -64,8 +65,9 @@ type Config struct {
 // four tables with one policy on the transaction-local tenant setting; the grants of the runtime role
 // (ST-STD-TXN-R06); and the owner function audit_maintain(), SECURITY DEFINER with a fixed search_path and a lock
 // timeout, with EXECUTE for the runtime role only. The text runs again with no error on a database that it made:
-// each table is made only when it is missing, each function and trigger is replaced, and each policy is dropped
-// before it is made again, so the migration job can run on every release (ST-SUP-RP05-LC10). Run it in one
+// each table is made only when it is missing, each function is replaced, and row-level security, each trigger and
+// each policy are read in the catalog first and made again only when they differ, so the migration job can run on
+// every release (ST-SUP-RP05-LC10) and a run with nothing to change takes no strong lock on a table (ST-SUP-RP14-LC03). Run it in one
 // transaction.
 func DDL(c Config) (string, error) {
 	if c.Schema == "" {
@@ -106,7 +108,19 @@ func render(c Config) string {
 }
 
 // tenantWall is the expression of the policy tenant_wall of each audit table, as pg_get_expr gives it.
-const tenantWall = "(tenant_id = current_setting('app.tenant'::text, true))"
+const tenantWall = catalogfirst.TenantForm
+
+// walled gives the row-level security and the policy tenant_wall of the audit table table, each read in the catalog
+// first, so a run of the migration job that changes nothing takes no lock on the table that conflicts with a write
+// of the running release; a missing or changed policy is made again. The triggers of the audit tables are read in
+// the catalog first in the same way.
+func walled(table string) string {
+	relation := "'{s}." + table + "'"
+	return catalogfirst.Unless(catalogfirst.RowSecurity(relation), "ALTER TABLE {s}."+table+" ENABLE ROW LEVEL SECURITY;\nALTER TABLE {s}."+table+" FORCE ROW LEVEL SECURITY;") +
+		catalogfirst.Unless(catalogfirst.Policy{Relation: relation, Name: "tenant_wall", Command: catalogfirst.EveryCommand, Using: tenantWall, Check: tenantWall}.Holds(),
+			"DROP POLICY IF EXISTS tenant_wall ON {s}."+table+";\nCREATE POLICY tenant_wall ON {s}."+table+"\n"+
+				"  USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true));")
+}
 
 // Manifest gives what the code needs of the audit record that DDL makes in the schema of c (ST-SUP-RC01-OC12):
 // the four tables with row-level security enabled and forced and their policy tenant_wall, and the triggers that
@@ -148,7 +162,7 @@ func Manifest(c Config) (manifest.Manifest, error) {
 	if err != nil {
 		return manifest.Manifest{}, err
 	}
-	wall := []manifest.Policy{{Name: "tenant_wall", Command: "*", Using: tenantWall, WithCheck: tenantWall}}
+	wall := []manifest.Policy{{Name: "tenant_wall", Command: catalogfirst.EveryCommand, Using: tenantWall, WithCheck: tenantWall}}
 	rejecting := func(table string) []manifest.Trigger {
 		return []manifest.Trigger{
 			{Name: table + "_reject_row", Timing: "BEFORE", Row: true, Events: []string{"UPDATE", "DELETE"}, Function: reject},
@@ -199,7 +213,7 @@ func Manifest(c Config) (manifest.Manifest, error) {
 	}}, nil
 }
 
-const ddlText = `CREATE TABLE IF NOT EXISTS {s}.{events} (
+var ddlText = `CREATE TABLE IF NOT EXISTS {s}.{events} (
   tenant_id text NOT NULL,
   seq bigint NOT NULL,
   id uuid NOT NULL,
@@ -256,10 +270,12 @@ BEGIN
   RAISE EXCEPTION 'the audit table rejects %', TG_OP USING ERRCODE = 'insufficient_privilege';
 END
 $$;
-CREATE OR REPLACE TRIGGER {events}_reject_row BEFORE UPDATE OR DELETE ON {s}.{events}
-  FOR EACH ROW EXECUTE FUNCTION {s}.audit_reject_change();
-CREATE OR REPLACE TRIGGER {events}_reject_statement BEFORE UPDATE OR DELETE OR TRUNCATE ON {s}.{events}
-  FOR EACH STATEMENT EXECUTE FUNCTION {s}.audit_reject_change();
+` + catalogfirst.Unless(catalogfirst.Trigger{Relation: "'{s}.{events}'", Name: "{events}_reject_row", Function: "'{s}.audit_reject_change()'",
+	Type: catalogfirst.Before | catalogfirst.Row | catalogfirst.Update | catalogfirst.Delete}.Holds(), `CREATE OR REPLACE TRIGGER {events}_reject_row BEFORE UPDATE OR DELETE ON {s}.{events}
+  FOR EACH ROW EXECUTE FUNCTION {s}.audit_reject_change();`) + `
+` + catalogfirst.Unless(catalogfirst.Trigger{Relation: "'{s}.{events}'", Name: "{events}_reject_statement", Function: "'{s}.audit_reject_change()'",
+	Type: catalogfirst.Before | catalogfirst.Update | catalogfirst.Delete | catalogfirst.Truncate}.Holds(), `CREATE OR REPLACE TRIGGER {events}_reject_statement BEFORE UPDATE OR DELETE OR TRUNCATE ON {s}.{events}
+  FOR EACH STATEMENT EXECUTE FUNCTION {s}.audit_reject_change();`) + `
 CREATE OR REPLACE FUNCTION {s}.audit_boundary_guard() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF TG_OP = 'UPDATE' AND NEW.boundary < OLD.boundary THEN
@@ -271,33 +287,16 @@ BEGIN
   RETURN NEW;
 END
 $$;
-CREATE OR REPLACE TRIGGER {bounds}_guard BEFORE INSERT OR UPDATE ON {s}.{bounds}
-  FOR EACH ROW EXECUTE FUNCTION {s}.audit_boundary_guard();
-CREATE OR REPLACE TRIGGER {checks}_reject_row BEFORE UPDATE OR DELETE ON {s}.{checks}
-  FOR EACH ROW EXECUTE FUNCTION {s}.audit_reject_change();
-CREATE OR REPLACE TRIGGER {checks}_reject_statement BEFORE UPDATE OR DELETE OR TRUNCATE ON {s}.{checks}
-  FOR EACH STATEMENT EXECUTE FUNCTION {s}.audit_reject_change();
-ALTER TABLE {s}.{events} ENABLE ROW LEVEL SECURITY;
-ALTER TABLE {s}.{events} FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS tenant_wall ON {s}.{events};
-CREATE POLICY tenant_wall ON {s}.{events}
-  USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true));
-ALTER TABLE {s}.{heads} ENABLE ROW LEVEL SECURITY;
-ALTER TABLE {s}.{heads} FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS tenant_wall ON {s}.{heads};
-CREATE POLICY tenant_wall ON {s}.{heads}
-  USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true));
-ALTER TABLE {s}.{bounds} ENABLE ROW LEVEL SECURITY;
-ALTER TABLE {s}.{bounds} FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS tenant_wall ON {s}.{bounds};
-CREATE POLICY tenant_wall ON {s}.{bounds}
-  USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true));
-ALTER TABLE {s}.{checks} ENABLE ROW LEVEL SECURITY;
-ALTER TABLE {s}.{checks} FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS tenant_wall ON {s}.{checks};
-CREATE POLICY tenant_wall ON {s}.{checks}
-  USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true));
-REVOKE ALL ON {s}.{events}, {s}.{heads}, {s}.{bounds}, {s}.{checks} FROM PUBLIC;
+` + catalogfirst.Unless(catalogfirst.Trigger{Relation: "'{s}.{bounds}'", Name: "{bounds}_guard", Function: "'{s}.audit_boundary_guard()'",
+	Type: catalogfirst.Before | catalogfirst.Row | catalogfirst.Insert | catalogfirst.Update}.Holds(), `CREATE OR REPLACE TRIGGER {bounds}_guard BEFORE INSERT OR UPDATE ON {s}.{bounds}
+  FOR EACH ROW EXECUTE FUNCTION {s}.audit_boundary_guard();`) + `
+` + catalogfirst.Unless(catalogfirst.Trigger{Relation: "'{s}.{checks}'", Name: "{checks}_reject_row", Function: "'{s}.audit_reject_change()'",
+	Type: catalogfirst.Before | catalogfirst.Row | catalogfirst.Update | catalogfirst.Delete}.Holds(), `CREATE OR REPLACE TRIGGER {checks}_reject_row BEFORE UPDATE OR DELETE ON {s}.{checks}
+  FOR EACH ROW EXECUTE FUNCTION {s}.audit_reject_change();`) + `
+` + catalogfirst.Unless(catalogfirst.Trigger{Relation: "'{s}.{checks}'", Name: "{checks}_reject_statement", Function: "'{s}.audit_reject_change()'",
+	Type: catalogfirst.Before | catalogfirst.Update | catalogfirst.Delete | catalogfirst.Truncate}.Holds(), `CREATE OR REPLACE TRIGGER {checks}_reject_statement BEFORE UPDATE OR DELETE OR TRUNCATE ON {s}.{checks}
+  FOR EACH STATEMENT EXECUTE FUNCTION {s}.audit_reject_change();`) + `
+` + walled("{events}") + `` + walled("{heads}") + `` + walled("{bounds}") + `` + walled("{checks}") + `REVOKE ALL ON {s}.{events}, {s}.{heads}, {s}.{bounds}, {s}.{checks} FROM PUBLIC;
 GRANT USAGE ON SCHEMA {s} TO {role};
 GRANT SELECT, INSERT ON {s}.{events} TO {role};
 GRANT SELECT, INSERT, UPDATE ON {s}.{heads}, {s}.{bounds} TO {role};

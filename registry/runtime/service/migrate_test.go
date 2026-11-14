@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -56,7 +57,7 @@ func TestMigrate(t *testing.T) {
 		endpoint, key := startSpiceDB(t)
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
-		want := []string{StepOwnerRole, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepOutboxSequence, StepAuditTables, StepAuditSink,
+		want := []string{StepOwnerRole, StepJobLock, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepOutboxSequence, StepAuditTables, StepAuditSink,
 			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain, StepBackfill}
 		run := func(m Migration) (*steps, error) {
 			s := &steps{backends: map[int]bool{}}
@@ -135,12 +136,26 @@ func TestMigrate(t *testing.T) {
 	})
 }
 
+// boardsComplete is the completeness CHECK of the rename of title to heading, NOT VALID as the step adds it.
+const boardsComplete = "ALTER TABLE public.boards ADD CONSTRAINT boards_heading_complete CHECK ((heading IS NOT NULL) OR (title IS NULL)) NOT VALID"
+
+// unmove clears the new column of the rows of boards that where selects, with the sync trigger off, as for rows that
+// the release before wrote before the step, and adds the completeness CHECK again NOT VALID, as the step adds it.
+func unmove(t *testing.T, f *fixture, where string) {
+	t.Helper()
+	if _, err := f.admin.ExecContext(context.Background(), `ALTER TABLE public.boards DROP CONSTRAINT IF EXISTS boards_heading_complete;
+ALTER TABLE public.boards DISABLE TRIGGER boards_heading_sync; UPDATE public.boards SET heading = NULL WHERE `+where+`;
+ALTER TABLE public.boards ENABLE TRIGGER boards_heading_sync; `+boardsComplete); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // boardsDDL is the table of a rename at expand of title to heading, owned by tenants and under forced row-level
 // security, with the sync trigger of the change, the table of the backfill checkpoints, its functions and the row of
 // the change, as the migration of the step makes them as the owner role.
 func boardsDDL(t *testing.T, owner string) string {
 	t.Helper()
-	function, err := manifest.SyncFunction("stego_steps", "boards_heading_sync", 1, manifest.Sync{Change: "board-title-rename", Owner: owner, K: "title", U: "heading",
+	function, err := manifest.SyncFunction("stego_steps", "boards_heading_sync", manifest.SyncVersion, manifest.Sync{Change: "board-title-rename", Owner: owner, K: "title", U: "heading",
 		Conversion: manifest.Conversion{Name: "identity"}})
 	if err != nil {
 		t.Fatal(err)
@@ -213,11 +228,8 @@ func renameJob(t *testing.T) (*fixture, Migration, []Backfill) {
 	// The sync trigger of the release before copied each insert, so the backfill has rows to move only after the
 	// new column is cleared, as for rows that the release before wrote before the step.
 	// One row keeps the new value that the trigger gave it, so the backfill leaves it and moves the 24 others.
-	if _, err := f.admin.ExecContext(ctx, `ALTER TABLE public.boards DISABLE TRIGGER boards_heading_sync; UPDATE public.boards SET heading = NULL WHERE title <> 'tenant-c-03';
-ALTER TABLE public.boards ENABLE TRIGGER boards_heading_sync`); err != nil {
-		t.Fatal(err)
-	}
-	backfills, err := CopyBackfills([]lease.Copy{{Change: "board-title-rename", Table: "boards", TenantColumn: "tenant_id", From: "title", To: "heading"}}, "public")
+	unmove(t, f, "title <> 'tenant-c-03'")
+	backfills, err := CopyBackfills([]lease.Copy{{Change: "board-title-rename", Table: "boards", TenantColumn: "tenant_id", From: "title", To: "heading", Check: "boards_heading_complete"}}, "public")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,8 +277,8 @@ func TestMigrateBackfill(t *testing.T) {
 			t.Fatalf("there are %d leases stego.backfill.board-title-rename (error %v), want 1", leases, err)
 		}
 		// A job that stops after its first batches resumes from the checkpoint in the next run, and moves each row once.
-		if _, err := f.admin.ExecContext(ctx, `ALTER TABLE public.boards DISABLE TRIGGER boards_heading_sync; UPDATE public.boards SET heading = NULL;
-ALTER TABLE public.boards ENABLE TRIGGER boards_heading_sync; UPDATE stego_schema.backfills SET last_key = NULL, last_key_type = NULL, rows_moved = 0, completed_at = NULL`); err != nil {
+		unmove(t, f, "true")
+		if _, err := f.admin.ExecContext(ctx, `UPDATE stego_schema.backfills SET last_key = NULL, last_key_type = NULL, rows_moved = 0, completed_at = NULL`); err != nil {
 			t.Fatal(err)
 		}
 		stopCtx, stop := context.WithCancel(ctx)
@@ -354,6 +366,66 @@ func unmoved(t *testing.T, f *fixture) int {
 		t.Fatal(err)
 	}
 	return n
+}
+
+func TestMigrateBackfillComplete(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T11 A row of a tenant that the tenant list does not hold blocks completion, the job fails and names the change, and the next run completes once the row is fixed", func(t *testing.T) {
+		f, m, _ := renameJob(t)
+		ctx := context.Background()
+		// Two rows of tenant-d, which stego_tenants does not hold, as the release before wrote them before the step.
+		for i := range 2 {
+			if _, err := f.admin.ExecContext(ctx, `INSERT INTO public.boards (tenant_id, id, title) VALUES ('tenant-d', gen_random_uuid(), $1)`, fmt.Sprintf("tenant-d-%02d", i)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		unmove(t, f, "tenant_id = 'tenant-d'")
+		job := m
+		job.Holder = "job-1"
+		err := runBackfills(ctx, f.admin, job)
+		if !errors.Is(err, lease.ErrIncomplete) {
+			t.Fatalf("the job with unmoved rows of an unlisted tenant gave %v, want ErrIncomplete", err)
+		}
+		for _, want := range []string{"board-title-rename", "boards_heading_complete"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the failure %q does not name %s", err, want)
+			}
+		}
+		if strings.Contains(err.Error(), "tenant-d") {
+			t.Errorf("the failure %q holds a row value", err)
+		}
+		var completed, validated bool
+		read := func() {
+			t.Helper()
+			if err := f.admin.QueryRowContext(ctx, `SELECT (SELECT completed_at IS NOT NULL FROM stego_schema.backfills WHERE change_id = 'board-title-rename'),
+  (SELECT convalidated FROM pg_constraint WHERE conname = 'boards_heading_complete')`).Scan(&completed, &validated); err != nil {
+				t.Fatal(err)
+			}
+		}
+		read()
+		if completed || validated {
+			t.Fatalf("after the failed job the change is complete %v and its CHECK validated %v, want neither", completed, validated)
+		}
+		// The rows of the listed tenants moved; those of tenant-d did not.
+		var unmoved int
+		if err := f.admin.QueryRowContext(ctx, `SELECT count(*) FROM public.boards WHERE heading IS NULL`).Scan(&unmoved); err != nil || unmoved != 2 {
+			t.Fatalf("%d rows have no new value (error %v), want the 2 of tenant-d", unmoved, err)
+		}
+		// The fix: tenant-d is provisioned. The next run passes over the rows again and completes.
+		if _, err := f.admin.ExecContext(ctx, `INSERT INTO public.stego_tenants (tenant_id) VALUES ('tenant-d')`); err != nil {
+			t.Fatal(err)
+		}
+		job.Holder = "job-2"
+		if err := runBackfills(ctx, f.admin, job); err != nil {
+			t.Fatalf("the next run after the fix: %v", err)
+		}
+		read()
+		if !completed || !validated {
+			t.Fatalf("after the next run the change is complete %v and its CHECK validated %v, want both", completed, validated)
+		}
+		if err := f.admin.QueryRowContext(ctx, `SELECT count(*) FROM public.boards WHERE heading IS DISTINCT FROM title`).Scan(&unmoved); err != nil || unmoved != 0 {
+			t.Fatalf("%d rows have no new value equal to the old one (error %v)", unmoved, err)
+		}
+	})
 }
 
 func TestBackfillFunctions(t *testing.T) {
@@ -444,6 +516,10 @@ func TestBackfillFunctions(t *testing.T) {
 		if _, err := f.admin.Exec(`INSERT INTO public.leases (name, holder, expires_at, token) VALUES ($1, 'job-a', now() + interval '1 hour', 3)`, leaseName); err != nil {
 			t.Fatal(err)
 		}
+		// The lease of another change, held by the same holder with the same token (recheck of PR #291).
+		if _, err := f.admin.Exec(`INSERT INTO public.leases (name, holder, expires_at, token) VALUES ('stego.backfill.other-change', 'job-a', now() + interval '1 hour', 3)`); err != nil {
+			t.Fatal(err)
+		}
 		// checkpoint runs the function as the owner role and gives the count of rows it changed.
 		checkpoint := func(token int64, name, holder string) int64 {
 			t.Helper()
@@ -472,6 +548,7 @@ func TestBackfillFunctions(t *testing.T) {
 			{"a token above the lease row's", leaseName, "job-a", 4},
 			{"another holder", leaseName, "job-b", 3},
 			{"another lease row", "stego.backfill.other", "job-a", 3},
+			{"the lease of another change", "stego.backfill.other-change", "job-a", 3},
 		} {
 			if n := checkpoint(c.token, c.lease, c.holder); n != 0 {
 				t.Errorf("the checkpoint with %s changed %d rows, want 0", c.name, n)
@@ -780,6 +857,347 @@ func TestMigrateLedgerRole(t *testing.T) {
 	})
 }
 
+func TestMigrateLocks(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T07 A run again of the job waits at most the lock timeout behind a long transaction, and the reads of the table go on", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatal(err)
+		}
+		// A purge policy of the key table is gone, so the run again has a change to make, which needs ACCESS
+		// EXCLUSIVE on the table; a run with nothing to change takes no such lock (T11).
+		if _, err := f.admin.Exec("DROP POLICY idempotency_keys_purge_delete ON public.idempotency_keys"); err != nil {
+			t.Fatal(err)
+		}
+		// A long transaction of the running release reads the key table and holds it.
+		long, err := f.admin.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = long.Rollback() }()
+		if _, err := long.Exec("SELECT count(*) FROM public.idempotency_keys"); err != nil {
+			t.Fatal(err)
+		}
+		waits := make(chan string, 64)
+		retried = func(step string) { waits <- step }
+		defer func() { retried = nil }()
+		m := f.migration(nil)
+		m.Timeout = 2 * time.Minute
+		ran := make(chan error, 1)
+		go func() { ran <- Migrate(context.Background(), settings, m) }()
+		reader, err := f.admin.Conn(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer reader.Close()
+		if _, err := reader.ExecContext(context.Background(), "SET statement_timeout = '2s'"); err != nil {
+			t.Fatal(err)
+		}
+		read := func(what string) {
+			var n int
+			if err := reader.QueryRowContext(context.Background(), "SELECT count(*) FROM public.idempotency_keys").Scan(&n); err != nil {
+				t.Fatalf("a read of the key table %s failed: %v", what, err)
+			}
+		}
+		// The reader reads the key table while the job waits for its lock, until the job's lock wait has ended at the
+		// lock timeout twice; the job that waited with no lock timeout would never get there, and each read would
+		// queue behind it until its statement timeout.
+		for seen := 0; seen < 2; {
+			select {
+			case step := <-waits:
+				if step != StepIdempotencyKeys {
+					t.Fatalf("the step %s waited for a lock, want the idempotency step", step)
+				}
+				seen++
+			case err := <-ran:
+				t.Fatalf("the job ended with %v while the long transaction held the key table, want it to wait", err)
+			case <-time.After(30 * time.Second):
+				t.Fatal("the job's lock wait did not end at the lock timeout within 30 s")
+			default:
+				read("while the job waits")
+			}
+		}
+		read("after two lock waits of the job")
+		// The long transaction ends, and the job runs the text again and passes.
+		if err := long.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err := <-ran:
+			if err != nil {
+				t.Fatalf("the job after the long transaction ended gave %v", err)
+			}
+		case <-time.After(60 * time.Second):
+			t.Fatal("the job did not end within 60 s after the long transaction ended")
+		}
+	})
+
+	t.Run("ST-SUP-RP14-LC03-T12 A run again of the job with nothing to change takes no lock that conflicts with the writes of the running release, and a run after a change of the catalog makes the objects again", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatal(err)
+		}
+		before := catalogObjects(t, f.admin)
+		// A transaction of the running release holds ROW EXCLUSIVE, the lock of a write, on each table that the job
+		// made, apart from the table of the test ledger, whose text the adapter's ledger runs only once. A statement
+		// of the job that needs SHARE or a stronger lock on one of them waits until its lock timeout.
+		writer, err := f.admin.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = writer.Rollback() }()
+		var tables []string
+		rows, err := writer.Query(`SELECT pg_catalog.quote_ident(n.nspname) || '.' || pg_catalog.quote_ident(c.relname) FROM pg_catalog.pg_class AS c
+ JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE c.relkind IN ('r', 'p') AND n.nspname IN ('public', 'stego_outbox', 'stego_audit_sink')
+ AND c.relname <> 'orders' ORDER BY 1`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var table string
+			if err := rows.Scan(&table); err != nil {
+				t.Fatal(err)
+			}
+			tables = append(tables, table)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		for _, table := range []string{"public.idempotency_keys", "stego_outbox.messages", "public.audit_event", "public.authz_revocation_tuples", "stego_audit_sink.entries"} {
+			if !slices.Contains(tables, table) {
+				t.Fatalf("the job made the tables %v, want %s among them", tables, table)
+			}
+		}
+		if _, err := writer.Exec("LOCK TABLE " + strings.Join(tables, ", ") + " IN ROW EXCLUSIVE MODE"); err != nil {
+			t.Fatal(err)
+		}
+		waits := make(chan string, 64)
+		retried = func(step string) { waits <- step }
+		defer func() { retried = nil }()
+		ran := make(chan error, 1)
+		go func() { ran <- Migrate(context.Background(), settings, f.migration(nil)) }()
+		select {
+		case step := <-waits:
+			_ = writer.Rollback()
+			<-ran
+			t.Fatalf("the step %s of a run with nothing to change waited for a lock that a write of the release holds", step)
+		case err := <-ran:
+			if err != nil {
+				t.Fatalf("the run with nothing to change gave %v while the release writes", err)
+			}
+		case <-time.After(60 * time.Second):
+			t.Fatal("the run with nothing to change did not end within 60 s")
+		}
+		if err := writer.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		if after := catalogObjects(t, f.admin); !slices.Equal(after, before) {
+			t.Fatalf("the run with nothing to change changed the catalog:\n%v\nwant\n%v", after, before)
+		}
+		// Each kind of object changes in the catalog: row-level security that is no longer forced, a dropped and a
+		// changed policy, a policy made again as restrictive, a policy on other roles, a dropped index, a dropped
+		// trigger, a disabled trigger and a dropped constraint trigger. The run again makes each one as the text
+		// states it.
+		for _, statement := range []string{
+			"ALTER TABLE stego_outbox.messages NO FORCE ROW LEVEL SECURITY",
+			"ALTER TABLE public.audit_chain_heads DISABLE ROW LEVEL SECURITY",
+			"DROP POLICY idempotency_keys_purge_delete ON public.idempotency_keys",
+			// The same name, command, roles and expression, but restrictive: Policy.Holds reads polpermissive (#301 L1).
+			"DROP POLICY idempotency_keys_purge_select ON public.idempotency_keys",
+			"CREATE POLICY idempotency_keys_purge_select ON public.idempotency_keys AS RESTRICTIVE FOR SELECT TO " + f.purge + " USING (true)",
+			"ALTER POLICY messages_tenant ON stego_outbox.messages USING (true)",
+			"ALTER POLICY tenant_wall ON public.audit_event WITH CHECK (true)",
+			"ALTER POLICY authz_revocations_tenant ON public.authz_revocations TO " + f.runtime,
+			"ALTER POLICY messages_relay_select ON stego_outbox.messages TO " + f.runtime + ", " + f.outboxRelay,
+			"DROP INDEX stego_outbox.messages_done",
+			"DROP INDEX public.idempotency_keys_expires_at",
+			"DROP INDEX public.authz_revocation_tuples_revocation",
+			"DROP TRIGGER audit_retention_checkpoints_reject_statement ON public.audit_retention_checkpoints",
+			"ALTER TABLE public.audit_anchor_boundaries DISABLE TRIGGER audit_anchor_boundaries_guard",
+			"DROP TRIGGER authz_revocation_tuple_check ON public.authz_revocation_tuples",
+		} {
+			if _, err := f.admin.Exec(statement); err != nil {
+				t.Fatalf("%s: %v", statement, err)
+			}
+		}
+		if changed := catalogObjects(t, f.admin); slices.Equal(changed, before) {
+			t.Fatal("the changes of the catalog are not seen")
+		}
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatal(err)
+		}
+		if after := catalogObjects(t, f.admin); !slices.Equal(after, before) {
+			t.Fatalf("the run after the changes of the catalog left:\n%v\nwant\n%v", after, before)
+		}
+	})
+
+	t.Run("ST-SUP-RP14-LC03-T08 Two jobs started at once run one after the other, and both pass", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		// Both jobs wait at the start of their first step until both have started, so they reach the tables of a
+		// fresh database together when nothing orders them.
+		var started sync.WaitGroup
+		started.Add(2)
+		stepped = func(step string, _ *sql.Conn) {
+			if step == StepOwnerRole {
+				started.Done()
+				started.Wait()
+			}
+		}
+		defer func() { stepped = nil }()
+		errs := make(chan error, 2)
+		for range 2 {
+			go func() { errs <- Migrate(context.Background(), settings, f.migration(nil)) }()
+		}
+		for range 2 {
+			if err := <-errs; err != nil {
+				t.Fatalf("one of two jobs started at once gave %v at the stage %s, want both to pass", err, Stage(err))
+			}
+		}
+	})
+}
+
+func TestMigrateLockAndLease(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T09 Two jobs started at once run their schema steps one after the other and their backfills under the lease", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f, m, _ := renameJob(t)
+		runtimeGrants(t, f)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		var (
+			mu         sync.Mutex
+			started    sync.WaitGroup
+			afterLock  = map[*sql.Conn]time.Time{} // when each job passed the job lock
+			atBackfill = map[*sql.Conn]time.Time{} // when each job came to the backfill step
+		)
+		started.Add(2)
+		stepped = func(step string, conn *sql.Conn) {
+			switch step {
+			case StepOwnerRole:
+				started.Done()
+				started.Wait()
+			case StepLedgerCheck:
+				mu.Lock()
+				afterLock[conn] = time.Now()
+				mu.Unlock()
+			case StepBackfill:
+				mu.Lock()
+				atBackfill[conn] = time.Now()
+				mu.Unlock()
+				// Each job waits here until the other one also comes to its backfill, which it can only when the job
+				// lock is free while a backfill runs.
+				deadline := time.After(45 * time.Second)
+				for {
+					mu.Lock()
+					both := len(atBackfill) == 2
+					mu.Unlock()
+					if both {
+						return
+					}
+					select {
+					case <-deadline:
+						return
+					case <-time.After(50 * time.Millisecond):
+					}
+				}
+			}
+		}
+		defer func() { stepped = nil }()
+		errs := make(chan error, 2)
+		for i := range 2 {
+			job := m
+			job.Holder = fmt.Sprintf("job-%d", i)
+			go func() { errs <- Migrate(context.Background(), settings, job) }()
+		}
+		for range 2 {
+			if err := <-errs; err != nil {
+				t.Fatalf("one of two jobs started at once gave %v at the stage %s, want both to pass", err, Stage(err))
+			}
+		}
+		if len(atBackfill) != 2 || len(afterLock) != 2 {
+			t.Fatalf("%d jobs came to the backfill and %d passed the job lock, want 2 and 2", len(atBackfill), len(afterLock))
+		}
+		var first, second *sql.Conn
+		for conn := range afterLock {
+			if first == nil || afterLock[conn].Before(afterLock[first]) {
+				first, second = conn, first
+			} else {
+				second = conn
+			}
+		}
+		if afterLock[second].Before(atBackfill[first]) {
+			t.Errorf("the second job passed the job lock at %v, before the first job ended its schema steps at %v", afterLock[second], atBackfill[first])
+		}
+		if gap := atBackfill[second].Sub(atBackfill[first]); gap > 30*time.Second {
+			t.Errorf("the second job came to its backfill %v after the first, which waited for it: the job lock was held through the backfill", gap)
+		}
+		var moved int64
+		var completed bool
+		if err := f.admin.QueryRowContext(context.Background(), `SELECT rows_moved, completed_at IS NOT NULL FROM stego_schema.backfills WHERE change_id = 'board-title-rename'`).Scan(&moved, &completed); err != nil || moved != 24 || !completed {
+			t.Fatalf("the checkpoint has %d moved, complete %v (error %v); want each of the 24 rows moved once, and complete", moved, completed, err)
+		}
+		var unmoved int
+		if err := f.admin.QueryRowContext(context.Background(), `SELECT count(*) FROM public.boards WHERE heading IS DISTINCT FROM title`).Scan(&unmoved); err != nil || unmoved != 0 {
+			t.Fatalf("%d rows have no new value equal to the old one (error %v)", unmoved, err)
+		}
+	})
+}
+
+func TestMigrateJobLockIndex(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T10 Two jobs pass while the first one builds an index concurrently, with no deadlock and no invalid index", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		var started sync.WaitGroup
+		started.Add(2)
+		var tries atomic.Int32
+		stepped = func(step string, _ *sql.Conn) {
+			if step == StepOwnerRole {
+				started.Done()
+				started.Wait()
+			}
+		}
+		waited = func() { tries.Add(1) }
+		defer func() { stepped, waited = nil, nil }()
+		m := f.migration(nil)
+		tables := m.Ledger
+		var building atomic.Bool
+		// The job that holds the job lock builds an index concurrently while the other job waits for the lock. A
+		// wait in pg_advisory_lock holds a snapshot, which CREATE INDEX CONCURRENTLY waits for: a deadlock.
+		m.Ledger = func(ctx context.Context, conn *sql.Conn) error {
+			if err := tables(ctx, conn); err != nil {
+				return err
+			}
+			if building.CompareAndSwap(false, true) {
+				// The other job tries the lock twice, or, with a blocking wait that never comes back to try again,
+				// waits in it for 2 s.
+				deadline := time.Now().Add(2 * time.Second)
+				for tries.Load() < 2 && time.Now().Before(deadline) {
+					time.Sleep(20 * time.Millisecond)
+				}
+			}
+			_, err := conn.ExecContext(ctx, "CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_job_lock_probe ON public.orders (id)")
+			return err
+		}
+		errs := make(chan error, 2)
+		for range 2 {
+			go func() { errs <- Migrate(context.Background(), settings, m) }()
+		}
+		for range 2 {
+			if err := <-errs; err != nil {
+				t.Fatalf("one of two jobs gave %v at the stage %s, want both to pass", err, Stage(err))
+			}
+		}
+		var invalid int
+		if err := f.admin.QueryRowContext(context.Background(), `SELECT count(*) FROM pg_catalog.pg_index WHERE NOT indisvalid`).Scan(&invalid); err != nil || invalid != 0 {
+			t.Fatalf("%d indexes are not valid (error %v), want none", invalid, err)
+		}
+	})
+}
+
 func TestMain(m *testing.M) {
 	code := pgtest.Main(m)
 	stopSpiceDB()
@@ -856,6 +1274,38 @@ func newFixture(t *testing.T) *fixture {
 	})
 	fixtureOwner, fixtureWorker, fixtureOutboxRelay, fixtureRelay, fixturePurge = f.owner, f.worker, f.outboxRelay, f.relay, f.purge
 	return f
+}
+
+// catalogObjects gives the row-level security, the policies, the indexes and the triggers of the tables of the job, by
+// name and as the catalog gives their definitions, in one order.
+func catalogObjects(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	rows, err := db.Query(`SELECT 'table ' || c.oid::regclass::text || ' ' || c.relrowsecurity || ' ' || c.relforcerowsecurity
+ FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+ WHERE c.relkind IN ('r', 'p') AND n.nspname IN ('public', 'stego_outbox', 'stego_audit_sink')
+UNION ALL SELECT 'policy ' || p.polrelid::regclass::text || ' ' || p.polname || ' ' || p.polcmd::text || ' ' || p.polpermissive ||
+ ' ' || (SELECT string_agg(CASE WHEN r = 0 THEN 'public' ELSE r::regrole::text END, ',' ORDER BY 1) FROM unnest(p.polroles) AS r) ||
+ ' ' || coalesce(pg_get_expr(p.polqual, p.polrelid), '-') || ' ' || coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '-') FROM pg_catalog.pg_policy AS p
+UNION ALL SELECT 'index ' || pg_get_indexdef(i.indexrelid) FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_class AS c ON c.oid = i.indexrelid
+ JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname IN ('public', 'stego_outbox', 'stego_audit_sink')
+UNION ALL SELECT 'trigger ' || pg_get_triggerdef(g.oid) || ' ' || g.tgenabled::text FROM pg_catalog.pg_trigger AS g WHERE NOT g.tgisinternal
+ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var objects []string
+	for rows.Next() {
+		var object string
+		if err := rows.Scan(&object); err != nil {
+			t.Fatal(err)
+		}
+		objects = append(objects, object)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return objects
 }
 
 func mustURL(t *testing.T, text string) *url.URL {

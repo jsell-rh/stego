@@ -19,33 +19,33 @@ last_applied:
                 mode: 420
             go.mod:
                 exists: true
-                sha256: bf2c38fa7a9e52a3159e71889274e07e526c08806c78ff1b9a20d4c754f0b4d0
+                sha256: 634fae9debe9cc6eba78ebbbffee1cc4d631373cff3cc7047166b286762fd944
                 mode: 420
             go.sum:
                 exists: true
-                sha256: 8b38dca29b9eb9d6b3cc5095653d5109529afe7014bc5a9f8ad15d8b21c15f31
+                sha256: bae50f452f5ad8adc7c2a804b1888758ab259d297395ee56089150a61308c4d0
                 mode: 420
             service.yaml:
                 exists: true
                 sha256: bf9ae6f59e42415acf7e472f491e4544a532f496a834c92a946f82bc5aa4d40b
                 mode: 420
-        sha256: 8da5ee60e02980ca1bc634cead65d365b125c2564752b8d704e342d3b7427252
+        sha256: a9c229746bb041138c6693b60b807145f0148c67b7ed8d3634bc2609218d7531
     compiler_build:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261114080012-1b014d2a5177
+        module_version: v0.0.0-20261114135751-8fdf4f96c404
         vcs: git
-        revision: 1b014d2a51771ab0e8e9e6f2cecd7cd09f9db1c5
+        revision: 8fdf4f96c404f6cbe1a216a4a4ac682aa1c01fd6
         source_state: clean
     service_name: user-management
     service_hash: bf9ae6f59e42415acf7e472f491e4544a532f496a834c92a946f82bc5aa4d40b
     registry_sha: env-override
-    registry_content_sha256: bca3b32f5bd7ccce78cb421ecedee82d0b9c9e65b43348195368d644cd98fa39
+    registry_content_sha256: 59385d337b30af41d8737ddb2b48064e8b4d6e2cd0e0d8563dbd1190a9ea2d65
     components:
         audit-log:
-            version: 1.1.0
-            sha: f16032b07588ef1b61f6e63cc0a5076eafee42cad6f876b9c1a92437f8d7475f
+            version: 1.1.1
+            sha: 74f40ccbc8e5a268528c3c762e698723d25d33076ab0b8209787224c092ef4e7
         command:
             version: 1.1.0
             sha: 7ce0af8ecdd872c586157b44348731c32275d472ed20510117e192199c0fcd03
@@ -74,11 +74,11 @@ last_applied:
             version: 1.1.0
             sha: 9b4a5a4b5afcbc9d23c6d02d78b3a227ff445b857bef9e73c547af184d7226e0
         rest-api:
-            version: 4.4.0
-            sha: 46a495453bbf57bd05b6f33722c6198fa63ba590af980bb38423c3b69b395d99
+            version: 4.4.1
+            sha: 1a6cc02845448eb1472881740c03698df4e70ac0e758cf27046cd47164a2adf4
         spicedb-authz:
-            version: 1.1.2
-            sha: 7c4fe9dbf3d5ae5e27ae6f857e342230a4dd82af6f2b63058da06873f7c3abbd
+            version: 1.1.4
+            sha: e3188814dcc7b9b1329069c717af7af28a85992c8d02272948cc359e2a713ab6
         tenancy:
             version: 1.1.0
             sha: 57e4b1a3b3685cc088047b654afd683399cc532e9b3913206796afd097cf4bc8
@@ -145,7 +145,7 @@ last_applied:
         internal/api/data/views.go: f48599447266a8acddd00423efdfbda2f3d3ad19b853d6eb08d4c4dc225d3f16
         internal/api/discovery.go: f5dc2a3505da0dc3b98bab336e01b9c22ae67d0a04911d5e964d71b58eeb4edc
         internal/api/errors.go: 8746d7f2437f9d6409c35b3ce25a67f3b71f5888ad3cdfe721b55663674f2ec7
-        internal/api/openapi.json: 1eede7641a5574bb33e11f0f1c6396b65da6127bbd787450cc2bc770e58b7fcb
+        internal/api/openapi.json: 8b7fca8bd9817f4edc6fb039efce9ef59b050dd09244b3426f15c00bd3545598
         internal/api/org_activity_handler.go: 235b62ab3287a0b2b73ab0070744fb68cd55f18c231fac3c259ad61f448af558
         internal/api/org_settings_handler.go: caba01dc06ac42966e087a01c5a09d758cf389d31527b88a3bed137b4e20a08a
         internal/api/org_users_handler.go: 9b035cb24469559e1bb467602ca366781bb9ca5c8979ad589552f46d388fb6d8
@@ -209,9 +209,9 @@ last_applied:
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160
     archetype:
         name: rest-crud
-        version: 3.101.3
+        version: 3.105.0
         runtime:
             module: github.com/jsell-rh/stego/registry/runtime
-            version: v0.93.0
-            sum: h1:CuuG6DB60gWFKPid8YanAG4WhHP8z/zLSxjlC7R8yoA=
+            version: v0.97.0
+            sum: h1:vVekuu8hc+i8A5+zbDHpLbPt3gfnBDpdtYW8NpiDNAU=
         imports_runtime: true

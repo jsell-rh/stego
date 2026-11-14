@@ -158,6 +158,12 @@ func read(ctx gen.Context) (plan, error) {
 	if p.WatchInterval, err = duration(ctx.ComponentConfig, "watch_interval"); err != nil {
 		return plan{}, err
 	}
+	if p.AlertBound > MaxAlertBound {
+		return plan{}, fmt.Errorf("spicedb-authz: the component setting alert_bound %s is more than %s; a revocation that is not at the provider within it must raise an alert while it still matters", p.AlertBound, MaxAlertBound)
+	}
+	if p.WatchInterval < MinWatchInterval || p.WatchInterval > p.AlertBound {
+		return plan{}, fmt.Errorf("spicedb-authz: the component setting watch_interval %s is not from %s to the alert_bound %s; each read of the watch is a query of the database, and a watch that reads less often than the alert bound alerts late", p.WatchInterval, MinWatchInterval, p.AlertBound)
+	}
 	if p.WaitCap, err = duration(ctx.ComponentConfig, "wait_cap"); err != nil {
 		return plan{}, err
 	}
@@ -255,6 +261,15 @@ func withMarker(schema string) string {
 	return schema + "\n" + MarkerDefinition
 }
 
+// MaxAlertBound is the largest alert_bound, 10 minutes: the relay raises the late-revocation alert when the oldest
+// authz outbox message is older than the bound, so a longer bound leaves a revoked access unseen too long
+// (ST-SUP-RC29-OC24).
+const MaxAlertBound = 10 * time.Minute
+
+// MinWatchInterval is the smallest watch_interval, 100 ms: each read of the watch is a query of the database. The
+// largest is the alert_bound, so the watch reads at least once within the bound (ST-SUP-RC29-OC24).
+const MinWatchInterval = 100 * time.Millisecond
+
 // MaxWaitCap is the largest wait_cap, 25 s: below the write timeout of the generated HTTP server, 30 s, so a full
 // wait leaves time to write its answer (ST-SUP-RC29-OC19).
 const MaxWaitCap = 25 * time.Second
@@ -320,6 +335,33 @@ func goText(text string) string {
 }
 
 // render writes the source of the authorization wiring package.
+// tokenStatements gives the statements of the migration for the protected table table in databaseSchema: the one
+// that adds authz_token when the catalog does not hold it, and the start of the grant of the worker role, which the
+// emitted code ends with the quoted role. The table name is a quoted identifier (sqlIdentifier), and in the regclass
+// literal a string literal of it (sqlString), so no name can end either (review of PR #292, L1). The column is added
+// only when the catalog does not hold it: ADD COLUMN IF NOT EXISTS takes ACCESS EXCLUSIVE on the table even when the
+// column is there, so a run again of the job would wait behind each long transaction of the running release, and
+// each read and write of the table would queue behind it. The catalog read and the regclass name take no lock on the
+// table. The table name is the snake case of an exported Go name, so it holds no $ that could end the dollar quote.
+func tokenStatements(table string) (column, grant string) {
+	name := databaseSchema + "." + sqlIdentifier(table)
+	column = "DO $authz$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = " + sqlString(name) +
+		"::regclass AND attname = " + sqlString(TokenColumn) + " AND NOT attisdropped) THEN ALTER TABLE " + name +
+		" ADD COLUMN IF NOT EXISTS " + TokenColumn + " text NOT NULL DEFAULT '' CHECK (octet_length(" + TokenColumn + ") <= 4096); END IF; END $authz$;\n"
+	grant = "GRANT SELECT (" + TenantColumn + ", id), UPDATE (" + TokenColumn + ") ON " + name + " TO "
+	return column, grant
+}
+
+// sqlIdentifier quotes a name as a PostgreSQL identifier.
+func sqlIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+// sqlString quotes a value as a PostgreSQL string literal.
+func sqlString(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
 func render(p plan) []byte {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "// Package %s is the authorization wiring of the service on the authorization runtime\n// github.com/jsell-rh/stego/registry/runtime/authz (ST-SUP-RC29).\n", p.Package)
@@ -400,13 +442,9 @@ func Migration(runtimeRole, relayRole, outboxRelayRole, workerRole string) (stri
 	var statements strings.Builder
 `)
 	for _, e := range p.Entities {
-		table := databaseSchema + `.\"` + e.Table + `\"`
-		// The column is added only when the catalog does not hold it: ADD COLUMN IF NOT EXISTS takes ACCESS
-		// EXCLUSIVE on the table even when the column is there, so a run again of the job would wait behind each
-		// long transaction of the running release, and each read and write of the table would queue behind it. The
-		// catalog read and the regclass name take no lock on the table.
-		fmt.Fprintf(&b, "\tstatements.WriteString(\"DO $authz$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = '%s'::regclass AND attname = '%s' AND NOT attisdropped) THEN ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s text NOT NULL DEFAULT '' CHECK (octet_length(%s) <= 4096); END IF; END $authz$;\\n\")\n", table, TokenColumn, table, TokenColumn, TokenColumn)
-		fmt.Fprintf(&b, "\tstatements.WriteString(\"GRANT SELECT (%s, id), UPDATE (%s) ON %s TO \" + worker + \";\\n\")\n", TenantColumn, TokenColumn, table)
+		column, grant := tokenStatements(e.Table)
+		fmt.Fprintf(&b, "\tstatements.WriteString(%s)\n", strconv.Quote(column))
+		fmt.Fprintf(&b, "\tstatements.WriteString(%s + worker + \";\\n\")\n", strconv.Quote(grant))
 	}
 	b.WriteString(`	return text + statements.String(), nil
 }

@@ -139,8 +139,13 @@ func read(ctx gen.Context) (plan, error) {
 	return p, nil
 }
 
-// anchorPeriod reads the anchor_period setting of the component: a Go duration of at least one second, in whole
-// seconds, as the DDL text needs it.
+// MaxAnchorPeriod is the longest anchor period, one day: the anchor job publishes the head of each chain at this
+// period, so a truncation is seen outside the service within it, and a stored anchor boundary may be at most one
+// period ahead of the database clock (ST-SUP-RC28-OC08).
+const MaxAnchorPeriod = 24 * time.Hour
+
+// anchorPeriod reads the anchor_period setting of the component: a Go duration of at least one second and at most
+// MaxAnchorPeriod, in whole seconds, as the DDL text needs it.
 func anchorPeriod(value any) (time.Duration, error) {
 	text, ok := value.(string)
 	if !ok || text == "" {
@@ -149,6 +154,9 @@ func anchorPeriod(value any) (time.Duration, error) {
 	period, err := time.ParseDuration(text)
 	if err != nil || period < time.Second || period%time.Second != 0 {
 		return 0, fmt.Errorf("audit-log: the component setting anchor_period %q is not a whole number of seconds of at least 1s", text)
+	}
+	if period > MaxAnchorPeriod {
+		return 0, fmt.Errorf("audit-log: the component setting anchor_period %q is longer than 24h; the anchor job must publish the head of each chain at least once a day", text)
 	}
 	return period, nil
 }
