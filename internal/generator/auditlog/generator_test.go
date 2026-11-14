@@ -201,6 +201,25 @@ func anchorRegistration(t *testing.T, source string) (int64, bool) {
 	return seconds, registered
 }
 
+func TestAnchorPeriodBound(t *testing.T) {
+	t.Run("ST-SUP-RC28-OC08-T03 An anchor period of more than 24h is refused at generation", func(t *testing.T) {
+		for _, c := range []struct {
+			setting string
+			ok      bool
+		}{{"1s", true}, {"24h", true}, {"86401s", false}, {"25h", false}, {"8760h", false}} {
+			ctx := customerContext(t, nil)
+			ctx.ComponentConfig["anchor_period"] = c.setting
+			_, _, err := new(Generator).Generate(ctx)
+			switch {
+			case c.ok && err != nil:
+				t.Errorf("%s: refused: %v", c.setting, err)
+			case !c.ok && (err == nil || !strings.Contains(err.Error(), "24h") || !strings.Contains(err.Error(), c.setting)):
+				t.Errorf("%s: %v, want a refusal that names the value and the bound", c.setting, err)
+			}
+		}
+	})
+}
+
 func TestRetention(t *testing.T) {
 	t.Run("ST-SUP-RC28-OC06-T05 A retention of more than 1200 months is refused at generation", func(t *testing.T) {
 		for _, c := range []struct {
