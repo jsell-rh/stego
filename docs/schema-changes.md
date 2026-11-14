@@ -23,6 +23,127 @@ The release with the expand step adds. The release after it, with the contract
 step, removes what only the old release needed. The declaration keeps every
 schema change, also a finished one.
 
+## Add steps
+
+`stego apply` writes the add steps for you. Before it plans, it puts one
+schema change of kind `add`, with its expand step, at the end of the schema
+history for each new entity, and for each new field that is optional or has a
+default on an entity of the base. Their IDs are `add-<entity>-<field>` and
+`add-<entity>` in lower kebab case. Apply names each step that it writes;
+commit them with the record. `stego plan` lists the steps that apply writes
+and saves no plan until they are in the declaration. Apply writes no other
+kind of step: declare a rename, a retype, a require, a drop or a unique
+yourself.
+
+Plan and apply check the declaration against the base before they plan: the
+ref that `--base` names, or the default branch of the repository. The default
+branch is the branch of `origin` that `refs/remotes/origin/HEAD` names, else a
+local `main`, else `master`. When the check refuses the declaration, plan and
+apply write nothing. When the service folder is in no Git repository, there is
+no check, and plan and apply say so. A repository with no such branch, or one
+that git cannot read, stops plan and apply: name the base with `--base`.
+
+## The migrations of the steps
+
+`001_initial` holds the tables of the first release: the declaration with
+every schema step undone. Each step is one more migration, after the
+migrations of the components, in the order of the schema history. Its name
+is `step_<position>_<change>_<phase>`, such as
+`step_0001_add-note-body_expand`. The migration of an add creates the table
+of the new entity, with the row-level security of an owned table in a pooled
+service, or adds the column of the new field with its checks, its foreign
+key and its indexes. It changes nothing that is there. `stego plan` lists
+each new step with its change, kind, phase, migration, trigger and backfill.
+A new database and a database that each release migrated in turn get the
+same schema.
+
+A step on a table with rows takes only short locks. Its own migration adds
+each CHECK and foreign key `NOT VALID`, so it reads no row while it holds
+its lock. Each index of the step is a migration of its own after it,
+`step_<position>_<change>_<phase>_index_<nn>`, which builds the index with
+`CREATE INDEX CONCURRENTLY` outside a transaction. A build that fails drops
+its invalid index at once, and the next job builds it again. When that drop
+fails, the job tries it again, at most 5 times; when it still fails, the job
+fails and names the invalid index, which you must drop by hand. Before the
+job records an index build, it checks that the index is valid and has the
+definition of the step: a table or an index of another definition that has
+the name of the index fails the job. The last
+migration of the step, `..._validate`, validates the constraints in its own
+transaction, which blocks no read and no write. Each migration of a step
+waits at most 1 s for a lock, and runs for at most 15 s, or 1 h for an index
+build or a validation. When the lock wait ends, the job tries again after a
+short random pause, at most 10 times, so a request that queues behind the
+step waits at most 1 s. An index build has no lock timeout, because
+`CREATE INDEX CONCURRENTLY` waits for each older transaction and blocks no
+read and no write while it waits; its statement timeout of 1 h holds.
+
+An add of a field that is required and has no default is refused, because
+the rows that the table holds cannot take it. Make the field optional or
+give it a default. An entity that refers to an entity that a later step adds
+is refused too: put the step that adds the other entity first.
+
+The marker of the database holds the digest of the stored shape of the
+first release, from postgres-adapter 6.2.0. A change of a collection or a
+permission does not change it. The first migration job of postgres-adapter
+6.2.0 or later on a database that an earlier release made writes the new
+digest into the marker, once. A pod of the earlier release that restarts
+after that job fails its marker check: during that rolling deploy, do not
+restart the pods of the earlier release. A change of the indexes of a collection over
+an entity of the base is refused, because no schema step builds such an
+index yet. See [stego compat](compat.md).
+
+The release before a step must run postgres-adapter 6.1.0 or later, because
+an earlier ledger refuses the row of a step that it does not know. The check
+against the base refuses a new step on such a base and names the version to
+deploy first.
+
+## Restarts during a rolling deploy
+
+A pod of the release before a step restarts on the database after the
+step's migration. Its schema check accepts what a later step adds, each only
+in the exact form that the step gives it, on the table of a declared entity:
+
+- the foreign key of an add of a reference field: on the new nullable column,
+  to the primary key of the table of an entity that it knows, with the tenant
+  column first when the referenced entity is owned, with no action,
+  validated or not yet validated, not deferrable, and named
+  `<table>_<column>_fkey`
+  (ST-SUP-RP15-LC03). A foreign key on one column refers only to a shared
+  entity, whose rows each tenant may read;
+- the default of the new column of an add: a constant of a built-in type,
+  and no function call (ST-GEN-Q15);
+- the CHECK of the new column of an add, validated or not yet validated,
+  named `<table>_<column>_check` (ST-SUP-RP15-LC01). Only the owner role,
+  which has the DDL rights, can add such a CHECK, so the CPU that an
+  accepted CHECK can use is not an attack surface;
+- the unique index of an add of a unique field: the tenant column first,
+  then the key columns, of which at least one is new, named
+  `<table>_<columns>_key` (ST-SUP-RP15-LC01). On a table with row-level
+  security every other unique index that the manifest does not name fails
+  the check, because a write that fails on it would tell one tenant that
+  another tenant holds the value;
+- the sync trigger of the expand step of a rename, a retype or a require:
+  a BEFORE INSERT OR UPDATE row trigger whose function is the fixed
+  template of this release, in the schema `stego_steps`, for one column
+  that the release before knows and one new column (ST-SUP-RP15-LC02).
+
+The sync trigger takes its direction from the writer, never from a NULL.
+The release of the step sets `stego.schema_step` to the IDs of its open
+changes with `SET LOCAL` in each transaction that writes. When that marker
+names the change, the trigger sets the old column from the new one; else it
+sets the new column from the old one. A conversion of an old value that does
+not convert gives the fill value of the change, or NULL, and never refuses a
+write of the release before. A write that sets both columns to values that
+differ is refused. The backfill passes the trigger of its own change with
+`stego.backfill_change`, only as the owner role.
+
+A column that the manifest does not list, on any table of the manifest,
+must be of a built-in base type of `pg_catalog`, such as `text`, `uuid` or
+`integer`: a domain, an enum, a range or a composite type can run a function
+on each insert, so it fails the check. Every other change to such a table still fails the check. A release before
+this rule refuses these forms: during the first rolling deploy of a step
+after it, do not restart the pods of a release that does not have it.
+
 ## The check against the base
 
 `stego compat --base <ref>` checks the declaration against the declaration at

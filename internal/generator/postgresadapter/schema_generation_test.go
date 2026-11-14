@@ -18,6 +18,12 @@ import (
 //go:embed testdata/schema_generation_test.go
 var schemaGenerationTests []byte
 
+// schemaEvolutionTests are the tests of the migration ledger of schema steps (ST-SUP-RC01-OC27 to OC29), which run in
+// the generated package ledger.
+//
+//go:embed testdata/schema_evolution_test.go
+var schemaEvolutionTests []byte
+
 // schemaContext gives a service with entities on the runtime data path in namespace ns, with the given settings.
 func schemaContext(ns string, config map[string]any) gen.Context {
 	return gen.Context{OutputNamespace: ns, ModuleName: "example.com/schema-gate",
@@ -142,7 +148,7 @@ func backupObjects(wiring *gen.Wiring) []gen.DatabaseObject {
 
 func TestGeneratedSchemaGeneration(t *testing.T) {
 	project := t.TempDir()
-	for _, packageName := range []string{"storage", "future", "changed"} {
+	for _, packageName := range []string{"storage", "future", "changed", "ledger"} {
 		c := schemaContext(packageName, map[string]any{"schema_generation": "fresh-v1", "migrations": "external"})
 		if packageName == "future" {
 			c.ComponentConfig["schema_generation"] = "fresh-v2"
@@ -176,7 +182,7 @@ go 1.26.11
 require (
  github.com/google/uuid v1.6.0
  github.com/jackc/pgx/v5 v5.11.0
- github.com/jsell-rh/stego/registry/runtime v0.89.0
+ github.com/jsell-rh/stego/registry/runtime v0.91.0
 )
 
 replace github.com/jsell-rh/stego/registry/runtime => ` + runtimeDir + "\n"
@@ -184,6 +190,9 @@ replace github.com/jsell-rh/stego/registry/runtime => ` + runtimeDir + "\n"
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(project, "storage/schema_generation_test.go"), schemaGenerationTests, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "ledger/schema_evolution_test.go"), schemaEvolutionTests, 0644); err != nil {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-race", "-mod=readonly", "-count=1", "-timeout=90s", "-v", "./..."}} {

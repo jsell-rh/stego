@@ -283,6 +283,7 @@ func TestNew(t *testing.T) {
 
 		t.Run("ST-SUP-RP14-LC06-T01 New refuses a database that does not hold the schema manifest before it opens anything else", func(t *testing.T) {
 			orders := manifest.Table{Schema: "public", Name: "orders", RowSecurity: true,
+				Indexes: []manifest.Index{{Name: "orders_pkey", Columns: []string{"tenant_id", "id"}}},
 				Columns: []manifest.Column{{Name: "tenant_id", Type: "text", NotNull: true}, {Name: "status", Type: "text", NotNull: true},
 					{Name: "version", Type: "bigint", Default: "1"}, {Name: "authz_token", Type: "text", Default: "''::text"}},
 				Policies: []manifest.Policy{{Name: "orders_tenant", Command: "*", Using: "(tenant_id = current_setting('app.tenant'::text, true))",

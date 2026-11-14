@@ -107,7 +107,11 @@ func newProject(t *testing.T, stego, provider string) *project {
 	}
 	p.write(service, text)
 	p.write(filepath.Join(p.dir, "go.mod"), "module "+shopModule+"\n\ngo 1.26.11\n")
-	command(t, p.dir, os.Environ(), "git", "init", "-q")
+	// The project is a repository whose branch main holds it with no record, so plan and apply have a base, the
+	// default branch, at which no release has run (ST-GEN-UC12-R05).
+	command(t, p.dir, os.Environ(), "git", "init", "-q", "-b", "main")
+	command(t, p.dir, os.Environ(), "git", "add", "-A")
+	command(t, p.dir, os.Environ(), "git", "-c", "user.name=stego-test", "-c", "user.email=stego-test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "project")
 	return p
 }
 

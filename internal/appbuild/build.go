@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"go/version"
 	"io"
+	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -170,21 +172,34 @@ func outside(parent, child string) bool {
 	return err == nil && (relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)))
 }
 
-// shownSource is a --source value as a refusal may quote it: the user info of a URL, which can hold a token, is
-// replaced with xxxxx, and the rest is kept, so the author still sees which value was refused.
+// shownSource is a --source URL as a refusal may quote it: only its scheme and its host. The user info, the path,
+// the query and the fragment can each hold a token (CWE-532), and a raw /, ? or # in the user info moves where a
+// parser sees the host, so when the host is not certain, only the scheme is shown.
 func shownSource(source string) string {
 	scheme, rest, ok := strings.Cut(source, "://")
-	if !ok {
-		return source
+	if !ok || !schemePattern.MatchString(scheme) {
+		return "(a URL)"
 	}
-	authority, tail := rest, ""
-	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
-		authority, tail = rest[:i], rest[i:]
+	parsed, err := url.Parse(source)
+	if err != nil || (parsed.User == nil && strings.Contains(rest, "@")) || !hostPattern.MatchString(parsed.Host) {
+		return scheme + "://"
 	}
-	if i := strings.LastIndex(authority, "@"); i >= 0 {
-		authority = "xxxxx" + authority[i:]
+	return scheme + "://" + parsed.Host
+}
+
+var (
+	schemePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*$`)
+	hostPattern   = regexp.MustCompile(`^[A-Za-z0-9.:\[\]-]*$`)
+)
+
+// sourceUnreadable is the refusal of a --source folder that cannot be resolved. It wraps the cause without the
+// path, since a value such as user:TOKEN@host:org/repo is not a URL and reaches this check as a local path.
+func sourceUnreadable(err error) error {
+	var pathError *fs.PathError
+	if errors.As(err, &pathError) {
+		err = pathError.Err
 	}
-	return scheme + "://" + authority + tail
+	return fmt.Errorf("--source: cannot read the local repository folder: %w", err)
 }
 
 // checkLocation checks the source, revision, module and target of a download or a build, and gives each check a
@@ -198,6 +213,10 @@ func checkLocation(source, revision, module, target string) (string, string, str
 		}
 		source = rest
 	} else if scheme, _, ok := strings.Cut(source, "://"); ok && !strings.ContainsAny(scheme, "/") {
+		// A scheme that is not one of RFC 3986 can hold a token, such as user:TOKEN@host://org/x, so it is not shown.
+		if !schemePattern.MatchString(scheme) {
+			return "", "", "", fmt.Errorf("--source %s: expected a local Git repository folder or a file:// URL, not a local folder", shownSource(source))
+		}
 		return "", "", "", fmt.Errorf("--source %q: expected a local Git repository folder or a file:// URL, not a %s URL", shownSource(source), scheme)
 	}
 	if source != "" {
@@ -243,7 +262,7 @@ func prepare(options Options) (Options, error) {
 	}
 	options.Source, err = filepath.EvalSymlinks(options.Source)
 	if err != nil {
-		return options, err
+		return options, fmt.Errorf("build: %w", sourceUnreadable(err))
 	}
 	options.Go, err = filepath.EvalSymlinks(options.Go)
 	if err != nil {

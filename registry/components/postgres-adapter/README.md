@@ -21,6 +21,24 @@ For a service with entities, the component emits these files:
   or a `*sql.Conn`. Each migration and its ledger row commit in one
   transaction under the ledger lock, so two migration jobs that run at the
   same time apply each migration one time.
+- `migrations/step_<position>_<change>_<phase>.sql`: the migration of each
+  step of the schema history, after `001_initial` and the row-level security
+  of the tenancy component (ST-SUP-RC01-OC22). Version 6.1.0 makes
+  `001_initial` the baseline: the tables of the first release, with every
+  schema step undone, so its body and its ledger digest do not change when a
+  later release adds an entity or a field. The step of an add creates the
+  table of a new entity, with the row-level security of an owned table in a
+  pooled service, or adds the column of a new field with its checks, foreign
+  key and indexes. It changes nothing that is there. The ledger records the
+  `compatible_with` set of each step row, and the code of the release before
+  a step accepts that row (ST-SUP-RC01-OC27, ST-SUP-RC01-OC28). The migration
+  job adds the `compatible_with` column to a ledger that has none
+  (ST-SUP-RC01-OC29). Version 6.2.0 makes the marker digest the digest of
+  the stored shape of the baseline: its tables, columns, keys and checks,
+  with no collection and no permission (ST-SUP-RC01-OC42). The marker check
+  also accepts the digest that an earlier release wrote. The ledger takes no
+  migration but `001_initial`, `100_tenancy_row_security` and the steps
+  (ST-SUP-RC01-OC43).
 - `schema_generation.go`: the [schema generation marker](schema-generation.md).
 - `database.go`: `OpenDatabase`, with verified TLS, the loopback test mode
   and the pool bounds of the `DATABASE_POOL_*` settings.

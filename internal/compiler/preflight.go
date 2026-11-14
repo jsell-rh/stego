@@ -134,6 +134,13 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 		return nil, err
 	}
 	resolved := &resolvedCompilation{Components: components, Names: componentNames, Contexts: map[string]gen.Context{}, InputSnapshots: map[string]fileSnapshot{}, OutDir: outDir, OutDirName: outDirName, SlotsPackage: slotsPackage, HoldsFills: fills, RuntimeData: runtimeData, QueryStreams: declaration.QueryStreams(svcDecl, facts)}
+	// A check (stego validate) reconciles a declaration whose schema changes generation does not carry out yet, and
+	// writes nothing, so its generators get the stored shape with no schema step: the reconciler refuses such a
+	// declaration in every run that writes (unbuiltSchemaChanges).
+	schemaChanges, schemaHistory := svcDecl.SchemaChanges, svcDecl.SchemaHistory
+	if input.CheckOnly && unbuiltSchemaChanges(svcDecl) != nil {
+		schemaChanges, schemaHistory = nil, nil
+	}
 	for _, compName := range componentNames {
 		comp := components[compName]
 		generator := input.Generators[compName]
@@ -141,6 +148,8 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			Conventions:     conventions,
 			Entities:        svcDecl.Entities,
 			Collections:     svcDecl.Collections,
+			SchemaChanges:   schemaChanges,
+			SchemaHistory:   schemaHistory,
 			SlotBindings:    svcDecl.Slots,
 			Observations:    svcDecl.Observations,
 			Emitters:        declaredEmitters(svcDecl),

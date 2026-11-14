@@ -316,6 +316,9 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		if err := selectedComponentMissing(source.Service, source.Registry); err != nil {
 			return nil, err
 		}
+		if err := unbuiltSchemaChanges(source.Service); err != nil {
+			return nil, err
+		}
 		// Checking accepts a declared invariant; generation refuses it until a generator emits it.
 		if err := unemittedInvariants(source.Service.Invariants); err != nil {
 			return nil, err

@@ -25,6 +25,12 @@ const (
 	manifestImport         = "github.com/jsell-rh/stego/registry/runtime/manifest"
 )
 
+// StepSchema is the held schema of the sync functions of the schema steps (ST-SUP-RP15-LC02): the manifest names it,
+// so the schema check of a release accepts the sync trigger of a later step, and the step that first needs it makes
+// it. Each table of the manifest is the table of a declared entity, on which the schema check accepts the sync
+// trigger, the foreign key and the constant default of a later step in their exact form.
+const StepSchema = "stego_steps"
+
 // TenantPolicy is the name of the one tenant policy that the tenancy component makes on each owned table
 // (ST-SUP-RC27-OC03); the manifest names it.
 const TenantPolicy = "stego_tenant"
@@ -175,9 +181,9 @@ func deparsedList(columns []string) string {
 // a list that has no search index is slower, not wrong.
 func manifestSource(models []tableModel, key string) string {
 	var b strings.Builder
-	b.WriteString("manifest.Manifest{Tables: []manifest.Table{\n")
+	fmt.Fprintf(&b, "manifest.Manifest{Schemas: []manifest.Schema{{Name: %q, Steps: true}},\nTables: []manifest.Table{\n", StepSchema)
 	for _, table := range models {
-		fmt.Fprintf(&b, "{Schema: %q, Name: %q,\n", "public", table.name)
+		fmt.Fprintf(&b, "{Schema: %q, Name: %q, Entity: true,\n", "public", table.name)
 		b.WriteString("Columns: []manifest.Column{\n")
 		for _, column := range table.columns {
 			if column.manifestDefault != "" {
