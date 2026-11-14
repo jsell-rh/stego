@@ -1,9 +1,12 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -96,11 +99,17 @@ type revocationEnv struct {
 
 func newRevocationEnv(t *testing.T, waitCap time.Duration, waiters int) *revocationEnv {
 	t.Helper()
+	return newRevocationEnvOf(t, waitCap, waiters, 0)
+}
+
+// newRevocationEnvOf is newRevocationEnv with the waiter limit of a tenant tenantWaiters.
+func newRevocationEnvOf(t *testing.T, waitCap time.Duration, waiters, tenantWaiters int) *revocationEnv {
+	t.Helper()
 	e := newEnv(t)
 	r := &revocationEnv{env: e, port: &deliveredPort{}, identity: map[string]context.Context{}}
 	var err error
 	if r.az, err = authz.New(authz.Config{Provider: r.port, DB: e.pool, Schema: "authz", Outbox: e.queue,
-		Poll: 10 * time.Millisecond, WaitCap: waitCap, Waiters: waiters}); err != nil {
+		Poll: 10 * time.Millisecond, WaitCap: waitCap, Waiters: waiters, TenantWaiters: tenantWaiters}); err != nil {
 		t.Fatal(err)
 	}
 	r.rt = e.runtime(func(c *Config) { c.Authz = r.az })
@@ -218,6 +227,49 @@ func (r *revocationEnv) status(who, path, prefer string) (*httptest.ResponseReco
 	return answer, body, took
 }
 
+// holdPool keeps the one connection of the main pool in a transaction for hold, so no read of the pool can start
+// before then, and gives the pool back its limit when the test ends.
+func (r *revocationEnv) holdPool(hold time.Duration) {
+	r.t.Helper()
+	r.pool.SetMaxOpenConns(1)
+	tx, err := r.pool.BeginTx(context.Background(), nil)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	released := make(chan struct{})
+	go func() { defer close(released); time.Sleep(hold); _ = tx.Rollback() }()
+	r.t.Cleanup(func() { <-released; r.pool.SetMaxOpenConns(0) })
+}
+
+// queries is the query runtime over the authorization runtime of the env.
+func (r *revocationEnv) queries() *query.Runtime {
+	r.t.Helper()
+	queries, err := query.New(query.Config{DB: r.pool, AuditDB: r.auditDB, Audit: r.writer,
+		AuditSettings: audit.Settings{Level: audit.LevelChange}, Authz: r.az, Service: "orders"})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return queries
+}
+
+// await runs AwaitWrite as who with the Authz-Revocation-After values after and the Prefer header prefer when it is
+// not empty, and gives the response, the error and the time it took.
+func (r *revocationEnv) await(queries *query.Runtime, who, prefer string, after ...string) (*httptest.ResponseRecorder, error, time.Duration) {
+	r.t.Helper()
+	b := r.bound(who)
+	request := httptest.NewRequestWithContext(r.identity[who], http.MethodGet, "/orders", nil)
+	for _, value := range after {
+		request.Header.Add(authz.RevocationAfterHeader, value)
+	}
+	if prefer != "" {
+		request.Header.Set("Prefer", prefer)
+	}
+	answer := httptest.NewRecorder()
+	start := time.Now()
+	err := queries.AwaitWrite(answer, request, b.Tenant, b.Principal)
+	return answer, err, time.Since(start)
+}
+
 func TestRevocationAnswers(t *testing.T) {
 	t.Run("ST-SUP-RP10-LC35-T01 A committed write that enqueued a tuple answers its revocation, and its replay is the same", func(t *testing.T) {
 		r := newRevocationEnv(t, 0, 0)
@@ -248,7 +300,7 @@ func TestRevocationAnswers(t *testing.T) {
 			t.Fatalf("a write with no tuple answered %v, want no revocation header", none.Response.Header)
 		}
 	})
-	t.Run("ST-SUP-RP10-LC35-T02 The status route answers only the writer, pending and then complete with the token", func(t *testing.T) {
+	t.Run("ST-SUP-RP10-LC35-T02 The status route answers only the writer, pending and then complete with no token", func(t *testing.T) {
 		r := newRevocationEnv(t, 0, 0)
 		location := r.create("u-7@t1", "k-lc36-3", "o3", nil).Response.Header.Get(authz.RevocationLocationHeader)
 		if answer, body, _ := r.status("u-7@t1", location, ""); answer.Code != http.StatusOK || body["state"] != "pending" ||
@@ -271,11 +323,29 @@ func TestRevocationAnswers(t *testing.T) {
 		}
 		r.startRelay()
 		answer, body, _ := r.status("u-7@t1", location, "wait=5")
-		if answer.Code != http.StatusOK || body["state"] != "complete" || !strings.HasPrefix(body["token"], "t-9") {
-			t.Fatalf("the status after the delivery is %d %v, want complete with the token of the delivery", answer.Code, body)
+		// The body holds no token of the provider, which would tell the write count of a datastore that all tenants
+		// share (ST-SUP-Q119).
+		if _, token := body["token"]; answer.Code != http.StatusOK || body["state"] != "complete" || token ||
+			strings.Contains(answer.Body.String(), "t-9") {
+			t.Fatalf("the status after the delivery is %d %s, want complete with no token", answer.Code, answer.Body)
 		}
 		if answer.Header().Get("Preference-Applied") != "wait=5" {
 			t.Fatalf("Preference-Applied is %q, want wait=5", answer.Header().Get("Preference-Applied"))
+		}
+	})
+}
+
+func TestRevocationNotFound(t *testing.T) {
+	t.Run("ST-SUP-RP10-LC35-T03 A wait that ends before a read found the caller's revocation answers 404, not pending", func(t *testing.T) {
+		r := newRevocationEnv(t, 5*time.Second, 0)
+		other := r.create("u-7@t2", "k-lc35-4", "o6", nil).Response.Header.Get(authz.RevocationLocationHeader)
+		// The pool is held for 1.5 s, so the first read of a wait of 1 s cannot start before the wait ends.
+		r.holdPool(1500 * time.Millisecond)
+		for _, path := range []string{other, authz.RevocationPath + uuid.NewString()} {
+			answer, body, took := r.status("u-7@t1", path, "wait=1")
+			if answer.Code != http.StatusNotFound || took > 1400*time.Millisecond {
+				t.Fatalf("u-7@t1 read %s under a held pool: %d %v after %s, want 404 when the wait ends", path, answer.Code, body, took)
+			}
 		}
 	})
 }
@@ -343,6 +413,84 @@ func TestRevocationWait(t *testing.T) {
 		wg.Wait()
 		if idle == 0 {
 			t.Fatalf("five waits kept a pooled connection in use at each of 50 samples (up to %d), want none between two reads", busy)
+		}
+	})
+}
+
+func TestTenantWaiters(t *testing.T) {
+	t.Run("ST-SUP-RP06-LC24-T03 A tenant that holds its waiter places does not block the waits of another tenant", func(t *testing.T) {
+		// The waiter limit of all is 100 and that of a tenant 2; no relay runs, so each wait lasts until its end.
+		r := newRevocationEnvOf(t, 2*time.Second, 100, 2)
+		hog := r.create("u-7@t2", "k-lc24-3", "o7", nil).Response.Header.Get(authz.RevocationLocationHeader)
+		own := r.create("u-7@t1", "k-lc24-4", "o8", nil).Response.Header.Get(authz.RevocationLocationHeader)
+		var wg sync.WaitGroup
+		for range 2 {
+			wg.Add(1)
+			go func() { defer wg.Done(); r.status("u-7@t2", hog, "wait=5") }()
+		}
+		time.Sleep(200 * time.Millisecond)
+		// A third wait of t2 is over the limit of its tenant: it answers at once and does not wait.
+		answer, body, took := r.status("u-7@t2", hog, "wait=5")
+		if took > 300*time.Millisecond || answer.Header().Get("Preference-Applied") != "" || body["state"] != "pending" {
+			t.Fatalf("a third wait of t2 answered %v %v after %s, want pending at once with no Preference-Applied", body, answer.Header(), took)
+		}
+		// A wait of t1 waits: t2 holds no place of t1.
+		answer, body, took = r.status("u-7@t1", own, "wait=1")
+		if took < 900*time.Millisecond || answer.Header().Get("Preference-Applied") != "wait=1" || body["state"] != "pending" {
+			t.Fatalf("a wait of t1 answered %v %v after %s, want pending after 1 s with Preference-Applied: wait=1", body, answer.Header(), took)
+		}
+		wg.Wait()
+	})
+}
+
+func TestReadYourWritesRefusals(t *testing.T) {
+	t.Run("ST-SUP-RP11-LC21-T02 A revocation of another tenant or principal is unknown, and a bad header is a bad request", func(t *testing.T) {
+		r := newRevocationEnv(t, 5*time.Second, 0)
+		queries := r.queries()
+		location := r.create("u-7@t1", "k-ryw-3", "ryw3", nil).Response.Header.Get(authz.RevocationLocationHeader)
+		// A real revocation of u-7@t1 is unknown to another principal and to another tenant, at once.
+		for _, who := range []string{"u-8@t1", "u-7@t2"} {
+			answer, err, took := r.await(queries, who, "wait=5", location)
+			if err != nil || answer.Header().Get(authz.RevocationHeader) != query.RevocationUnknown || took > 2*time.Second {
+				t.Fatalf("%s waited for u-7@t1's revocation: %v %q after %s, want unknown at once", who, err,
+					answer.Header().Get(authz.RevocationHeader), took)
+			}
+		}
+		// Two headers, and an identity in upper case, are bad requests.
+		id := strings.TrimPrefix(location, authz.RevocationPath)
+		for name, after := range map[string][]string{"two headers": {location, location}, "upper case": {strings.ToUpper(id)}} {
+			if _, err, _ := r.await(queries, "u-7@t1", "", after...); !errors.Is(err, query.ErrBadRequest) {
+				t.Fatalf("%s gave %v, want ErrBadRequest", name, err)
+			}
+		}
+		// When the wait ends before a read found the revocation, the revocation of another tenant is unknown, not
+		// pending.
+		other := r.create("u-7@t2", "k-ryw-4", "ryw4", nil).Response.Header.Get(authz.RevocationLocationHeader)
+		r.holdPool(1500 * time.Millisecond)
+		answer, err, _ := r.await(queries, "u-7@t1", "wait=1", other)
+		if err != nil || answer.Header().Get(authz.RevocationHeader) != query.RevocationUnknown {
+			t.Fatalf("u-7@t1 waited for u-7@t2's revocation under a held pool: %v %q, want unknown", err, answer.Header().Get(authz.RevocationHeader))
+		}
+	})
+	t.Run("ST-SUP-RP11-LC21-T03 A hostile Authz-Revocation-After value appears in no error, header or log", func(t *testing.T) {
+		r := newRevocationEnv(t, 5*time.Second, 0)
+		queries := r.queries()
+		var logs bytes.Buffer
+		previous := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+		t.Cleanup(func() { slog.SetDefault(previous) })
+		for _, value := range []string{"hostile-<script>alert(1)</script>", "hostile-' OR 1=1 --", "hostile-../../etc/passwd",
+			"hostile-" + strings.Repeat("A", 8000), authz.RevocationPath + "hostile-%0d%0aX-Injected:1"} {
+			answer, err, _ := r.await(queries, "u-7@t1", "", value)
+			if !errors.Is(err, query.ErrBadRequest) {
+				t.Fatalf("the value %.40q gave %v, want ErrBadRequest", value, err)
+			}
+			for where, text := range map[string]string{"the error": err.Error(), "the log": logs.String(),
+				"the headers": fmt.Sprint(answer.Header()), "the body": answer.Body.String()} {
+				if strings.Contains(text, "hostile") {
+					t.Fatalf("%s holds the hostile value %.40q: %.200s", where, value, text)
+				}
+			}
 		}
 	})
 }

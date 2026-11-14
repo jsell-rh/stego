@@ -366,7 +366,7 @@ func ServeRPC[Req, Res proto.Message, P any](rt *Runtime, s ServeSpec[Req, Res, 
 // and answers 404, the same answer, to an identity that is not a revocation of theirs or is not an identity
 // (ST-SUP-RC29-OC18). It honors Prefer: wait=N through authz WaitFor, which holds no transaction and no pooled
 // connection while it waits, and sends Preference-Applied with the seconds it allowed. It answers 200 with the
-// identity, the state and, when complete, the token, with Cache-Control: no-store.
+// identity and the state, and no token, with Cache-Control: no-store.
 func ServeRevocationStatus(rt *Runtime, subjectType string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -402,10 +402,9 @@ func ServeRevocationStatus(rt *Runtime, subjectType string) http.Handler {
 		if allowed > 0 {
 			w.Header().Set("Preference-Applied", "wait="+strconv.Itoa(int(allowed/time.Second)))
 		}
+		// The body holds no token of the provider: a token tells the write count of the provider's datastore, which
+		// all tenants share, and a client sends only the identity of its revocation (ST-SUP-Q119).
 		body := map[string]string{"id": status.ID.String(), "state": string(status.State)}
-		if !status.Token.IsZero() {
-			body["token"] = status.Token.Text()
-		}
 		data, err := json.Marshal(body)
 		if err != nil {
 			writeProblem(w, http.StatusInternalServerError, "", ErrorCodeInternal)

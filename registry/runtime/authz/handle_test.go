@@ -1647,3 +1647,35 @@ func TestHandleWrites(t *testing.T) {
 		}
 	})
 }
+
+func TestWaitPoll(t *testing.T) {
+	t.Run("ST-SUP-RP06-LC24-T04 A long wait reads with a time that doubles from the poll time up to one second", func(t *testing.T) {
+		for poll, want := range map[time.Duration]time.Duration{50 * time.Millisecond: 100 * time.Millisecond,
+			600 * time.Millisecond: MaxPoll, MaxPoll: MaxPoll, 2 * time.Second: 2 * time.Second} {
+			if got := nextPoll(poll); got != want {
+				t.Fatalf("the read after a poll of %s comes after %s, want %s", poll, got, want)
+			}
+		}
+		env := newPG(t)
+		rt, err := New(Config{Provider: &recorder{}, DB: env.runtime, Schema: env.schema, Outbox: env.queue,
+			Poll: 50 * time.Millisecond, WaitCap: 5 * time.Second})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
+		revocation, err := handle.Relate(context.Background(), Tuple{Resource: doc("1"), Relation: "viewer", Subject: user("bob")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, "t1")
+		// No relay runs, so the revocation stays pending for the whole wait of 3 s. Reads at 0, 0.05, 0.15, 0.35,
+		// 0.75, 1.55 and 2.55 s are 7; a fixed poll of 50 ms reads 60 times.
+		status, allowed, err := rt.WaitFor(context.Background(), mustTenant(t, "t1"), mustPerson(t, "alice"), revocation.ID(), 3*time.Second)
+		if err != nil || status.State != RevocationPending || allowed != 3*time.Second {
+			t.Fatalf("the wait answered %v, %s, %v, want pending after 3 s", status, allowed, err)
+		}
+		if reads := rt.waitReads.Load(); reads < 5 || reads > 9 {
+			t.Fatalf("a wait of 3 s read the status %d times, want 5 to 9", reads)
+		}
+	})
+}

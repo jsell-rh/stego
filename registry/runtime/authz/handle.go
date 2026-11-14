@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -49,7 +50,8 @@ type Config struct {
 	// Outbox is the outbox queue of the service, as the runtime role, in which the handle enqueues the relay's
 	// tuple writes.
 	Outbox *outbox.Queue
-	// Poll is the time between two reads of Wait. Zero is 50 milliseconds.
+	// Poll is the time between two reads of Wait, and the first time between two reads of WaitFor, which doubles
+	// after each read up to MaxPoll (ST-SUP-RP06-LC24). Zero is 50 milliseconds.
 	Poll time.Duration
 	// Retention is how long Status answers for a revocation; after it, Status answers expired. Zero is
 	// MinRetention, and a shorter one is refused.
@@ -61,6 +63,9 @@ type Config struct {
 	// Waiters is the most calls of WaitFor that wait at one time; a call over it reads the status once and does not
 	// wait (ST-SUP-RP06-LC24). Zero is DefaultWaiters.
 	Waiters int
+	// TenantWaiters is the most calls of WaitFor of one tenant that wait at one time, inside Waiters, so the waits
+	// of one tenant cannot use up the waiter limit of all (ST-SUP-RP06-LC24). Zero is DefaultTenantWaiters.
+	TenantWaiters int
 	// Meter gives the metric of the search results that a handle drops because they name another tenant
 	// (ST-SUP-RP06-LC22). Nil records no metric; DroppedResults counts them still.
 	Meter metric.MeterProvider
@@ -77,6 +82,13 @@ type Runtime struct {
 	clock     Clock
 	waitCap   time.Duration
 	waiters   chan struct{}
+
+	// tenantWaiters is the limit of the waits of one tenant, and waiting the waits of each tenant now.
+	tenantWaiters int
+	waitingMu     sync.Mutex
+	waiting       map[string]int
+	// waitReads counts the reads of WaitFor, for the test of its poll.
+	waitReads atomic.Int64
 
 	droppedMetric metric.Int64Counter
 	dropped       atomic.Int64
@@ -110,6 +122,8 @@ func New(cfg Config) (*Runtime, error) {
 		return nil, errors.New("authz: the wait cap is negative")
 	case cfg.Waiters < 0:
 		return nil, errors.New("authz: the waiter limit is negative")
+	case cfg.TenantWaiters < 0:
+		return nil, errors.New("authz: the waiter limit of a tenant is negative")
 	}
 	schema, err := quoteName("schema", cfg.Schema)
 	if err != nil {
@@ -135,6 +149,11 @@ func New(cfg Config) (*Runtime, error) {
 		waiters = DefaultWaiters
 	}
 	r.waiters = make(chan struct{}, waiters)
+	r.tenantWaiters = cfg.TenantWaiters
+	if r.tenantWaiters == 0 {
+		r.tenantWaiters = DefaultTenantWaiters
+	}
+	r.waiting = map[string]int{}
 	if cfg.Meter != nil {
 		r.droppedMetric, err = cfg.Meter.Meter(instrumentation).Int64Counter("authz.search.dropped",
 			metric.WithDescription("The resource search results that name another tenant or are not tenant-qualified, which a handle drops."))
@@ -761,6 +780,14 @@ const DefaultWaitCap = 10 * time.Second
 // DefaultWaiters is the most calls of WaitFor that wait at one time when Config gives none (ST-SUP-RP06-LC24).
 const DefaultWaiters = 100
 
+// DefaultTenantWaiters is the most calls of WaitFor of one tenant that wait at one time when Config gives none
+// (ST-SUP-RP06-LC24).
+const DefaultTenantWaiters = 10
+
+// MaxPoll is the longest time between two reads of WaitFor: the time starts at the poll time and doubles after each
+// read up to MaxPoll, so a long wait reads about once a second (ST-SUP-RP06-LC24).
+const MaxPoll = time.Second
+
 // The headers of a revocation in HTTP (ST-SUP-RC29-OC16, ST-SUP-RP10-LC35, ST-SUP-RP11-LC21).
 const (
 	// RevocationHeader is the response header that gives the state of a revocation: pending on the answer of a write.
@@ -795,45 +822,87 @@ func (h *Handle) Current(ctx context.Context) (Revocation, bool, error) {
 // WaitFor reads the status of the revocation id for tenant t and principal p, and while it is pending reads it again
 // until it is no longer pending, wait ends, the wait cap ends or ctx ends, whichever comes first
 // (ST-SUP-RP06-LC24). Each read is Status, in a short transaction of its own, so it holds no transaction and no
-// pooled connection between two reads. At most the waiter limit of calls wait at one time: a call over the limit
-// answers the first read at once. allowed is the wait that the call allowed, which is the cap when the cap cut wait;
-// it is zero when wait is not positive or the call is over the limit. It answers ErrRevocationNotFound to any other
-// tenant and principal, as Status does.
+// pooled connection between two reads; the time between two reads starts at the poll time and doubles up to
+// MaxPoll. At most the waiter limit of calls, and at most the waiter limit of a tenant of the calls of one tenant,
+// wait at one time: a call over a limit answers the first read at once. allowed is the wait that the call allowed,
+// which is the cap when the cap cut wait; it is zero when wait is not positive or the call is over a limit. It
+// answers ErrRevocationNotFound to any other tenant and principal, as Status does, and also when the wait ends
+// before a read found the revocation of t and p: it answers pending only after a read found it.
 func (r *Runtime) WaitFor(ctx context.Context, t tenant.Tenant, p Principal, id uuid.UUID, wait time.Duration) (status RevocationStatus, allowed time.Duration, err error) {
-	if wait <= 0 {
+	if wait <= 0 || !r.startWait(t) {
 		status, err = r.Status(ctx, t, p, id)
 		return status, 0, err
 	}
-	select {
-	case r.waiters <- struct{}{}:
-		defer func() { <-r.waiters }()
-	default:
-		status, err = r.Status(ctx, t, p, id)
-		return status, 0, err
-	}
+	defer r.endWait(t)
 	allowed = min(wait, r.waitCap)
 	waitCtx, cancel := context.WithTimeout(ctx, allowed)
 	defer cancel()
+	found := false
+	poll := r.poll
 	for {
+		r.waitReads.Add(1)
 		status, err = r.Status(waitCtx, t, p, id)
 		if err != nil {
-			if waitCtx.Err() != nil && ctx.Err() == nil {
-				// The wait ended during a read: the last answer is pending.
-				return RevocationStatus{ID: id, State: RevocationPending}, allowed, nil
+			if waitCtx.Err() != nil && ctx.Err() == nil && !errors.Is(err, ErrRevocationNotFound) {
+				// The wait ended during a read. The last answer is pending only when a read of this call found the
+				// revocation of t and p; else the call cannot tell it from one that is not theirs.
+				if found {
+					return RevocationStatus{ID: id, State: RevocationPending}, allowed, nil
+				}
+				return RevocationStatus{}, allowed, ErrRevocationNotFound
 			}
 			return RevocationStatus{}, allowed, err
 		}
+		found = true
 		if status.State != RevocationPending {
 			return status, allowed, nil
 		}
-		timer := time.NewTimer(r.poll)
+		timer := time.NewTimer(poll)
 		select {
 		case <-waitCtx.Done():
 			timer.Stop()
 			return status, allowed, ctx.Err()
 		case <-timer.C:
 		}
+		poll = nextPoll(poll)
 	}
+}
+
+// nextPoll is the time between two reads of WaitFor after one of poll: twice poll, at most MaxPoll, and never less
+// than poll.
+func nextPoll(poll time.Duration) time.Duration {
+	if poll >= MaxPoll {
+		return poll
+	}
+	return min(2*poll, MaxPoll)
+}
+
+// startWait takes a place of the waiter limit and of the waiter limit of tenant t, and tells whether it took both;
+// when it did not, it holds neither.
+func (r *Runtime) startWait(t tenant.Tenant) bool {
+	select {
+	case r.waiters <- struct{}{}:
+	default:
+		return false
+	}
+	r.waitingMu.Lock()
+	defer r.waitingMu.Unlock()
+	if r.waiting[t.ID()] >= r.tenantWaiters {
+		<-r.waiters
+		return false
+	}
+	r.waiting[t.ID()]++
+	return true
+}
+
+// endWait gives back the places that startWait took for tenant t.
+func (r *Runtime) endWait(t tenant.Tenant) {
+	r.waitingMu.Lock()
+	if r.waiting[t.ID()]--; r.waiting[t.ID()] <= 0 {
+		delete(r.waiting, t.ID())
+	}
+	r.waitingMu.Unlock()
+	<-r.waiters
 }
 
 // PreferWait reads the wait preference of RFC 7240 from the Prefer headers of a request: the seconds of the first
