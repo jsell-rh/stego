@@ -76,8 +76,19 @@ func (e *SchemaError) Error() string {
 
 // CompileAuthzSchema compiles the .zed schema source at the path with the SpiceDB schema compiler, and then checks
 // that every type, relation and caveat the schema refers to is one it defines. It returns a *SchemaError, which
-// names the line, for a schema that does not compile.
+// names the line, for a schema that does not compile. Before it compiles, it refuses a schema beyond the shape bounds
+// of checkSchemaShape with a *SchemaError that names the limit (ST-DECL-INV88).
 func CompileAuthzSchema(schemaPath string, source []byte) (*AuthzSchema, error) {
+	if err := checkSchemaShape(schemaPath, source); err != nil {
+		return nil, err
+	}
+	return compileSchema(schemaPath, source)
+}
+
+// compileSchema compiles and reads the .zed schema as CompileAuthzSchema does, with no shape bound. Only
+// CompileAuthzSchema calls it outside the tests, and the tests call it to show that the checks after the compiler stay
+// linear on a schema beyond the bounds.
+func compileSchema(schemaPath string, source []byte) (*AuthzSchema, error) {
 	compiled, err := compiler.Compile(compiler.InputSchema{Source: input.Source(schemaPath), SchemaString: string(source)},
 		compiler.AllowUnprefixedObjectType(), compiler.DisallowImportFlag())
 	if err != nil {
