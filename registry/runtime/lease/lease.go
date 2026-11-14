@@ -47,6 +47,14 @@ const declareStatement = `INSERT INTO public.leases (name) VALUES ($1) ON CONFLI
 // reads its token and holder (ST-SUP-RP09-LC03, ST-SUP-RP10-LC20).
 const fenceStatement = `SELECT token, holder FROM public.leases WHERE name=$1 FOR SHARE`
 
+// stallStatement sets the idle-in-transaction timeout of the caller's transaction only. It is the bound of the
+// database on the lease row lock of Fence: the process clock of the holder ends the transaction when the lease can
+// expire, but a holder whose process stops, such as a frozen container or a paused virtual machine, runs no timer,
+// and its transaction would keep the lease row locked FOR SHARE, so no other holder could take the lease after it
+// expires (ST-SUP-RP09-LC04). With the timeout, the server ends the session of a holder that waits in the
+// transaction for longer than the lease has left, and the lock goes with it.
+const stallStatement = `SELECT pg_catalog.set_config('idle_in_transaction_session_timeout', $1, true)`
+
 var (
 	// ErrTaken is the error of Acquire when another holder has an unexpired lease.
 	ErrTaken = errors.New("lease: another holder has the lease")
@@ -300,10 +308,23 @@ func (h *Held) Release(ctx context.Context) error {
 // Fence locks the lease row in the caller's transaction until the transaction ends, so that no other holder can
 // take the lease while it runs, and returns the holder's token for the caller's writes to carry. When the row
 // holds another holder or token, the holder stops and Fence returns ErrFenced (ST-SUP-RP09-LC03). A renew of this
-// holder that committed but has not returned yet gives the row the next token; Fence takes that token.
+// holder that committed but has not returned yet gives the row the next token; Fence takes that token. Before the
+// lock, Fence sets the idle-in-transaction timeout of tx to the time the lease has left, so the server ends a
+// transaction whose process stopped and cannot end it (ST-SUP-RP09-LC04). Every lock of the lease row in a
+// transaction goes through Fence: the fenced checkpoint function of the backfill runs in the transaction of
+// Backfill.inTx after it, and Acquire, Renew and Release are single statements.
 func (h *Held) Fence(ctx context.Context, tx *sql.Tx) (int64, error) {
 	if err := h.active(); err != nil {
 		return 0, err
+	}
+	// The timeout is the time left in whole milliseconds, rounded down, so it is never longer than the lease has
+	// left; a lease with less than one millisecond left takes no lock, as a timeout of 0 turns the bound off.
+	left := h.Expires().Sub(h.client.clock.Now()).Milliseconds()
+	if left < 1 {
+		return 0, fmt.Errorf("lease %s: fence: the lease has no time left on the process clock", h.client.name)
+	}
+	if _, err := tx.ExecContext(ctx, stallStatement, fmt.Sprintf("%dms", left)); err != nil {
+		return 0, fmt.Errorf("lease %s: fence: %w", h.client.name, err)
 	}
 	var token int64
 	var holder string

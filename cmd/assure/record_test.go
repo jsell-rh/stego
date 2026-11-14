@@ -458,7 +458,8 @@ class Fix(unittest.TestCase):
 		if record == nil || !strings.Contains(record.Run, `--predicate "$RUNNER_TEMP/`) || !strings.Contains(record.Run, `--commit "$COMMIT"`) {
 			t.Fatal("the suites job does not record the proof run at the commit, under the runner's temporary folder")
 		}
-		// assure record is built from the pull request's base commit, or the commit pushed, before any step runs
+		// assure record is built from the first parent of the run's commit (on a pull request the merge commit, whose
+		// first parent is the base that the gate takes; review of PR #282), before any step runs
 		// code of the change: every step before the build only checks out or sets up a tool, and a Go setup
 		// before it restores no cache, which a run of the change could have saved. The build makes its folder
 		// read-only.
@@ -483,7 +484,7 @@ class Fix(unittest.TestCase):
 		}
 		build := suites.Steps[built]
 		if build.WorkingDirectory != "base/cmd/assure" || build.Env["GOWORK"] != "off" ||
-			build.Run != "mkdir -p \"$RUNNER_TEMP/record\"\ngo build -mod=readonly -trimpath -o \"$RUNNER_TEMP/record/assure\" .\nchmod -R a-w \"$RUNNER_TEMP/record\"\n" {
+			build.Run != "git checkout -q --detach HEAD^1\nmkdir -p \"$RUNNER_TEMP/record\"\ngo build -mod=readonly -trimpath -o \"$RUNNER_TEMP/record/assure\" .\nchmod -R a-w \"$RUNNER_TEMP/record\"\n" {
 			t.Fatalf("the suites job builds assure record with %+v, not in the base checkout's cmd/assure into a read-only folder under the runner's temporary folder", build)
 		}
 		var base *workflowStep
@@ -492,9 +493,9 @@ class Fix(unittest.TestCase):
 				base = &suites.Steps[i]
 			}
 		}
-		if base == nil || !strings.HasPrefix(base.Uses, "actions/checkout@") || base.With["ref"] != "${{ github.event.pull_request.base.sha || env.COMMIT }}" ||
+		if base == nil || !strings.HasPrefix(base.Uses, "actions/checkout@") || base.With["ref"] != "${{ github.sha }}" || base.With["fetch-depth"] != "2" ||
 			base.With["persist-credentials"] != "false" {
-			t.Fatalf("the suites job checks out %+v as the base, not the pull request's base commit or the commit pushed", base)
+			t.Fatalf("the suites job checks out %+v as the base, not the run's commit with its first parent", base)
 		}
 		if workflow.Env["COMMIT"] != "${{ github.event.pull_request.head.sha || github.sha }}" {
 			t.Fatalf("the commit is %q, want the pull request's head or the commit pushed", workflow.Env["COMMIT"])
