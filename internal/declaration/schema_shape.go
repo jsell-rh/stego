@@ -30,14 +30,27 @@ const (
 	// MaxCaveatBodyBytes is the most bytes that the bodies of all caveats of a schema may have, the text between the
 	// braces of each body. The CEL compiler takes about 0.9 s for each caveat body of 95 KB (review of PR #302, L2).
 	MaxCaveatBodyBytes = 64 << 10
+	// MaxCaveatMacros is the most comprehension macros (map, filter, all, exists and exists_one) that the caveat
+	// bodies of a schema may have in all. Each macro can wrap the type that the CEL checker infers once more, as in
+	// [1].map(x, [x]).map(y, [y]), and the checker formats a nested type in a time that grows with the square of its
+	// depth (review of PR #302, M4).
+	MaxCaveatMacros = 16
+	// MaxCaveatListNesting is the most list literals that may be open at one place of a caveat body, such as the
+	// two of [[1]], for the same reason (review of PR #302, M4).
+	MaxCaveatListNesting = 16
 )
+
+// caveatMacros are the CEL comprehension macros, which a caveat body calls on a receiver, as in xs.map(x, x + 1).
+var caveatMacros = map[string]bool{"map": true, "filter": true, "all": true, "exists": true, "exists_one": true}
 
 // checkSchemaShape reads the source of a .zed schema once with the lexer of the SpiceDB schema compiler, without
 // compiling it, and refuses it with a *SchemaError that names the limit when a permission expression has more than
 // MaxPermissionTerms terms, the schema has more than MaxSchemaMembers relations and permissions, or more than
 // MaxSchemaNesting parentheses are open at one place, more than MaxCaveatTypeNesting type arguments are open at one
 // place of the parameter types of a caveat, the schema has more than MaxCaveats caveats, or the caveat bodies have
-// more than MaxCaveatBodyBytes bytes in all. Because it reads the tokens that the parser reads, a string or
+// more than MaxCaveatBodyBytes bytes in all, more than MaxCaveatMacros comprehension macros in all, or more than
+// MaxCaveatListNesting list literals open at one place. A macro counts where a name of caveatMacros follows a period
+// and comes before a parenthesis. Because it reads the tokens that the parser reads, a string or
 // a comment is one token and hides no operator, and the end of a caveat body is the brace that the parser finds. It
 // counts the terms of an expression as its operators (+, & and -) and one; every operator outside a caveat body
 // counts toward the statement it follows, at any depth. A caveat body, a CEL expression that the caveat compiler
@@ -56,6 +69,8 @@ func checkSchemaShape(schemaPath string, source []byte) error {
 		body                          int  // the brace depth inside a caveat body, or 0
 		caveats, types                int  // the caveats read, and the type arguments open in the caveat parameters
 		bodyStart, bodyBytes          int  // the offset after the brace of the body read, and the bytes of the bodies before it
+		macros, lists                 int  // the comprehension macros of the caveat bodies, and the list literals open in the body read
+		macro                         bool // the token before is the name of a macro after a period, in a caveat body
 		previous                      lexer.Lexeme
 	)
 	line = 1
@@ -87,7 +102,22 @@ func checkSchemaShape(schemaPath string, source []byte) error {
 			nesting--
 		}
 		if body > 0 {
+			if macro && token.Kind == lexer.TokenTypeLeftParen {
+				if macros++; macros > MaxCaveatMacros {
+					return fault(line, "the caveat bodies have more than %d comprehension macros, the most that checking compiles", MaxCaveatMacros)
+				}
+			}
+			macro = (token.Kind == lexer.TokenTypeIdentifier || token.Kind == lexer.TokenTypeKeyword) && caveatMacros[token.Value] &&
+				previous.Kind == lexer.TokenTypePeriod
 			switch token.Kind {
+			case lexer.TokenTypeLeftBracket:
+				if lists++; lists > MaxCaveatListNesting {
+					return fault(line, "a caveat body has more than %d list literals open at one place, the most that checking compiles", MaxCaveatListNesting)
+				}
+			case lexer.TokenTypeRightBracket:
+				if lists > 0 {
+					lists--
+				}
 			case lexer.TokenTypeLeftBrace:
 				body++
 			case lexer.TokenTypeRightBrace:
@@ -103,7 +133,7 @@ func checkSchemaShape(schemaPath string, source []byte) error {
 		switch token.Kind {
 		case lexer.TokenTypeLeftBrace:
 			if caveat {
-				caveat, body, bodyStart = false, 1, int(token.Position)+1
+				caveat, body, bodyStart, lists, macro = false, 1, int(token.Position)+1, 0, false
 			} else {
 				depth++
 			}

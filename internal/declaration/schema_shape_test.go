@@ -48,6 +48,12 @@ func TestSchemaShape(t *testing.T) {
 			"a map of a list of a map, and types after it": "caveat cav(a map<list<map<int>>>, b list<list<list<list<list<list<list<list<int>>>>>>>>, c map<string>) {\n\ta.size() > 0 && b.size() > 0 && c.size() > 0\n}\n" + shapeSchema("", "own"),
 			"64 caveats":                     caveats(MaxCaveats, 4) + shapeSchema("", "own"),
 			"caveat bodies of 64 KiB in all": caveats(2, MaxCaveatBodyBytes/2) + shapeSchema("", "own"),
+			// Review of PR #302, M4: the bounds on comprehension macros and list literals in caveat bodies.
+			"16 comprehension macros in two caveats": chainedMaps(0, MaxCaveatMacros/2) + chainedMaps(1, MaxCaveatMacros/2) + shapeSchema("", "own"),
+			"each kind of comprehension macro":       "caveat cav(xs list<int>) {\n\txs.map(x, x + 1).filter(x, x > 1).all(x, x > 0) && xs.exists(x, x > 2) && xs.exists_one(x, x == 3)\n}\n" + shapeSchema("", "own"),
+			"names of macros that are no macro call": "caveat cav(m map<int>, map int) {\n\tm.map > 0 && m.filter > 0 && map > 0 && " + strings.Repeat("m.exists + ", 20) + "0 > 0\n}\n" + shapeSchema("", "own"),
+			"a list literal 16 deep":                 listLiteral(MaxCaveatListNesting) + shapeSchema("", "own"),
+			"lists 16 deep one after the other":      "caveat cav(n int) {\n\t" + strings.Repeat(strings.Repeat("[", MaxCaveatListNesting)+"n"+strings.Repeat("]", MaxCaveatListNesting)+".size() > 0 && ", 4) + "n > 0\n}\n" + shapeSchema("", "own"),
 		}
 		for name, source := range accepted {
 			t.Run(name, func(t *testing.T) {
@@ -154,6 +160,36 @@ func TestSchemaShape(t *testing.T) {
 				t.Fatalf("the refusal took %v, want well under 1 s", elapsed)
 			}
 		})
+		// Review of PR #302, M4: each comprehension macro can wrap the inferred type once more, and the CEL checker took
+		// 1 min 48 s on 15 caveats of 240 chained maps each, a schema of 62 KB in every other bound.
+		t.Run("17 chained maps", func(t *testing.T) {
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(chainedMaps(0, MaxCaveatMacros+1)+shapeSchema("", "own")))
+			expectShapeFault(t, err, 2, MaxCaveatMacros)
+		})
+		t.Run("17 comprehension macros in two caveats", func(t *testing.T) {
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(chainedMaps(0, 9)+chainedMaps(1, 8)+shapeSchema("", "own")))
+			expectShapeFault(t, err, 5, MaxCaveatMacros)
+		})
+		t.Run("17 macros of other kinds after a space", func(t *testing.T) {
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte("caveat cav(xs list<int>) {\n\txs"+strings.Repeat(".filter (x, x > 0)", 8)+strings.Repeat(".exists_one(x, x > 0) && xs", 4)+strings.Repeat(".exists(x, x > 0) && xs", 4)+".all(x, x > 0)\n}\n"+shapeSchema("", "own")))
+			expectShapeFault(t, err, 2, MaxCaveatMacros)
+		})
+		t.Run("a list literal 17 deep", func(t *testing.T) {
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(listLiteral(MaxCaveatListNesting+1)+shapeSchema("", "own")))
+			expectShapeFault(t, err, 2, MaxCaveatListNesting)
+		})
+		t.Run("15 caveats of 240 chained maps", func(t *testing.T) {
+			var b strings.Builder
+			for i := range 15 {
+				b.WriteString(chainedMaps(i, 240))
+			}
+			start := time.Now()
+			_, err := CompileAuthzSchema("authz/schema.zed", []byte(b.String()+shapeSchema("", "own")))
+			expectShapeFault(t, err, 2, MaxCaveatMacros)
+			if elapsed := time.Since(start); elapsed > time.Second/4 {
+				t.Fatalf("the refusal took %v, want well under 1 s", elapsed)
+			}
+		})
 		t.Run("4097 relations and permissions", func(t *testing.T) {
 			_, err := CompileAuthzSchema("authz/schema.zed", []byte("definition user {}\ndefinition doc {\n"+relations(MaxSchemaMembers+1)+"}\n"))
 			expectShapeFault(t, err, 2+MaxSchemaMembers+1, MaxSchemaMembers)
@@ -225,6 +261,22 @@ func caveats(n, size int) string {
 		fmt.Fprintf(&b, "caveat cav%d(n int) {%s%s\n}\n", i, expr, strings.Repeat(" ", max(size-len(expr)-1, 0)))
 	}
 	return b.String()
+}
+
+// chainedMaps gives the caveat cav<i> of three lines whose body chains n maps, each of which wraps the inferred type
+// in a list once more: [1].map(x0, [x0]).map(x1, [x1]) (review of PR #302, M4).
+func chainedMaps(i, n int) string {
+	var b strings.Builder
+	b.WriteString("[1]")
+	for j := range n {
+		fmt.Fprintf(&b, ".map(x%d, [x%d])", j, j)
+	}
+	return fmt.Sprintf("caveat cav%d(n int) {\n\t%s.size() > n\n}\n", i, b.String())
+}
+
+// listLiteral gives a caveat of three lines whose body has a list literal depth deep.
+func listLiteral(depth int) string {
+	return "caveat cav(n int) {\n\t" + strings.Repeat("[", depth) + "n" + strings.Repeat("]", depth) + ".size() > 0\n}\n"
 }
 
 // nested gives the relation own in depth parentheses.
