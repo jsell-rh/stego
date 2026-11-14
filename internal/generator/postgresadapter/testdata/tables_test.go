@@ -481,6 +481,38 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		}
 		return title, heading
 	}
+	// backfill moves the rows of tenant-a whose new column is unset as the backfill batch does, as the owner role with
+	// the backfill setting of the change, and gives the SQLSTATE of the validation of the completeness CHECK of the
+	// generated copy that follows it, or empty when it passes.
+	backfill := func(t *testing.T, db *sql.DB, move bool) string {
+		t.Helper()
+		copy := boardsrn.BackfillCopies[0]
+		if move {
+			tx, err := db.Begin()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			for _, statement := range []string{"SET LOCAL ROLE " + pgx.Identifier{tenancy.OwnerRole}.Sanitize(),
+				"SELECT pg_catalog.set_config('stego.backfill_change', '" + copy.Change + "', true), pg_catalog.set_config('app.tenant', 'tenant-a', true)",
+				`UPDATE public."boards" SET "heading" = "title" WHERE "heading" IS NULL`} {
+				if _, err := tx.Exec(statement); err != nil {
+					t.Fatalf("%.60s: %v", statement, err)
+				}
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := db.Exec(copy.Validate()); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) {
+				return pgErr.Code
+			}
+			t.Fatal(err)
+		}
+		return ""
+	}
 	// next is a write of the release of the rename: its transactions set the writer marker to its open changes.
 	next := func(t *testing.T, db *sql.DB, statement string, args ...any) string {
 		t.Helper()
@@ -674,6 +706,78 @@ WHERE pronamespace = 'stego_schema'::regnamespace AND proname IN ('backfill_read
 		}
 	})
 
+	t.Run("ST-SUP-RC01-OC23-T05 The completeness CHECK comes NOT VALID with the sync trigger, the release before restarts after each phase, and the release of the rename only after the validation", func(t *testing.T) {
+		ctx := context.Background()
+		upCfg, up, first := renamed(t)
+		if _, err := up.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
+			t.Fatal(err)
+		}
+		runtime := upCfg.Copy()
+		runtime.User, runtime.Password = tenancy.RuntimeRole, "tables-check"
+		reader := stdlib.OpenDB(*runtime)
+		defer reader.Close()
+		copy := boardsrn.BackfillCopies[0]
+		var definition string
+		var validated bool
+		read := func() {
+			t.Helper()
+			if err := up.QueryRow(`SELECT pg_catalog.pg_get_constraintdef(oid), convalidated FROM pg_catalog.pg_constraint WHERE conrelid = 'public.boards'::regclass AND conname = $1`, copy.Check).Scan(&definition, &validated); err != nil {
+				t.Fatalf("the completeness CHECK %s: %v", copy.Check, err)
+			}
+		}
+		read()
+		if want := "CHECK (((heading IS NOT NULL) OR (title IS NULL))) NOT VALID"; definition != want || validated {
+			t.Fatalf("after the expand migrations the CHECK is %q, validated %v; want %q", definition, validated, want)
+		}
+		accepts := func(phase string, wantRename bool) {
+			t.Helper()
+			if err := manifest.Check(ctx, reader, owned(boardsrnbase.SchemaManifest)); err != nil {
+				t.Errorf("%s: the schema manifest of the release before refuses the database: %v", phase, err)
+			}
+			err := manifest.Check(ctx, reader, owned(boardsrn.SchemaManifest))
+			if wantRename && err != nil {
+				t.Errorf("%s: the schema manifest of the release of the rename refuses the database: %v", phase, err)
+			}
+			if !wantRename && err == nil {
+				t.Errorf("%s: the schema manifest of the release of the rename accepts the completeness CHECK NOT VALID", phase)
+			}
+		}
+		accepts("at expand", false)
+		// The row that the release before wrote before the step has no new value: the validation fails, and the
+		// CHECK stays NOT VALID.
+		if code := backfill(t, up, false); code != "23514" {
+			t.Fatalf("the validation with an unmoved row gives %q, want 23514", code)
+		}
+		read()
+		if validated {
+			t.Fatal("the CHECK is validated after a failed validation")
+		}
+		accepts("after a failed validation", false)
+		// A write of the release before to another column of the unmoved row meets the CHECK: the trigger of
+		// version 2 sets the new column.
+		if code := write(t, up, "tenant-a", `UPDATE public."boards" SET "note" = 'a note' WHERE "id" = $1`, first); code != "" {
+			t.Fatalf("an update of a third column of an unmoved row by the release before: %s", code)
+		}
+		if title, heading := pair(t, up, first); heading.String != title.String {
+			t.Fatalf("after an update of a third column the pair is %v, %v; want the new column set from the old", title, heading)
+		}
+		// An insert of the release before and one of the release of the rename each meet the CHECK.
+		if code := write(t, up, "tenant-a", `INSERT INTO public."boards" ("id", "title") VALUES ($1, 'old-only')`, uuid.Must(uuid.NewV7()).String()); code != "" {
+			t.Fatalf("an insert of the release before: %s", code)
+		}
+		if code := next(t, up, `INSERT INTO public."boards" ("id", "heading") VALUES ($1, 'new-only')`, uuid.Must(uuid.NewV7()).String()); code != "" {
+			t.Fatalf("an insert of the release of the rename: %s", code)
+		}
+		if code := backfill(t, up, true); code != "" {
+			t.Fatalf("the validation after the backfill gives %s", code)
+		}
+		read()
+		if !validated {
+			t.Fatal("the CHECK is not validated after the validation passed")
+		}
+		accepts("after the backfill", true)
+	})
+
 	t.Run("ST-GEN-UC12-R03-T02 Each release accepts the schema of a rename at expand by its own manifest, and the release before refuses a changed sync function", func(t *testing.T) {
 		ctx := context.Background()
 		upCfg, up, _ := renamed(t)
@@ -690,8 +794,16 @@ WHERE pronamespace = 'stego_schema'::regnamespace AND proname IN ('backfill_read
 		if err := manifest.Check(ctx, reader, owned(boardsrnbase.SchemaManifest)); err != nil {
 			t.Errorf("the schema manifest of the release before refuses the rename at expand: %v", err)
 		}
+		// The release of the rename runs after its backfill, which validates the completeness CHECK (decision on
+		// ST-SUP-Q120 (c)).
+		if code := backfill(t, up, true); code != "" {
+			t.Fatalf("the validation of the completeness CHECK after the backfill gives %s", code)
+		}
+		if err := manifest.Check(ctx, reader, owned(boardsrnbase.SchemaManifest)); err != nil {
+			t.Errorf("the schema manifest of the release before refuses the rename after its backfill: %v", err)
+		}
 		if err := manifest.Check(ctx, reader, owned(boardsrn.SchemaManifest)); err != nil {
-			t.Errorf("the schema manifest of the release of the rename refuses its own expand step: %v", err)
+			t.Errorf("the schema manifest of the release of the rename refuses its own expand step after its backfill: %v", err)
 		}
 		// A sync function that is not the template's text is refused by both.
 		if _, err := up.Exec(`CREATE OR REPLACE FUNCTION stego_steps.boards_heading_sync() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER VOLATILE SET search_path = pg_catalog, pg_temp AS $f$BEGIN RETURN NEW; END;$f$`); err != nil {

@@ -263,12 +263,12 @@ func runtimeText(t *testing.T, path, head string) string {
 }
 
 // TestSyncTemplateCopy proves that the copies that the generator writes into the migration of a rename are the
-// runtime library's texts byte for byte: version 1 of the sync template, which the release before accepts only by
+// runtime library's texts byte for byte: version 2 of the sync template, which the release before accepts only by
 // its text (ST-SUP-RP15-LC02), and the table and the functions of the backfill checkpoints (ST-SUP-RC01-OC25).
 func TestSyncTemplateCopy(t *testing.T) {
-	t.Run("ST-SUP-RC01-OC23-T03 The generator's copy of sync template version 1 and of the backfill table and functions is the runtime library's text", func(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC23-T03 The generator's copy of sync template version 2 and of the backfill table and functions is the runtime library's text", func(t *testing.T) {
 		for _, c := range []struct{ name, path, head, copy string }{
-			{"sync template version 1", "manifest/sync.go", "var syncTemplates = map[int]string{1: `", syncTemplate},
+			{"sync template version 2", "manifest/sync.go", "`, 2: `", syncTemplate},
 			{"backfill table", "lease/backfill.go", "const BackfillsTable = `", backfillsTable},
 			{"backfill functions", "lease/backfill.go", "const BackfillFunctions = `", backfillFunctions},
 		} {
