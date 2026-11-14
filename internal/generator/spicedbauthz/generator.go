@@ -158,6 +158,12 @@ func read(ctx gen.Context) (plan, error) {
 	if p.WatchInterval, err = duration(ctx.ComponentConfig, "watch_interval"); err != nil {
 		return plan{}, err
 	}
+	if p.AlertBound > MaxAlertBound {
+		return plan{}, fmt.Errorf("spicedb-authz: the component setting alert_bound %s is more than %s; a revocation that is not at the provider within it must raise an alert while it still matters", p.AlertBound, MaxAlertBound)
+	}
+	if p.WatchInterval < MinWatchInterval || p.WatchInterval > p.AlertBound {
+		return plan{}, fmt.Errorf("spicedb-authz: the component setting watch_interval %s is not from %s to the alert_bound %s; each read of the watch is a query of the database, and a watch that reads less often than the alert bound alerts late", p.WatchInterval, MinWatchInterval, p.AlertBound)
+	}
 	if p.WaitCap, err = duration(ctx.ComponentConfig, "wait_cap"); err != nil {
 		return plan{}, err
 	}
@@ -254,6 +260,15 @@ func withMarker(schema string) string {
 	}
 	return schema + "\n" + MarkerDefinition
 }
+
+// MaxAlertBound is the largest alert_bound, 10 minutes: the relay raises the late-revocation alert when the oldest
+// authz outbox message is older than the bound, so a longer bound leaves a revoked access unseen too long
+// (ST-SUP-RC29-OC24).
+const MaxAlertBound = 10 * time.Minute
+
+// MinWatchInterval is the smallest watch_interval, 100 ms: each read of the watch is a query of the database. The
+// largest is the alert_bound, so the watch reads at least once within the bound (ST-SUP-RC29-OC24).
+const MinWatchInterval = 100 * time.Millisecond
 
 // MaxWaitCap is the largest wait_cap, 25 s: below the write timeout of the generated HTTP server, 30 s, so a full
 // wait leaves time to write its answer (ST-SUP-RC29-OC19).
