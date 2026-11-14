@@ -34,14 +34,14 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261114010449-4df031da4ae9
+        module_version: v0.0.0-20261114032129-721d6393cf98
         vcs: git
-        revision: 4df031da4ae903f8c5f18ed391b980262529658e
+        revision: 721d6393cf988d909a8d859e2e99d20b4a17751b
         source_state: clean
     service_name: user-management
     service_hash: 59eb019ac9584302b5674f2fe6b6da7392c364b74e7d578e3e55c98f7eb227ca
     registry_sha: env-override
-    registry_content_sha256: 8754ea4a44643b38022943995d6371f1b7ed98406276197c242d665530c25b23
+    registry_content_sha256: d53fe8e0547bf641b05d20d440de9b7d7dd9eae4a3af13b84b00c82684c92047
     components:
         audit-log:
             version: 1.1.0
@@ -71,8 +71,8 @@ last_applied:
             version: 1.1.0
             sha: 9b4a5a4b5afcbc9d23c6d02d78b3a227ff445b857bef9e73c547af184d7226e0
         rest-api:
-            version: 4.2.2
-            sha: 97d6442e153a8a8e5b47184ded05e68d2753ed331193552ad845b09d502948c5
+            version: 4.2.4
+            sha: 1254024a56c13d6b0fd2903f4b19b440181f31e172aa32e40d9b30543880b39f
         rh-sso-auth:
             version: 2.1.0
             sha: e4603ffda52e0f41c2d8a71a46ebcd2303a8e4263854a76b209b0cc47e147fff
@@ -138,7 +138,7 @@ last_applied:
         internal/api/organizations_handler.go: 79c5e8a70c678315ec61189992f0016c069347d8aed29456ed3e99d9a4f45617
         internal/api/router.go: 015fe23fa351aba15bb5cfa5f7e5b0ada71215d6d50e4db74a5f73f0b07fe826
         internal/api/runtime.go: 58d242276cb02d89bf6310c612283aace856e3d155868ba973ba7f97704e0945
-        internal/api/validation.go: 23c7a443fe863850d3673734e4f285f260ba039ed0cd38f5600a99427c312178
+        internal/api/validation.go: cc1aa843f9ef54e7f81d836a8be2271b884c8c40efee70fd97ed23575e00bf85
         internal/auditlog/audit.go: a18d0b5be27531bebccf58133dc6cb87198a44d7a7d694871557bfbf96d2f420
         internal/authz/authz.go: 7d39b69678720eed75906beff8d3155382bfe06a7466e0ca19d2c07ba4ea1be8
         internal/authz/schema.zed: 66e37233215abea13af5f4cb43b28314cbfb27c01017b0568c0e001096f76e7e

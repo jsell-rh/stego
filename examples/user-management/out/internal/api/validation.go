@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -73,6 +74,14 @@ func NewValidationMiddleware() func(http.Handler) http.Handler {
 			r.Body.Close()
 			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
+			if within, err := withinTokenLimit(bodyBytes); err != nil {
+				handleError(w, r, BadRequest("the request body is not valid JSON"))
+				return
+			} else if !within {
+				handleError(w, r, Validation([]ValidationError{{Message: fmt.Sprintf("the request body holds more than %d JSON values and member names", MaxBodyTokens)}}))
+				return
+			}
+
 			input := &openapi3filter.RequestValidationInput{
 				Request:    r,
 				PathParams: pathParams,
@@ -93,6 +102,42 @@ func NewValidationMiddleware() func(http.Handler) http.Handler {
 			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+// MaxBodyTokens is the largest number of JSON values and member names that a
+// validated body may hold. The schema check makes one failure for each bad
+// value before the list is capped, so a body with more is refused first.
+const MaxBodyTokens = 10000
+
+// withinTokenLimit reports whether body holds at most MaxBodyTokens JSON values
+// and member names, and gives an error when body is not JSON, so no error passes
+// the limit. Numbers are read as text, so a number out of the range of float64,
+// such as 1e400, is a token and not an error. An empty body holds no token.
+func withinTokenLimit(body []byte) (bool, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	count, depth := 0, 0
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) && depth == 0 {
+			return true, nil
+		}
+		if errors.Is(err, io.EOF) {
+			return false, io.ErrUnexpectedEOF
+		}
+		if err != nil {
+			return false, err
+		}
+		if delim, ok := token.(json.Delim); ok && (delim == ']' || delim == '}') {
+			depth--
+			continue
+		} else if ok {
+			depth++
+		}
+		if count++; count > MaxBodyTokens {
+			return false, nil
+		}
 	}
 }
 
