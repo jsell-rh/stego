@@ -30,6 +30,12 @@ func syncSQL(t *testing.T, function, k, u, conversion string) string {
 // syncFillSQL is syncSQL with a fill value when hasFill.
 func syncFillSQL(t *testing.T, function, k, u, conversion, fill string, hasFill bool) string {
 	t.Helper()
+	return syncVersionSQL(t, 1, function, k, u, conversion, fill, hasFill)
+}
+
+// syncVersionSQL is syncFillSQL for the template version.
+func syncVersionSQL(t *testing.T, version int, function, k, u, conversion, fill string, hasFill bool) string {
+	t.Helper()
 	c, ok := SyncConversion(conversion)
 	if !ok {
 		t.Fatalf("no conversion %s", conversion)
@@ -37,7 +43,7 @@ func syncFillSQL(t *testing.T, function, k, u, conversion, fill string, hasFill 
 	if testOwner == "" {
 		database(t)
 	}
-	statement, err := SyncFunction("stego_steps", function, 1, Sync{Change: strings.ReplaceAll(function, "_", "-"), Owner: testOwner,
+	statement, err := SyncFunction("stego_steps", function, version, Sync{Change: strings.ReplaceAll(function, "_", "-"), Owner: testOwner,
 		K: k, U: u, Conversion: c, Fill: fill, HasFill: hasFill})
 	if err != nil {
 		t.Fatal(err)
@@ -229,8 +235,8 @@ INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');
 			}
 		}
 		// Rule 6: a version that this release does not build is no template.
-		if _, err := SyncSource(2, Sync{Change: "books-note-sync", Owner: testOwner, K: "note", U: "note_v2", Conversion: SyncConversions[0]}); err == nil {
-			t.Error("SyncSource renders version 2, which this release does not build")
+		if _, err := SyncSource(3, Sync{Change: "books-note-sync", Owner: testOwner, K: "note", U: "note_v2", Conversion: SyncConversions[0]}); err == nil {
+			t.Error("SyncSource renders version 3, which this release does not build")
 		}
 		// A manifest that marks a runtime or a partitioned table as an entity, or holds two schemas of the sync
 		// functions, or a shared one, is refused.
@@ -409,6 +415,135 @@ func mustExec(t *testing.T, db *sql.DB, statement string) {
 	if _, err := db.Exec(statement); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// completeSQL gives the ALTER TABLE that adds the completeness CHECK of k and u on books NOT VALID, as the step gives
+// it, for the conversion named conversion.
+func completeSQL(t *testing.T, k, u, conversion string, hasFill bool) string {
+	t.Helper()
+	c, ok := SyncConversion(conversion)
+	if !ok {
+		t.Fatalf("no conversion %s", conversion)
+	}
+	return "ALTER TABLE public.books ADD CONSTRAINT " + CompleteName("books", u) + " CHECK (" + CompleteExpression(k, u, c, hasFill) + ") NOT VALID;\n"
+}
+
+func TestStepComplete(t *testing.T) {
+	noteV2Sync := func(t *testing.T, version int) string {
+		return stepSchema + noteV2 + syncVersionSQL(t, version, "books_note_sync", "note", "note_v2", "identity", "", false)
+	}
+	t.Run("ST-SUP-RP15-LC02-T07 The release before accepts the completeness CHECK of a sync trigger of version 2 only in its exact form, NOT VALID or validated", func(t *testing.T) {
+		check := func(t *testing.T) string { return completeSQL(t, "note", "note_v2", "identity", false) }
+		validate := "ALTER TABLE public.books VALIDATE CONSTRAINT books_note_v2_complete;\n"
+		stepCase(t, "NOT VALID, as the step adds it", noteV2Sync(t, 2)+check(t)+noteSync, stepManifest(), false)
+		stepCase(t, "validated, as the backfill leaves it", noteV2Sync(t, 2)+check(t)+noteSync+validate, stepManifest(), false)
+		noteInt := func(t *testing.T, hasFill bool) string {
+			fill := ""
+			if hasFill {
+				fill = "0"
+			}
+			return stepSchema + "ALTER TABLE public.books ADD COLUMN note_int integer;\n" + syncVersionSQL(t, 2, "books_note_sync", "note", "note_int", "text-int4", fill, hasFill) +
+				"CREATE TRIGGER books_note_sync BEFORE INSERT OR UPDATE ON public.books FOR EACH ROW EXECUTE FUNCTION stego_steps.books_note_sync();\n"
+		}
+		stepCase(t, "relaxed where a conversion with no fill value gives NULL", noteInt(t, false)+completeSQL(t, "note", "note_int", "text-int4", false), stepManifest(), false)
+		stepCase(t, "not relaxed where the conversion gives the fill value", noteInt(t, true)+completeSQL(t, "note", "note_int", "text-int4", true), stepManifest(), false)
+		stepCase(t, "not relaxed where a conversion with no fill value gives NULL", noteInt(t, false)+completeSQL(t, "note", "note_int", "text-int4", true), stepManifest(), true)
+		stepCase(t, "relaxed where the conversion gives the fill value", noteInt(t, true)+completeSQL(t, "note", "note_int", "text-int4", false), stepManifest(), true)
+		stepCase(t, "with a sync trigger of version 1", noteV2Sync(t, 1)+check(t)+noteSync, stepManifest(), true)
+		stepCase(t, "with no sync trigger", stepSchema+noteV2+check(t), stepManifest(), true)
+		stepCase(t, "under another name", noteV2Sync(t, 2)+strings.Replace(check(t), "books_note_v2_complete", "books_note_v2_done", 1)+noteSync, stepManifest(), true)
+		stepCase(t, "in another form", noteV2Sync(t, 2)+"ALTER TABLE public.books ADD CONSTRAINT books_note_v2_complete CHECK (note_v2 IS NOT NULL) NOT VALID;\n"+noteSync, stepManifest(), true)
+		stepCase(t, "on other columns", noteV2Sync(t, 2)+"ALTER TABLE public.books ADD CONSTRAINT books_note_v2_complete CHECK ((note_v2 IS NOT NULL) OR (title IS NULL)) NOT VALID;\n"+noteSync, stepManifest(), true)
+		// The trigger of version 2 sets U from K on an UPDATE that changes neither, where U is unset, so a write of the
+		// release before to another column of a row that the backfill has not moved meets the CHECK; version 1 does not.
+		for _, version := range []int{1, 2} {
+			t.Run(fmt.Sprintf("a write of the release before to another column of an unmoved row, version %d", version), func(t *testing.T) {
+				admin, _ := database(t)
+				mustExec(t, admin, `DROP TRIGGER books_reject_row ON public.books;
+SET app.tenant = 't'; INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');
+INSERT INTO public.books (tenant_id, id, folder_id, title, note, pages) VALUES ('t', '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'a', 'kept', 1);
+`+noteV2Sync(t, version)+check(t)+noteSync)
+				_, err := admin.Exec("UPDATE public.books SET pages = 2 WHERE id = '00000000-0000-0000-0000-000000000002'")
+				if version == 1 {
+					if err == nil {
+						t.Error("an UPDATE of pages through a sync trigger of version 1 meets the CHECK; the test does not show the need for version 2")
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("an UPDATE of pages on an unmoved row fails: %v", err)
+				}
+				var got sql.NullString
+				if err := admin.QueryRow("SELECT note_v2 FROM public.books WHERE id = '00000000-0000-0000-0000-000000000002'").Scan(&got); err != nil || got.String != "kept" {
+					t.Errorf("note_v2 after the UPDATE of pages is %v (%v), want kept", got, err)
+				}
+				// A write of the release of the step, which names the change in the writer marker, to another column of
+				// an unmoved row meets the CHECK too, and keeps the old value.
+				mustExec(t, admin, `INSERT INTO public.books (tenant_id, id, folder_id, title, note, pages) VALUES ('t', '00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'b', 'also', 1);
+ALTER TABLE public.books DISABLE TRIGGER books_note_sync; ALTER TABLE public.books DROP CONSTRAINT books_note_v2_complete;
+UPDATE public.books SET note_v2 = NULL WHERE id = '00000000-0000-0000-0000-000000000003';
+ALTER TABLE public.books ENABLE TRIGGER books_note_sync;
+`+check(t))
+				tx, err := admin.Begin()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() { _ = tx.Rollback() }()
+				if _, err := tx.Exec("SET LOCAL stego.schema_step = 'books-note-sync'"); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := tx.Exec("UPDATE public.books SET pages = 3 WHERE id = '00000000-0000-0000-0000-000000000003'"); err != nil {
+					t.Fatalf("an UPDATE of pages on an unmoved row by the release of the step fails: %v", err)
+				}
+				var note, noteV2 sql.NullString
+				if err := tx.QueryRow("SELECT note, note_v2 FROM public.books WHERE id = '00000000-0000-0000-0000-000000000003'").Scan(&note, &noteV2); err != nil || note.String != "also" || noteV2.String != "also" {
+					t.Errorf("after the UPDATE of pages by the release of the step the pair is %v, %v (%v), want also in both", note, noteV2, err)
+				}
+			})
+		}
+		t.Run("CompleteDefinition is what PostgreSQL writes for CompleteExpression of each conversion", func(t *testing.T) {
+			admin, _ := database(t)
+			for i, c := range SyncConversions {
+				for _, hasFill := range []bool{false, true} {
+					from, to := c.From, c.To
+					if from == "" {
+						from, to = "text", "text"
+					}
+					table := fmt.Sprintf("complete_%d_%t", i, hasFill)
+					mustExec(t, admin, fmt.Sprintf("CREATE TABLE public.%s (k %s, u %s); ALTER TABLE public.%s ADD CONSTRAINT c CHECK (%s) NOT VALID;", table, from, to, table, CompleteExpression("k", "u", c, hasFill)))
+					tx, err := admin.Begin()
+					if err != nil {
+						t.Fatal(err)
+					}
+					var got string
+					if _, err := tx.Exec("SET LOCAL search_path = pg_catalog, pg_temp"); err != nil {
+						t.Fatal(err)
+					}
+					err = tx.QueryRow("SELECT pg_catalog.pg_get_constraintdef(c.oid) FROM pg_catalog.pg_constraint c WHERE c.conrelid = $1::regclass AND c.conname = 'c'", "public."+table).Scan(&got)
+					_ = tx.Rollback()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if want := CompleteDefinition("k", "u", c, hasFill) + " NOT VALID"; got != want {
+						t.Errorf("%s, fill %t: PostgreSQL writes %s, CompleteDefinition gives %s", c.Name, hasFill, got, want)
+					}
+				}
+			}
+		})
+	})
+	t.Run("ST-SUP-RP15-LC01-T16 An optional constraint may be missing, and is the manifest's and validated when present", func(t *testing.T) {
+		optional := stepManifest()
+		optional.Tables[1].Columns = append(optional.Tables[1].Columns, Column{Name: "note_v2", Type: "text"})
+		c, _ := SyncConversion("identity")
+		optional.Tables[1].OptionalConstraints = []Constraint{{Name: "books_note_v2_complete", Kind: KindCheck, Definition: CompleteDefinition("note", "note_v2", c, false)}}
+		check := completeSQL(t, "note", "note_v2", "identity", false)
+		validate := "ALTER TABLE public.books VALIDATE CONSTRAINT books_note_v2_complete;\n"
+		stepCase(t, "present and validated", stepSchema+noteV2+check+validate, optional, false)
+		stepCase(t, "missing, after the contract step", stepSchema+noteV2, optional, false)
+		stepCase(t, "present and not validated", stepSchema+noteV2+check, optional, true)
+		stepCase(t, "present in another form", stepSchema+noteV2+"ALTER TABLE public.books ADD CONSTRAINT books_note_v2_complete CHECK (note_v2 IS NOT NULL);\n", optional, true)
+		stepCase(t, "present as another kind", stepSchema+noteV2+"ALTER TABLE public.books ADD CONSTRAINT books_note_v2_complete UNIQUE (tenant_id, note_v2);\n", optional, true)
+	})
 }
 
 func TestStepForeignKey(t *testing.T) {

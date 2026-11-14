@@ -283,70 +283,26 @@ func TestBackfillCheckpoint(t *testing.T) {
 		ctx := context.Background()
 		a := heldLease(t, d, "a", Settings{})
 
-		// A commits one batch, then waits before its next batch until B has committed one.
-		bCommitted := make(chan struct{})
-		aStep := make(chan struct{})
-		aInStep := make(chan struct{})
+		// A commits one batch. Then a newer holder's checkpoint gives the row a higher token, while the lease row still
+		// holds A, so the lease fence of the batch (ST-SUP-RP09-LC03-T04) and the lease check of the function
+		// (ST-SUP-RP09-LC07-T02) do not stop A, and the token comparison is the only guard. The lease of the change is
+		// bound to its name, so two holders cannot hold two lease rows of one change (recheck of PR #291).
 		aObserved := &observations{onRows: func(batch int) {
 			if batch == 1 {
-				<-bCommitted
+				d.exec(t, "UPDATE stego_schema.backfills SET token = 1000 WHERE change_id = $1", backfillChange)
 			}
 		}}
-		it.gate = func(n int) {
-			if n == 2 {
-				close(aInStep)
-				<-aStep
-			}
-		}
 		aBackfill := newBackfill(t, it, BackfillSettings{BatchSize: 100, Observer: aObserved})
-		aResult := make(chan error, 1)
-		go func() { aResult <- aBackfill.Run(ctx, d.db, a) }()
-
-		// B commits one batch with a higher token. B holds another lease row than A, so that the lease fence of
-		// each batch does not stop A first: the checkpoint statement is then the only guard, and this test proves it.
-		deadline := time.Now().Add(10 * time.Second)
-		for checkpointRow(t, d).moved != 100 && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
-		}
-		const other = "stego.backfill." + backfillChange + ".other"
-		if err := Declare(ctx, d.db, other); err != nil {
-			t.Fatal(err)
-		}
-		d.exec(t, "UPDATE leases SET token=1000 WHERE name=$1", other)
-		b := acquire(t, newClient(t, d.db, other, "b", Settings{}))
-		bWaits := make(chan struct{})
-		bObserved := &observations{onRows: func(batch int) {
-			if batch == 1 {
-				close(bCommitted)
-				<-bWaits
-			}
-		}}
-		bBackfill := newBackfill(t, it, BackfillSettings{BatchSize: 100, Observer: bObserved})
-		bResult := make(chan error, 1)
-		go func() { bResult <- bBackfill.Run(ctx, d.db, b) }()
-
-		// A runs its next batch and holds the checkpoint row; then B's next batch waits on the row lock.
-		within(t, aInStep, "the next batch of A")
-		close(bWaits)
-		waitForLockWait(t, d)
-		close(aStep)
-
-		if err := within(t, aResult, "the end of A"); !errors.Is(err, ErrFenced) {
+		if err := aBackfill.Run(ctx, d.db, a); !errors.Is(err, ErrFenced) {
 			t.Fatalf("the batch of A gave %v, want ErrFenced", err)
 		}
-		if err := within(t, bResult, "the end of B"); err != nil {
-			t.Fatalf("the backfill of B gave %v", err)
-		}
 		got := checkpointRow(t, d)
-		if got.token != b.Token() {
-			t.Fatalf("the row holds token %d, want B's %d", got.token, b.Token())
-		}
-		if bObserved.batches < 2 {
-			t.Fatalf("B committed %d batches, want its waiting batch committed too", bObserved.batches)
+		if got.token != 1000 || got.moved != 100 {
+			t.Fatalf("the row holds token %d with %d rows moved, want the newer 1000 with A's first 100", got.token, got.moved)
 		}
 		var moved int
-		if err := d.other.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE new_value IS NOT NULL").Scan(&moved); err != nil || moved != 250 || got.moved != 250 {
-			t.Fatalf("%d rows hold the new value and the row counts %d moved (%v), want 250 each: A's batch rolled back", moved, got.moved, err)
+		if err := d.other.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE new_value IS NOT NULL").Scan(&moved); err != nil || moved != 100 {
+			t.Fatalf("%d rows hold the new value (%v), want 100: A's second batch rolled back", moved, err)
 		}
 	})
 }
@@ -949,6 +905,124 @@ func TestBackfillThrottle(t *testing.T) {
 		}
 		if r := checkpointRow(t, d); r.moved != 10 || !r.completed.Valid {
 			t.Fatalf("the checkpoint moved %d rows, complete %v; want 10 and complete after the retry", r.moved, r.completed.Valid)
+		}
+	})
+}
+
+// completeCheck is the completeness CHECK of the items table, which the step adds NOT VALID: the new value is set
+// wherever the old value is set (decision on ST-SUP-Q120 (c)).
+const completeCheck = "items_new_value_complete"
+
+func withCompleteCheck(t *testing.T, d *database, settings BackfillSettings) BackfillSettings {
+	t.Helper()
+	d.exec(t, "ALTER TABLE items ADD CONSTRAINT "+completeCheck+" CHECK ((new_value IS NOT NULL) OR (old IS NULL)) NOT VALID")
+	settings.Validate, settings.Check = "ALTER TABLE public.items VALIDATE CONSTRAINT "+completeCheck, completeCheck
+	return settings
+}
+
+func TestBackfillComplete(t *testing.T) {
+	t.Run("ST-SUP-RP09-LC10-T02 A row left unset blocks completion, fails Run with a message that names the change, and the next Run completes after the row is fixed", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 50, 7)
+		settings := withCompleteCheck(t, d, BackfillSettings{BatchSize: 20})
+		observed := &observations{}
+		settings.Observer = observed
+		first := newBackfill(t, it, settings)
+		err := first.Run(context.Background(), d.db, heldLease(t, d, "h1", Settings{}))
+		if !errors.Is(err, ErrIncomplete) {
+			t.Fatalf("Run with a row left unset gave %v, want ErrIncomplete", err)
+		}
+		for _, want := range []string{backfillChange, completeCheck} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the error %q does not name %s", err, want)
+			}
+		}
+		if strings.Contains(err.Error(), "not a number") {
+			t.Errorf("the error %q holds a row value", err)
+		}
+		got := checkpointRow(t, d)
+		if got.completed.Valid || got.lastKey.Valid {
+			t.Fatalf("after the failed validation the checkpoint is %v, complete %v, want no key and not complete", got.lastKey, got.completed.Valid)
+		}
+		var validated bool
+		if err := d.other.QueryRow("SELECT convalidated FROM pg_constraint WHERE conname = $1", completeCheck).Scan(&validated); err != nil || validated {
+			t.Fatalf("the CHECK is validated %v (%v), want not validated", validated, err)
+		}
+		if observed.completed != 0 {
+			t.Fatalf("the backfill emitted completion %d times, want none", observed.completed)
+		}
+		// The row is fixed: the declaration now gives a fill value, so the row moves. The next Run passes over the
+		// rows again from the start.
+		fill := int64(0)
+		it.fill = &fill
+		started := len(it.allCalls())
+		d.expire(t, "stego.backfill."+backfillChange)
+		second := newBackfill(t, it, settings)
+		if err := second.Run(context.Background(), d.db, heldLease(t, d, "h2", Settings{})); err != nil {
+			t.Fatalf("the next Run after the fix: %v", err)
+		}
+		if calls := it.allCalls()[started:]; len(calls) == 0 || calls[0].after.Valid {
+			t.Fatalf("the next Run started after %v, want the start", calls)
+		}
+		got = checkpointRow(t, d)
+		if !got.completed.Valid {
+			t.Fatal("the change is not complete after the fix")
+		}
+		if err := d.other.QueryRow("SELECT convalidated FROM pg_constraint WHERE conname = $1", completeCheck).Scan(&validated); err != nil || !validated {
+			t.Fatalf("the CHECK is validated %v (%v), want validated", validated, err)
+		}
+		if observed.completed != 1 {
+			t.Fatalf("the backfill emitted completion %d times, want once", observed.completed)
+		}
+	})
+	t.Run("ST-SUP-RP09-LC10-T03 The validation takes no lock stronger than SHARE UPDATE EXCLUSIVE, blocks no write, and the change is complete only after it", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 30)
+		settings := withCompleteCheck(t, d, BackfillSettings{BatchSize: 10, LockTimeout: 20 * time.Second})
+		ctx := context.Background()
+		// A session holds SHARE UPDATE EXCLUSIVE on the table, as a VACUUM or another VALIDATE does, so the validation
+		// waits and its lock request can be read.
+		holder, err := d.other.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer holder.Close()
+		if _, err := holder.ExecContext(ctx, "BEGIN; LOCK TABLE items IN SHARE UPDATE EXCLUSIVE MODE"); err != nil {
+			t.Fatal(err)
+		}
+		b := newBackfill(t, it, settings)
+		done := make(chan error, 1)
+		go func() { done <- b.Run(ctx, d.db, heldLease(t, d, "h1", Settings{})) }()
+		var mode string
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			err := d.other.QueryRowContext(ctx, "SELECT mode FROM pg_locks WHERE relation = 'public.items'::regclass AND NOT granted").Scan(&mode)
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				t.Fatal(err)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if mode != "ShareUpdateExclusiveLock" {
+			t.Fatalf("the validation waits for %q, want ShareUpdateExclusiveLock", mode)
+		}
+		if got := checkpointRow(t, d); got.completed.Valid || got.moved != 30 {
+			t.Fatalf("while the validation waits the checkpoint is complete %v with %d rows moved, want not complete with 30", got.completed.Valid, got.moved)
+		}
+		// A write of the running release takes ROW EXCLUSIVE, which the waiting validation does not block.
+		if _, err := d.other.ExecContext(ctx, "SET lock_timeout = '1s'; INSERT INTO items (id, old, new_value) VALUES (1000, '1000', 1000); RESET lock_timeout"); err != nil {
+			t.Fatalf("a write while the validation waits: %v", err)
+		}
+		if _, err := holder.ExecContext(ctx, "COMMIT"); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; err != nil {
+			t.Fatalf("Run after the lock is released: %v", err)
+		}
+		if got := checkpointRow(t, d); !got.completed.Valid {
+			t.Fatal("the change is not complete after the validation")
 		}
 	})
 }

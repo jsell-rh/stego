@@ -19,7 +19,16 @@ const (
 	DefaultBatchSize        = 1000
 	DefaultLockTimeout      = 2 * time.Second
 	DefaultStatementTimeout = 10 * time.Second
+	// DefaultValidateTimeout bounds the VALIDATE CONSTRAINT of the completeness CHECK, which reads every row of the
+	// table in one statement.
+	DefaultValidateTimeout = 10 * time.Minute
 )
+
+// ErrIncomplete is the error of Run when the completeness CHECK of the change does not validate: a row has the old
+// column set and the new column unset, such as a row of a tenant that the tenant list does not hold. Run then sets
+// the checkpoint key back to the start and returns, and the next Run passes over the rows again (decision on
+// ST-SUP-Q120 (c), orchestrator under the owner's delegation, 2026-11-14).
+var ErrIncomplete = errors.New("the change is not complete")
 
 // The reasons of schema.backfill.throttled: the backfill waited for a replica whose replay lag is above the
 // maximum, or it made its batches smaller because a batch took longer than the target batch time.
@@ -46,8 +55,10 @@ const BackfillsTable = `CREATE TABLE IF NOT EXISTS stego_schema.backfills (
 // BackfillFunctions are the two functions through which the backfill reads and changes a row of
 // stego_schema.backfills: backfill_read reads the change's row and locks it FOR UPDATE for the batch, so the row
 // lock orders two writers; backfill_checkpoint is the fenced checkpoint statement of ST-SUP-RP09-LC07, which changes
-// the row only when the lease row that its arguments name holds the holder with the holder's token and has not
-// expired, and the row's token is not higher than the holder's; it sets the row's token to the holder's and gives
+// the row only when the lease row that its arguments name is the lease of the change, stego.backfill.<change ID>,
+// holds the holder with the holder's token and has not expired, and the row's token is not higher than the
+// holder's (the lease of the change by the recheck of the security review of PR #291, orchestrator under the
+// owner's delegation, 2026-11-14); it sets the row's token to the holder's and gives
 // the count of rows it changed. Both are SECURITY DEFINER functions of the owner role with the search path
 // pg_catalog, pg_temp, so no object of the caller's search path runs in them, and they name each table with its
 // schema. The text revokes EXECUTE from PUBLIC and grants it to no role, so only the owner role, which runs the
@@ -65,7 +76,7 @@ CREATE OR REPLACE FUNCTION stego_schema.backfill_checkpoint(text, bytea, bigint,
  RETURNS bigint LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
  AS $stego_backfill$DECLARE n bigint;
 BEGIN
-  PERFORM 1 FROM public.leases l WHERE l.name = $10 AND l.holder = $11 AND l.token = $8 AND l.expires_at > pg_catalog.clock_timestamp() FOR SHARE;
+  PERFORM 1 FROM public.leases l WHERE l.name = $10 AND $10 = 'stego.backfill.' || $1 AND l.holder = $11 AND l.token = $8 AND l.expires_at > pg_catalog.clock_timestamp() FOR SHARE;
   IF NOT FOUND THEN
     RETURN 0;
   END IF;
@@ -263,6 +274,12 @@ type BackfillSettings struct {
 	Pause            time.Duration
 	TargetBatchTime  time.Duration
 	MaxReplicaLag    time.Duration
+	// Validate is the statement that validates the completeness CHECK of the change, named Check, such as ALTER
+	// TABLE public.boards VALIDATE CONSTRAINT boards_name_complete. When a batch finds no row left, the backfill runs
+	// it in its own transaction, with the lock timeout and ValidateTimeout, and marks the change complete only after
+	// it passes. Empty marks the change complete when a batch finds no row left.
+	Validate, Check string
+	ValidateTimeout time.Duration
 }
 
 // Backfill moves the rows of one schema change in short fenced batches under the lease of the change.
@@ -279,6 +296,9 @@ type Backfill struct {
 	pause       time.Duration
 	target      time.Duration
 	maxLag      time.Duration
+	validate    string
+	check       string
+	validateFor time.Duration
 
 	mu         sync.Mutex
 	limit      int
@@ -314,7 +334,11 @@ func NewBackfill(change string, step Step, settings BackfillSettings) (*Backfill
 		return nil, errors.New("backfill: a backfill needs a change ID and a step")
 	}
 	b := &Backfill{change: change, step: step, fillDigest: settings.FillDigest, key: settings.Key, keyParts: append([]KeyType(nil), settings.KeyParts...), batchSize: settings.BatchSize, lockTimeout: settings.LockTimeout, observer: settings.Observer,
-		statement: settings.StatementTimeout, pause: settings.Pause, target: settings.TargetBatchTime, maxLag: settings.MaxReplicaLag}
+		statement: settings.StatementTimeout, pause: settings.Pause, target: settings.TargetBatchTime, maxLag: settings.MaxReplicaLag,
+		validate: settings.Validate, check: settings.Check, validateFor: settings.ValidateTimeout}
+	if (b.validate == "") != (b.check == "") {
+		return nil, fmt.Errorf("backfill %s: the validate statement and the name of its CHECK go together", change)
+	}
 	switch b.key {
 	case KeyInteger, KeyUUID, KeyText:
 		if len(b.keyParts) > 0 {
@@ -341,7 +365,10 @@ func NewBackfill(change string, step Step, settings BackfillSettings) (*Backfill
 	if b.statement == 0 {
 		b.statement = DefaultStatementTimeout
 	}
-	if b.batchSize < 0 || b.lockTimeout < 0 || b.statement < 0 || b.pause < 0 || b.target < 0 || b.maxLag < 0 {
+	if b.validateFor == 0 {
+		b.validateFor = DefaultValidateTimeout
+	}
+	if b.batchSize < 0 || b.lockTimeout < 0 || b.statement < 0 || b.pause < 0 || b.target < 0 || b.maxLag < 0 || b.validateFor < 0 {
 		return nil, fmt.Errorf("backfill %s: the batch size, the timeouts, the pause, the target batch time and the maximum replica lag must not be negative", change)
 	}
 	b.limit = b.batchSize
@@ -439,7 +466,7 @@ func (b *Backfill) Run(ctx context.Context, db DB, held *Held) (runErr error) {
 				}
 			}
 			continue
-		case errors.Is(err, ErrFenced), errors.Is(err, ErrStopped), ctx.Err() != nil:
+		case errors.Is(err, ErrFenced), errors.Is(err, ErrStopped), errors.Is(err, ErrIncomplete), ctx.Err() != nil:
 			return err
 		}
 		select {
@@ -484,9 +511,11 @@ func (b *Backfill) prepare(ctx context.Context) error {
 }
 
 // batch runs one batch: one transaction with the lock timeout that locks the checkpoint row, runs the step after
-// the checkpoint key and writes the checkpoint (ST-SUP-RP09-LC09, ST-SUP-RP09-LC10).
+// the checkpoint key and writes the checkpoint (ST-SUP-RP09-LC09, ST-SUP-RP09-LC10). When the step finds no row
+// left and the change has a completeness CHECK, the batch writes nothing and finish validates the CHECK first.
 func (b *Backfill) batch(ctx context.Context) error {
 	var result Batch
+	drained := false
 	b.mu.Lock()
 	limit := b.limit
 	b.mu.Unlock()
@@ -504,6 +533,10 @@ func (b *Backfill) batch(ctx context.Context) error {
 			return row, false, fmt.Errorf("backfill %s: the step read %d rows, more than the batch size %d", b.change, result.Read, limit)
 		}
 		if result.Read == 0 {
+			if b.validate != "" {
+				drained = true
+				return row, false, nil
+			}
 			row.completed = true
 			return row, true, nil
 		}
@@ -519,6 +552,11 @@ func (b *Backfill) batch(ctx context.Context) error {
 	})
 	if err != nil {
 		return err
+	}
+	if drained {
+		if err := b.finish(ctx); err != nil {
+			return err
+		}
 	}
 	b.mu.Lock()
 	b.lastCommit = b.held.client.clock.Now()
@@ -550,6 +588,61 @@ func (b *Backfill) batch(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// finish marks the change complete only after its completeness CHECK validates: it runs the validate statement in
+// a transaction of its own, which holds no lease row and no checkpoint row, with the lock timeout and the validate
+// timeout, and then marks the change complete in a fenced checkpoint. VALIDATE CONSTRAINT reads every row of the
+// table past row-level security and takes only a SHARE UPDATE EXCLUSIVE lock, so it blocks no read or write of the
+// table, and it proves that no row of any tenant has the old column set and the new column unset. When a row breaks
+// the CHECK (SQLSTATE 23514), finish sets the checkpoint key back to the start in a fenced checkpoint and fails with
+// ErrIncomplete, which names the change and the CHECK and no row value; the next Run passes over the rows again and
+// moves those that are unset. Any other error, such as the lock timeout, is a failed batch, which Run runs again
+// (decision on ST-SUP-Q120 (c), orchestrator under the owner's delegation, 2026-11-14).
+func (b *Backfill) finish(ctx context.Context) error {
+	err := b.validateCheck(ctx)
+	var state interface{ SQLState() string }
+	if errors.As(err, &state) && state.SQLState() == "23514" {
+		if err := b.inTx(ctx, func(_ context.Context, _ *sql.Tx, row checkpoint) (checkpoint, bool, error) {
+			row.lastKey, row.completed = nil, false
+			return row, true, nil
+		}); err != nil {
+			return err
+		}
+		return fmt.Errorf("backfill %s: %w: the CHECK %s finds a row whose old column is set and whose new column is unset, such as a row of a tenant that the tenant list does not hold; the next run passes over the rows again from the start", b.change, ErrIncomplete, b.check)
+	}
+	if err != nil {
+		return fmt.Errorf("backfill %s: validate the CHECK %s: %w", b.change, b.check, err)
+	}
+	return b.inTx(ctx, func(_ context.Context, _ *sql.Tx, row checkpoint) (checkpoint, bool, error) {
+		if row.completed {
+			return row, false, nil
+		}
+		row.completed = true
+		return row, true, nil
+	})
+}
+
+// validateCheck runs the validate statement in its own transaction with the lock timeout and the validate timeout.
+func (b *Backfill) validateCheck(ctx context.Context) error {
+	held := b.held
+	held.act.RLock()
+	defer held.act.RUnlock()
+	if err := held.active(); err != nil {
+		return err
+	}
+	tx, err := b.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, lockTimeoutStatement, fmt.Sprintf("%dms", b.lockTimeout.Milliseconds()), fmt.Sprintf("%dms", b.validateFor.Milliseconds())); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, b.validate); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // inTx runs change in one transaction with the lock timeout, under the lease row locked by Fence, over the
@@ -720,9 +813,16 @@ func (b *Backfill) watch(ctx context.Context, held *Held) {
 // an owned table reads the rows of one tenant: it sets app.tenant to the tenant of the checkpoint key and reads the
 // rows of that tenant after the key; when there is none, it goes on with the next tenant of the tenant list, in the
 // order of the key. It sets BackfillSetting first, so the sync trigger of the change passes the batch's rows
-// (ST-SUP-RC01-OC32).
+// (ST-SUP-RC01-OC32). Check is the completeness CHECK of the step on the table, which Validate validates before the
+// change is marked complete, since the walk over the tenant list does not read a row of a tenant that the list does
+// not hold (decision on ST-SUP-Q120 (c), orchestrator under the owner's delegation, 2026-11-14).
 type Copy struct {
-	Change, Table, TenantColumn, From, To, Tenants string
+	Change, Table, TenantColumn, From, To, Tenants, Check string
+}
+
+// Validate gives the statement that validates the completeness CHECK of c.
+func (c Copy) Validate() string {
+	return "ALTER TABLE public." + quoteName(c.Table) + " VALIDATE CONSTRAINT " + quoteName(c.Check)
 }
 
 // copySettingStatement sets the backfill setting and the tenant of the batch's transaction only.
@@ -738,9 +838,9 @@ func (c Copy) Settings() (KeyType, []KeyType) {
 
 // Step gives the step of c, or an error for a name that is empty or not a plain lower-case SQL name.
 func (c Copy) Step() (Step, error) {
-	for _, n := range []string{c.Change, c.Table, c.From, c.To} {
+	for _, n := range []string{c.Change, c.Table, c.From, c.To, c.Check} {
 		if n == "" {
-			return nil, errors.New("backfill: a copy needs its change, table and columns")
+			return nil, errors.New("backfill: a copy needs its change, table, columns and completeness CHECK")
 		}
 	}
 	if c.TenantColumn != "" && c.Tenants == "" {

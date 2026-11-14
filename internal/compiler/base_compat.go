@@ -162,9 +162,11 @@ func ledgerVersionFaults(applied *AppliedState, base, head *types.ServiceDeclara
 }
 
 // SyncRuntimeVersion is the first runtime library version whose schema check accepts the sync trigger of template
-// version 1 as the decisions on findings F3 and F4 of the schema-change research fixed it, with the writer marker,
-// the backfill bypass and the guarded conversions (orchestrator under the owner's delegation, 2026-11-13).
-const SyncRuntimeVersion = "v0.91.0"
+// version 2 with the completeness CHECK of its step, NOT VALID or validated (decision on ST-SUP-Q120 (c),
+// orchestrator under the owner's delegation, 2026-11-14), after template version 1 as the decisions on findings F3
+// and F4 of the schema-change research fixed it, with the writer marker, the backfill bypass and the guarded
+// conversions (orchestrator under the owner's delegation, 2026-11-13).
+const SyncRuntimeVersion = "v0.95.0"
 
 // syncKinds are the kinds of schema change whose step at expand adds a sync trigger.
 var syncKinds = map[string]bool{"rename": true, "retype": true, "require": true}
