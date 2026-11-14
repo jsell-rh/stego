@@ -31,6 +31,9 @@ var SchemaManifest = manifest.Manifest{Schemas: []manifest.Schema{{Name: "stego_
 			},
 			Indexes: []manifest.Index{
 				{Name: "activity_entries_pkey", Columns: []string{"tenant_id", "id"}},
+				{Name: "activity_entries_source_type_search", Columns: []string{"tenant_id", "source_type"}, Lookup: true},
+				{Name: "activity_entries_source_id_search", Columns: []string{"tenant_id", "source_id"}, Lookup: true},
+				{Name: "activity_entries_action_search", Columns: []string{"tenant_id", "action"}, Lookup: true},
 			},
 			RowSecurity: true,
 			Policies:    []manifest.Policy{{Name: "stego_tenant", Command: "*", Using: "(tenant_id = current_setting('app.tenant'::text, true))", WithCheck: "(tenant_id = current_setting('app.tenant'::text, true))"}},
@@ -53,6 +56,8 @@ var SchemaManifest = manifest.Manifest{Schemas: []manifest.Schema{{Name: "stego_
 			Indexes: []manifest.Index{
 				{Name: "organizations_pkey", Columns: []string{"tenant_id", "id"}},
 				{Name: "organizations_name_key", Columns: []string{"tenant_id", "name"}},
+				{Name: "organizations_name_search", Columns: []string{"tenant_id", "name"}, Lookup: true},
+				{Name: "organizations_description_search", Columns: []string{"tenant_id", "description"}, Lookup: true},
 			},
 			RowSecurity: true,
 			Policies:    []manifest.Policy{{Name: "stego_tenant", Command: "*", Using: "(tenant_id = current_setting('app.tenant'::text, true))", WithCheck: "(tenant_id = current_setting('app.tenant'::text, true))"}},
@@ -77,6 +82,9 @@ var SchemaManifest = manifest.Manifest{Schemas: []manifest.Schema{{Name: "stego_
 			Indexes: []manifest.Index{
 				{Name: "org_settings_pkey", Columns: []string{"tenant_id", "id"}},
 				{Name: "org_settings_org_id_key_key", Columns: []string{"tenant_id", "org_id", "key"}},
+				{Name: "org_settings_org_id_search", Columns: []string{"tenant_id", "org_id"}, Lookup: true},
+				{Name: "org_settings_key_search", Columns: []string{"tenant_id", "key"}, Lookup: true},
+				{Name: "org_settings_generation_search", Columns: []string{"tenant_id", "generation"}, Lookup: true},
 			},
 			RowSecurity: true,
 			Policies:    []manifest.Policy{{Name: "stego_tenant", Command: "*", Using: "(tenant_id = current_setting('app.tenant'::text, true))", WithCheck: "(tenant_id = current_setting('app.tenant'::text, true))"}},
@@ -104,6 +112,10 @@ var SchemaManifest = manifest.Manifest{Schemas: []manifest.Schema{{Name: "stego_
 			Indexes: []manifest.Index{
 				{Name: "users_pkey", Columns: []string{"tenant_id", "id"}},
 				{Name: "users_email_key", Columns: []string{"tenant_id", "email"}},
+				{Name: "users_email_search", Columns: []string{"tenant_id", "email"}, Lookup: true},
+				{Name: "users_display_name_search", Columns: []string{"tenant_id", "display_name"}, Lookup: true},
+				{Name: "users_role_search", Columns: []string{"tenant_id", "role"}, Lookup: true},
+				{Name: "users_org_id_search", Columns: []string{"tenant_id", "org_id"}, Lookup: true},
 			},
 			RowSecurity: true,
 			Policies:    []manifest.Policy{{Name: "stego_tenant", Command: "*", Using: "(tenant_id = current_setting('app.tenant'::text, true))", WithCheck: "(tenant_id = current_setting('app.tenant'::text, true))"}},
