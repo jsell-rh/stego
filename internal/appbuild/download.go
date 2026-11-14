@@ -80,7 +80,7 @@ const RuntimeModule = "github.com/jsell-rh/stego/registry/runtime"
 // zip hash fixes it. A test holds this table equal to the archetypes'
 // pins; a moved pin changes it in the same change (ST-BLD-UC02-R05).
 var runtimePins = map[string]string{
-	"v0.89.0": "h1:GHE/icGqCNLEM+Ru5mXwcfNIq2FfRJtuwlJD9e2Ve9c=",
+	"v0.91.0": "h1:fuAKmV2gzUJE+nUM8z6WZ0K+la5ZlRijirN09QM54cU=",
 }
 
 // RuntimePins gives a copy of the runtime pins that this binary trusts, by
@@ -984,7 +984,7 @@ func prepareDownload(options DownloadOptions) (DownloadOptions, error) {
 	}
 	options.Source, err = filepath.EvalSymlinks(options.Source)
 	if err != nil {
-		return options, err
+		return options, fmt.Errorf("module cache download: %w", sourceUnreadable(err))
 	}
 	options.Go, err = filepath.EvalSymlinks(options.Go)
 	if err != nil {

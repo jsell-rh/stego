@@ -4,10 +4,12 @@
 # path and their storage interface. Version 4.2.0 stages the change event of each write when the service has the
 # kafka-producer component (ST-SUP-RC20-OC40). Version 4.2.1 lists each failed member of a body in a 400 validation
 # problem, not only the first (ST-SUP-RC20-OC05). Version 4.2.2 lists at most 50 of them and one entry that counts
-# the rest, and no entry quotes a value of the request.
+# the rest, and no entry quotes a value of the request. Version 4.2.3 refuses a body of more than 10000 JSON values
+# and member names before the schema check (ST-SUP-RC20-OC21). Version 4.2.4 reads each number of the count as text
+# and refuses a body that is not JSON, so no error of the count lets a body pass.
 kind: component
 name: rest-api
-version: 4.2.2
+version: 4.2.4
 stage: ga
 output_namespace: internal/api
 

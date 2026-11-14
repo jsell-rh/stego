@@ -233,7 +233,6 @@ func TestCheck(t *testing.T) {
 			for _, statement := range []string{
 				"ALTER TABLE public.books ADD COLUMN extra text",
 				"CREATE INDEX books_extra ON public.books (extra)",
-				"CREATE POLICY narrow ON public.books AS RESTRICTIVE USING (true)",
 				"CREATE TABLE public.other (x int)",
 				"ALTER TABLE public.books ALTER COLUMN note SET NOT NULL",
 			} {
@@ -855,6 +854,169 @@ func TestSearchPathFunctions(t *testing.T) {
 		want := "the function early.claim comes before held.claim on the search path of the session"
 		if !errors.As(err, &mismatch) || len(mismatch.Faults) != 1 || mismatch.Faults[0] != want {
 			t.Fatalf("Check gave %v, want the one fault %q", err, want)
+		}
+	})
+}
+
+// hostileFunctions are functions of the database that fail when they run, as the probes C1 to C5 of the security
+// review of PR #270 make them.
+const hostileFunctions = `CREATE FUNCTION public.evil(anyelement) RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $e$ BEGIN RAISE EXCEPTION 'EVIL RAN'; END $e$;
+CREATE FUNCTION public.evilt(text) RETURNS text LANGUAGE plpgsql IMMUTABLE AS $e$ BEGIN RAISE EXCEPTION 'EVIL RAN'; END $e$;
+CREATE FUNCTION public.evil0() RETURNS boolean LANGUAGE plpgsql STABLE AS $e$ BEGIN RAISE EXCEPTION 'EVIL RAN'; END $e$;
+`
+
+func TestUnnamedCode(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC01-T11 Check refuses a check or exclusion constraint, an index with an expression or a predicate and a policy that the manifest does not name on a table with row-level security or checked grants", func(t *testing.T) {
+		// The probes C1 to C5, on the manifest with no entity table and on the one where books is an entity table.
+		for _, m := range []struct {
+			name string
+			m    func() Manifest
+		}{{"", want}, {" on an entity table", stepManifest}} {
+			for _, c := range []struct{ name, setup string }{
+				{"C1 an unlisted text column with a CHECK that calls a function", "ALTER TABLE public.books ADD COLUMN extra text CHECK (public.evil(extra));\n"},
+				{"C2 a CHECK that names no column", "ALTER TABLE public.books ADD CONSTRAINT books_x_check CHECK (public.evil0());\n"},
+				{"C3 an expression index", "CREATE INDEX books_x ON public.books (public.evilt(title));\n"},
+				{"C4 a partial index predicate", "CREATE INDEX books_y ON public.books (title) WHERE public.evil(title);\n"},
+				{"C5 a restrictive policy", "CREATE POLICY r ON public.books AS RESTRICTIVE USING (public.evil0());\n"},
+				{"a restrictive policy of built-in code only", "CREATE POLICY r ON public.books AS RESTRICTIVE USING (true);\n"},
+				{"an exclusion constraint", "ALTER TABLE public.books ADD CONSTRAINT books_x_excl EXCLUDE USING btree (title WITH =);\n"},
+				{"a CHECK on a listed column", "ALTER TABLE public.books ADD CONSTRAINT books_pages_check CHECK (pages >= 0);\n"},
+				{"a unique index with a predicate", "CREATE UNIQUE INDEX books_z ON public.books (tenant_id, id) WHERE note IS NOT NULL;\n"},
+				// A unique index that the manifest does not name: without the tenant column first, a write of one tenant
+				// that fails with 23505 tells it that another tenant holds the value (review of PR #270, older gap).
+				{"a unique index without the tenant column", "CREATE UNIQUE INDEX books_title_key ON public.books (title);\n"},
+				{"a unique index on listed columns", "CREATE UNIQUE INDEX books_title_key ON public.books (tenant_id, title);\n"},
+				{"a unique constraint", "ALTER TABLE public.books ADD CONSTRAINT books_title_key UNIQUE (tenant_id, title);\n"},
+			} {
+				stepCase(t, c.name+m.name, hostileFunctions+c.setup, m.m(), true)
+			}
+			// Controls: an index on plain columns is no code of the database, and the objects of the manifest pass.
+			stepCase(t, "an index on plain columns"+m.name, "CREATE INDEX books_note ON public.books (tenant_id, note);\n", m.m(), false)
+			stepCase(t, "the database of the manifest"+m.name, "", m.m(), false)
+		}
+		// A table with no row-level security and no checked grants: the rules do not hold (folders), and with checked
+		// grants they do.
+		stepCase(t, "a CHECK, a partial index and a policy on a table with no row-level security", hostileFunctions+
+			"ALTER TABLE public.folders ADD CONSTRAINT folders_x_check CHECK (public.evil0());\nCREATE INDEX folders_y ON public.folders (id) WHERE public.evil(id);\n"+
+			"CREATE POLICY r ON public.folders AS RESTRICTIVE USING (public.evil0());\n", want(), false)
+		granted := func() Manifest { m := want(); m.Tables[0].CheckGrants = true; return m }
+		stepCase(t, "folders with checked grants", "", granted(), false)
+		stepCase(t, "a unique index on a table with no row-level security", "CREATE UNIQUE INDEX folders_id_key ON public.folders (id);\n", want(), false)
+		for _, c := range []struct{ name, setup string }{
+			{"a unique index on a table with checked grants", "CREATE UNIQUE INDEX folders_id_key ON public.folders (id);\n"},
+			{"a CHECK on a table with checked grants", "ALTER TABLE public.folders ADD CONSTRAINT folders_x_check CHECK (public.evil0());\n"},
+			{"a partial index on a table with checked grants", "CREATE INDEX folders_y ON public.folders (id) WHERE public.evil(id);\n"},
+			{"an expression index on a table with checked grants", "CREATE INDEX folders_y ON public.folders (public.evilt(tenant_id));\n"},
+			{"a restrictive policy on a table with checked grants", "CREATE POLICY r ON public.folders AS RESTRICTIVE USING (public.evil0());\n"},
+			{"a permissive policy on a table with checked grants", "CREATE POLICY r ON public.folders USING (true);\n"},
+		} {
+			stepCase(t, c.name, hostileFunctions+c.setup, granted(), true)
+		}
+
+		// A lookup index of the manifest: exact columns and predicate, and not unique.
+		lookup := func() Manifest {
+			m := want()
+			m.Tables[1].Indexes = append(m.Tables[1].Indexes, Index{Name: "books_open", Columns: []string{"tenant_id", "pages"}, Predicate: "(note IS NULL)", Lookup: true})
+			return m
+		}
+		stepCase(t, "a lookup index of the manifest", "CREATE INDEX books_open ON public.books (tenant_id, pages) WHERE note IS NULL;\n", lookup(), false)
+		stepCase(t, "a lookup index that is unique", "CREATE UNIQUE INDEX books_open ON public.books (tenant_id, pages) WHERE note IS NULL;\n", lookup(), true)
+		stepCase(t, "a lookup index with another predicate", "CREATE INDEX books_open ON public.books (tenant_id, pages) WHERE note IS NOT NULL;\n", lookup(), true)
+		stepCase(t, "a lookup index that is missing", "", lookup(), true)
+
+		// A partition of a table with row-level security holds no check constraint or index with an expression or a
+		// predicate of its own; a partition of an index of the table is the table's.
+		for _, c := range []struct{ name, setup string }{
+			{"a CHECK of the partition alone", "ALTER TABLE public.books_all ADD CONSTRAINT books_all_x_check CHECK (public.evil0());\n"},
+			{"an expression index of the partition alone", "CREATE INDEX books_all_x ON public.books_all (public.evilt(title));\n"},
+			{"a partial index of the partition alone", "CREATE INDEX books_all_y ON public.books_all (title) WHERE public.evil(title);\n"},
+			{"an exclusion constraint of the partition alone", "ALTER TABLE public.books_all ADD CONSTRAINT books_all_x_excl EXCLUDE USING btree (title WITH =);\n"},
+			// A foreign key checks its key as the owner of the table, past row-level security (review of PR #270, M-B).
+			{"a unique index of the partition alone", "CREATE UNIQUE INDEX books_all_title_key ON public.books_all (title);\n"},
+			{"a foreign key of the partition alone", "ALTER TABLE public.books_all ADD CONSTRAINT books_all_x_fkey FOREIGN KEY (tenant_id, folder_id) REFERENCES public.folders (tenant_id, id);\n"},
+		} {
+			stepCase(t, c.name, partitionedBooks+hostileFunctions+c.setup, partitionedWant(), true)
+		}
+		stepCase(t, "a plain index of the partition alone", partitionedBooks+"CREATE INDEX books_all_note ON public.books_all (note);\n", partitionedWant(), false)
+
+		// The CHECK of a later add step on an entity table, in the exact forms that the add step of the generator
+		// gives (addedToTable with columnChecks): a length, the bounds of an integer, of a number and of a float with
+		// its finite value, and the values of an enum.
+		for _, c := range []struct{ name, setup string }{
+			{"a length of a text", `ALTER TABLE public.books ADD COLUMN "label" text;` + "\n" + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1);` + "\n"},
+			{"a length of a character varying", `ALTER TABLE public.books ADD COLUMN "label" character varying(40);` + "\n" + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 2);` + "\n"},
+			{"the bounds of an integer", `ALTER TABLE public.books ADD COLUMN "rank" integer DEFAULT 0;` + "\n" + `ALTER TABLE public.books ADD CONSTRAINT "books_rank_check" CHECK ("rank" >= 0 AND "rank" <= 10);` + "\n"},
+			{"a bound of an integer with a fraction", `ALTER TABLE public.books ADD COLUMN "rank" bigint;` + "\n" + `ALTER TABLE public.books ADD CONSTRAINT "books_rank_check" CHECK ("rank" >= 0.5);` + "\n"},
+			{"the bounds of a float and its finite value", `ALTER TABLE public.books ADD COLUMN "score" double precision;` + "\n" + `ALTER TABLE public.books ADD CONSTRAINT "books_score_check" CHECK ("score" >= 0 AND "score" <= 1.5 AND "score" NOT IN ('NaN'::double precision, 'Infinity'::double precision, '-Infinity'::double precision));` + "\n"},
+			{"the bound of a real", `ALTER TABLE public.books ADD COLUMN "score" real;` + "\n" + `ALTER TABLE public.books ADD CONSTRAINT "books_score_check" CHECK ("score" <= 2 AND "score" NOT IN ('NaN'::double precision, 'Infinity'::double precision, '-Infinity'::double precision));` + "\n"},
+			{"the values of an enum", `ALTER TABLE public.books ADD COLUMN "mood" text;` + "\n" + `ALTER TABLE public.books ADD CONSTRAINT "books_mood_check" CHECK ("mood" IN ('calm', 'busy'));` + "\n"},
+			{"the one value of an enum", `ALTER TABLE public.books ADD COLUMN "mood" text;` + "\n" + `ALTER TABLE public.books ADD CONSTRAINT "books_mood_check" CHECK ("mood" IN ('calm'));` + "\n"},
+		} {
+			stepCase(t, "the step form: "+c.name, c.setup, stepManifest(), false)
+			stepCase(t, "the step form on a table that is not an entity table: "+c.name, c.setup, want(), true)
+			// The add step adds the CHECK NOT VALID and validates it in a later migration (decision on finding F2), so
+			// the form that is not yet validated is the step form too.
+			at := strings.LastIndex(c.setup, ");\n")
+			notValid := c.setup[:at] + ") NOT VALID;\n"
+			stepCase(t, "the step form not yet validated: "+c.name, notValid, stepManifest(), false)
+			stepCase(t, "the step form not yet validated on a table that is not an entity table: "+c.name, notValid, want(), true)
+		}
+		// The unique index of a later add step on an entity table, in the exact form that the add step of the generator
+		// gives: the tenant column first, then the key columns, of which at least one the manifest does not list, named
+		// as UniqueName names it, valid or still building.
+		const slug = `ALTER TABLE public.books ADD COLUMN "slug" text;` + "\n"
+		for _, c := range []struct{ name, setup string }{
+			{"a unique field", slug + `CREATE UNIQUE INDEX "books_slug_key" ON public."books" ("tenant_id", "slug");` + "\n"},
+			{"a composite with a listed column", slug + `CREATE UNIQUE INDEX "books_title_slug_key" ON public."books" ("tenant_id", "title", "slug");` + "\n"},
+		} {
+			stepCase(t, "the step form: "+c.name, c.setup, stepManifest(), false)
+			stepCase(t, "the step form on a table that is not an entity table: "+c.name, c.setup, want(), true)
+		}
+		for _, c := range []struct{ name, setup string }{
+			{"the step unique index without the tenant column", slug + `CREATE UNIQUE INDEX "books_slug_key" ON public."books" ("slug");` + "\n"},
+			{"the step unique index on two new columns without the tenant column", slug + `ALTER TABLE public.books ADD COLUMN "label" text;` + "\n" +
+				`CREATE UNIQUE INDEX "books_label_key" ON public."books" ("slug", "label");` + "\n"},
+			{"the step unique index with the tenant column second", slug + `CREATE UNIQUE INDEX "books_slug_tenant_id_key" ON public."books" ("slug", "tenant_id");` + "\n"},
+			{"the step unique index under another name", slug + `CREATE UNIQUE INDEX "books_slug_uq" ON public."books" ("tenant_id", "slug");` + "\n"},
+			{"a unique index on listed columns under the step name", `CREATE UNIQUE INDEX "books_title_key" ON public."books" ("tenant_id", "title");` + "\n"},
+			{"the step unique index with nulls not distinct", slug + `CREATE UNIQUE INDEX "books_slug_key" ON public."books" ("tenant_id", "slug") NULLS NOT DISTINCT;` + "\n"},
+			{"the step unique index with another collation", slug + `CREATE UNIQUE INDEX "books_slug_key" ON public."books" ("tenant_id", "slug" COLLATE "POSIX");` + "\n"},
+			{"the step unique constraint deferrable", slug + `ALTER TABLE public.books ADD CONSTRAINT "books_slug_key" UNIQUE ("tenant_id", "slug") DEFERRABLE;` + "\n"},
+			{"the step unique index on a column of a type that is not built in", "CREATE DOMAIN public.dom AS text;\nALTER TABLE public.books ADD COLUMN \"slug\" public.dom;\n" +
+				`CREATE UNIQUE INDEX "books_slug_key" ON public."books" ("tenant_id", "slug");` + "\n"},
+		} {
+			stepCase(t, c.name, c.setup, stepManifest(), true)
+		}
+		if got := UniqueName(strings.Repeat("t", 40), []string{strings.Repeat("c", 30)}); len(got) != 63 || !strings.HasPrefix(got, strings.Repeat("t", 40)+"_ccccc_") {
+			t.Errorf("UniqueName gives %q for a long name", got)
+		}
+		const label = `ALTER TABLE public.books ADD COLUMN "label" text;` + "\n"
+		for _, c := range []struct{ name, setup string }{
+			{"the step CHECK under another name", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_len" CHECK (char_length("label") >= 1);` + "\n"},
+			{"a CHECK on two columns", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1 AND "label" <> "note");` + "\n"},
+			{"a CHECK on two unlisted columns", label + `ALTER TABLE public.books ADD COLUMN "label2" text;` + "\n" + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1 AND "label2" IS NULL);` + "\n"},
+			{"a CHECK NOT VALID under another name", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_len" CHECK (char_length("label") >= 1) NOT VALID;` + "\n"},
+			{"a CHECK NOT VALID and NO INHERIT", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1) NO INHERIT NOT VALID;` + "\n"},
+			{"a CHECK NO INHERIT", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1) NO INHERIT;` + "\n"},
+			{"a CHECK that calls random", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1 AND random() < 2);` + "\n"},
+			{"a CHECK that calls set_config", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (set_config('app.tenant', 'other', false) IS NOT NULL OR "label" IS NULL);` + "\n"},
+			{"a CHECK that calls now", `ALTER TABLE public.books ADD COLUMN "at" timestamptz;` + "\n" + `ALTER TABLE public.books ADD CONSTRAINT "books_at_check" CHECK ("at" <= now());` + "\n"},
+			{"a CHECK that calls a function of the database", hostileFunctions + label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (public.evil("label"));` + "\n"},
+			{"a CHECK with an operator of the database", "CREATE FUNCTION public.ge(text, integer) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT true $$;\n" +
+				"CREATE OPERATOR public.>>> (LEFTARG = text, RIGHTARG = integer, FUNCTION = public.ge);\n" + label +
+				`ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK ("label" OPERATOR(public.>>>) 1);` + "\n"},
+			{"a CHECK with a cast to a type of the database", "CREATE DOMAIN public.short AS text CHECK (char_length(VALUE) < 9);\n" + label +
+				`ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (("label")::public.short IS NOT NULL);` + "\n"},
+			{"a CHECK with a subquery-free system column", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (tableoid::oid > 0 AND "label" IS NOT NULL);` + "\n"},
+			{"a CHECK with a node that the step form does not give", label + `ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (CASE WHEN "label" IS NULL THEN true ELSE char_length("label") >= 1 END);` + "\n"},
+			{"a CHECK on a listed column under the step name", `ALTER TABLE public.books ADD CONSTRAINT "books_pages_check" CHECK ("pages" >= 0);` + "\n"},
+			{"a CHECK on a column of a type that is not built in", "CREATE DOMAIN public.dom AS text;\nALTER TABLE public.books ADD COLUMN \"label\" public.dom;\n" +
+				`ALTER TABLE public.books ADD CONSTRAINT "books_label_check" CHECK (char_length("label") >= 1);` + "\n"},
+		} {
+			stepCase(t, c.name, c.setup, stepManifest(), true)
+		}
+		if got := CheckName(strings.Repeat("t", 40), strings.Repeat("c", 30)); len(got) != 63 || !strings.HasPrefix(got, strings.Repeat("t", 40)+"_ccccc_") {
+			t.Errorf("CheckName gives %q for a long name", got)
 		}
 	})
 }

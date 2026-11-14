@@ -393,9 +393,34 @@ jobs:
           fetch-depth: 0
           path: stego
           persist-credentials: false
+      # The proof run ran at the merge commit of this run, github.sha, and its statement names that commit. The base
+      # in the event payload can be older than the first parent of that merge commit when a merge lands on the base
+      # branch just before the run starts: GitHub then makes the merge commit on the newer base. So the base of the
+      # gate is the first parent of the merge commit. It must be on the base branch and at or after the payload's
+      # base, so the base can only be newer, never an older or a foreign commit. Otherwise the run is stale: no
+      # decision, and a re-run gives a clean one.
+      - name: Find the base of the merge commit
+        id: base
+        working-directory: stego
+        env:
+          MERGE: ${{ github.sha }}
+          EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git fetch --no-tags origin "$MERGE" "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          base="$(git rev-parse --verify "$MERGE^1^{commit}")"
+          if [ "$(git rev-parse --verify "$MERGE^2^{commit}")" != "$COMMIT" ]; then
+            echo "::error::The gate did not run: the merge commit $MERGE of this run does not merge the head $COMMIT. Re-run the checks. This is no decision on the change."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$EVENT_BASE" "$base" || ! git merge-base --is-ancestor "$base" "refs/remotes/origin/$BASE_REF"; then
+            echo "::error::The gate did not run: the base $base of the merge commit is not on $BASE_REF at or after $EVENT_BASE. Re-run the checks. This is no decision on the change."
+            exit 1
+          fi
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ steps.base.outputs.sha }}
           path: base
           persist-credentials: false
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -438,7 +463,7 @@ jobs:
         id: gate
         working-directory: stego
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: ${{ steps.base.outputs.sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
           "$RUNNER_TEMP/gate/assure" gate change --commit "$COMMIT" --base "$BASE"
