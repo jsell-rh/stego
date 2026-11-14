@@ -208,7 +208,8 @@ jobs:
           if-no-files-found: error
 
   # The suites job records the proof run from the five parts. It runs no code of the change: it builds assure record
-  # from the pull request's base commit (on a push, the commit pushed), with a Go setup that restores no cache, and
+  # from the first parent of the run's commit (on a pull request, the base of the merge commit; on a push, the commit
+  # before the one pushed), with a Go setup that restores no cache, and
   # runs it in a checkout of the commit on the outputs of the parts, the root module's parts first, then Assuring's
   # modules, as one run. A part whose output is missing fails the job, so nothing is attested.
   suites:
@@ -327,9 +328,11 @@ jobs:
       - name: Warn on a leaked test database
         shell: bash
         run: |
-          jq -r 'select(.Action == "output" and (.Output | contains("pgtest: cleanup failed:"))) | "\(.Package) \(.Test // "(package)"): \(.Output)"' \
+          jq -r 'select(.Action == "output" and (.Output | contains("pgtest: cleanup failed:"))) | "\(.Package) \(.Test // "(package)"): \(.Output | rtrimstr("\n"))"' \
             "$RUNNER_TEMP/go-test.json" | while IFS= read -r line; do
-            echo "::warning::A test database leaked: $line"
+            if [ -n "$line" ]; then
+              echo "::warning::A test database leaked: $line"
+            fi
           done
       - name: Fail on any failed test
         shell: bash
@@ -338,12 +341,16 @@ jobs:
           go_failed="$(jq -r 'select(.Action == "fail") | "\(.Package) \(.Test // "(package)")"' "$RUNNER_TEMP/go-test.json")"
           python_failed="$(jq -r '.tests[] | select(.result == "failed") | .test' "$parts/tests-assure/python-tests.json")"
           if [ -n "$go_failed$python_failed" ]; then
-            # The output of each failed Go test, at most its last 60 lines, so the cause is in the run log (#212).
+            # The output of each failed Go test, at most its last 60 lines, so the cause is in the run log (#212). The
+            # output is the change's text, so workflow commands in it are stopped with a token that it cannot know.
+            token="$(openssl rand -hex 16)"
+            echo "::stop-commands::$token"
             jq -r -s 'map(select(.Action == "fail" and .Test != null) | {Package, Test}) as $failed
               | map(select(.Test != null)) | group_by([.Package, .Test])[]
               | select(.[0] as $e | any($failed[]; . == {Package: $e.Package, Test: $e.Test}))
               | "--- output of \(.[0].Package) \(.[0].Test)", (map(select(.Action == "output") | .Output) | .[-60:] | join(""))' \
               "$RUNNER_TEMP/go-test.json" || true
+            echo "::$token::"
             printf '%s\n' $'Failed Go tests and packages:' "$go_failed" $'Failed Python tests:' "$python_failed"
             echo "::error::A test or package failed (listed above). The proof run is recorded and kept, but the suites job fails."
             exit 1
