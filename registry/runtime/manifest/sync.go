@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // The sync trigger of a schema step (ST-SUP-RP15-LC02): the expand step of a rename, a retype or a require adds a
@@ -189,11 +191,12 @@ type Sync struct {
 }
 
 // syncLiteral gives the text as a SQL string literal. It refuses a backslash, which a session with
-// standard_conforming_strings off reads as an escape, a control character, and a dollar sign, which could end the
-// dollar quote of the function body (syncQuote).
+// standard_conforming_strings off reads as an escape, a control character (C0, DEL and C1) or a line or paragraph
+// separator, which a reader of the function source takes for the end of a line, and a dollar sign, which could end
+// the dollar quote of the function body (syncQuote).
 func syncLiteral(text string) (string, error) {
-	if strings.ContainsAny(text, "\\$") || strings.ContainsFunc(text, func(r rune) bool { return r < 0x20 }) {
-		return "", fmt.Errorf("manifest: the sync function takes no backslash, dollar sign or control character in a constant")
+	if !utf8.ValidString(text) || strings.ContainsAny(text, "\\$") || strings.ContainsFunc(text, syncControl) {
+		return "", fmt.Errorf("manifest: the sync function takes no backslash, dollar sign, control or format character, or text that is not UTF-8, in a constant")
 	}
 	return "'" + strings.ReplaceAll(text, "'", "''") + "'", nil
 }
@@ -205,11 +208,8 @@ func SyncSource(version int, s Sync) (string, error) {
 	if !ok || !slices.Contains(SyncVersions, version) {
 		return "", fmt.Errorf("manifest: the sync template has no version %d", version)
 	}
-	if !name.MatchString(s.K) || !name.MatchString(s.U) || s.K == s.U {
-		return "", fmt.Errorf("manifest: the sync function needs two different column names of at most 63 bytes")
-	}
-	if strings.Contains(s.K, "$") || strings.Contains(s.U, "$") {
-		return "", fmt.Errorf("manifest: the sync function takes no dollar sign in a column name")
+	if !syncName(s.K) || !syncName(s.U) || s.K == s.U {
+		return "", fmt.Errorf("manifest: the sync function needs two different column names of lower-case letters, digits and underscores, of at most 63 bytes")
 	}
 	if !changeID.MatchString(s.Change) || !name.MatchString(s.Owner) {
 		return "", fmt.Errorf("manifest: the sync function needs the ID of its change and the backfill role")
@@ -250,8 +250,8 @@ func SyncFunction(schema, function string, version int, s Sync) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	if !name.MatchString(schema) || !name.MatchString(function) {
-		return "", fmt.Errorf("manifest: the sync function needs a schema and a name of at most 63 bytes")
+	if !syncName(schema) || !syncName(function) {
+		return "", fmt.Errorf("manifest: the sync function needs a schema and a name of lower-case letters, digits and underscores, of at most 63 bytes")
 	}
 	// The body is in the dollar quote syncQuote, so a source that holds it would end the quote, and the text after it
 	// would run as SQL as the role of the migration.
@@ -261,6 +261,17 @@ func SyncFunction(schema, function string, version int, s Sync) (string, error) 
 	return "CREATE FUNCTION " + QuoteIdent(schema) + "." + QuoteIdent(function) + "() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER VOLATILE SET search_path = pg_catalog, pg_temp AS " + syncQuote +
 		source + syncQuote, nil
 }
+
+// syncControl tells whether a rune is a control character, a line or paragraph separator, or a format character
+// such as U+202E or U+200B, which shows text other than what the function holds (security review of PR #295, L2).
+func syncControl(r rune) bool {
+	return unicode.IsControl(r) || unicode.In(r, unicode.Zl, unicode.Zp, unicode.Cf)
+}
+
+// syncName tells whether a column, schema or function name of a sync function has the grammar of plainIdent and at
+// most 63 bytes: the names that the generator gives. Each other name, with a dollar sign, a backslash, a control
+// character or a letter that is not ASCII, is refused before it is rendered.
+func syncName(n string) bool { return len(n) <= 63 && plainIdent.MatchString(n) }
 
 // syncQuote is the dollar quote of the body of a sync function in its CREATE FUNCTION.
 const syncQuote = "$stego_sync$"
@@ -662,6 +673,12 @@ func acceptUnique(t Table, n string, key, primary []string, columns map[string]t
 		return false
 	}
 	lead := primary[:len(primary)-1]
+	// A table whose rows are kept per tenant leads its key with the tenant column. A unique index with no lead on
+	// such a table would make the key unique across tenants, and a refusal would tell that another tenant holds
+	// the value.
+	if (t.RowSecurity || t.CheckGrants) && len(lead) == 0 {
+		return false
+	}
 	if len(key) <= len(lead) || !slices.Equal(key[:len(lead)], lead) {
 		return false
 	}

@@ -90,6 +90,7 @@
                     "complete",
                     "parked",
                     "failed",
+                    "expired",
                     "unknown"
                   ]
                 }
@@ -295,6 +296,7 @@
                     "complete",
                     "parked",
                     "failed",
+                    "expired",
                     "unknown"
                   ]
                 }
@@ -428,6 +430,7 @@
                     "complete",
                     "parked",
                     "failed",
+                    "expired",
                     "unknown"
                   ]
                 }
@@ -697,6 +700,7 @@
                     "complete",
                     "parked",
                     "failed",
+                    "expired",
                     "unknown"
                   ]
                 }
@@ -928,6 +932,7 @@
                     "complete",
                     "parked",
                     "failed",
+                    "expired",
                     "unknown"
                   ]
                 }
@@ -1220,6 +1225,7 @@
                     "complete",
                     "parked",
                     "failed",
+                    "expired",
                     "unknown"
                   ]
                 }
@@ -1314,7 +1320,8 @@
                     "pending",
                     "complete",
                     "parked",
-                    "failed"
+                    "failed",
+                    "expired"
                   ]
                 }
               },
@@ -1340,7 +1347,8 @@
                         "pending",
                         "complete",
                         "parked",
-                        "failed"
+                        "failed",
+                        "expired"
                       ]
                     }
                   },
