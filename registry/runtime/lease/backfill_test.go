@@ -975,6 +975,33 @@ func TestBackfillComplete(t *testing.T) {
 			t.Fatalf("the backfill emitted completion %d times, want once", observed.completed)
 		}
 	})
+	t.Run("ST-SUP-RP09-LC10-T04 A validation that fails with an error that a run again cannot fix ends Run at once with its cause, and the change stays open", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 10, 0)
+		settings := withCompleteCheck(t, d, BackfillSettings{BatchSize: 20})
+		// The validate statement names a constraint that the table does not have: SQLSTATE 42704, which no run again
+		// can fix.
+		settings.Validate = "ALTER TABLE public.items VALIDATE CONSTRAINT items_no_such_check"
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		start := time.Now()
+		err := newBackfill(t, it, settings).Run(ctx, d.db, heldLease(t, d, "h1", Settings{}))
+		var pgErr interface{ SQLState() string }
+		if !errors.Is(err, ErrValidate) || !errors.As(err, &pgErr) || pgErr.SQLState() != "42704" {
+			t.Fatalf("Run with a validate statement that cannot pass gave %v, want ErrValidate with the cause 42704", err)
+		}
+		if elapsed := time.Since(start); elapsed > 10*time.Second {
+			t.Fatalf("Run returned after %v, want at once", elapsed)
+		}
+		for _, want := range []string{backfillChange, completeCheck} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the error %q does not name %s", err, want)
+			}
+		}
+		if got := checkpointRow(t, d); got.completed.Valid {
+			t.Fatal("the change is complete after a validation that failed")
+		}
+	})
 	t.Run("ST-SUP-RP09-LC10-T03 The validation takes no lock stronger than SHARE UPDATE EXCLUSIVE, blocks no write, and the change is complete only after it", func(t *testing.T) {
 		d := openDatabase(t)
 		it := newItems(t, d, 30)

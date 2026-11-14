@@ -30,6 +30,15 @@ const (
 // ST-SUP-Q120 (c), orchestrator under the owner's delegation, 2026-11-14).
 var ErrIncomplete = errors.New("the change is not complete")
 
+// ErrValidate is the error of Run when the validate statement of the completeness CHECK fails with an error that a
+// run again cannot fix, such as a statement that names no constraint: an error with a SQLSTATE other than the lock
+// timeout 55P03, the statement timeout 57014, the serialization failure 40001 and the deadlock 40P01. Run returns it
+// at once, with the cause, instead of running the batch again until its time limit (review of PR #300, L1).
+var ErrValidate = errors.New("the completeness CHECK cannot be validated")
+
+// transientStates are the SQLSTATEs of a validate statement that a run again can pass.
+var transientStates = map[string]bool{"55P03": true, "57014": true, "40001": true, "40P01": true}
+
 // The reasons of schema.backfill.throttled: the backfill waited for a replica whose replay lag is above the
 // maximum, or it made its batches smaller because a batch took longer than the target batch time.
 const (
@@ -466,7 +475,7 @@ func (b *Backfill) Run(ctx context.Context, db DB, held *Held) (runErr error) {
 				}
 			}
 			continue
-		case errors.Is(err, ErrFenced), errors.Is(err, ErrStopped), errors.Is(err, ErrIncomplete), ctx.Err() != nil:
+		case errors.Is(err, ErrFenced), errors.Is(err, ErrStopped), errors.Is(err, ErrIncomplete), errors.Is(err, ErrValidate), ctx.Err() != nil:
 			return err
 		}
 		select {
@@ -597,8 +606,10 @@ func (b *Backfill) batch(ctx context.Context) error {
 // table, and it proves that no row of any tenant has the old column set and the new column unset. When a row breaks
 // the CHECK (SQLSTATE 23514), finish sets the checkpoint key back to the start in a fenced checkpoint and fails with
 // ErrIncomplete, which names the change and the CHECK and no row value; the next Run passes over the rows again and
-// moves those that are unset. Any other error, such as the lock timeout, is a failed batch, which Run runs again
-// (decision on ST-SUP-Q120 (c), orchestrator under the owner's delegation, 2026-11-14).
+// moves those that are unset. A lock timeout, a statement timeout, a serialization failure, a deadlock and an error
+// with no SQLSTATE, such as a broken connection, are a failed batch, which Run runs again (decision on ST-SUP-Q120
+// (c), orchestrator under the owner's delegation, 2026-11-14); any other SQL error fails with ErrValidate and its
+// cause, and Run returns it at once (review of PR #300, L1).
 func (b *Backfill) finish(ctx context.Context) error {
 	err := b.validateCheck(ctx)
 	var state interface{ SQLState() string }
@@ -610,6 +621,9 @@ func (b *Backfill) finish(ctx context.Context) error {
 			return err
 		}
 		return fmt.Errorf("backfill %s: %w: the CHECK %s finds a row whose old column is set and whose new column is unset, such as a row of a tenant that the tenant list does not hold; the next run passes over the rows again from the start", b.change, ErrIncomplete, b.check)
+	}
+	if errors.As(err, &state) && !transientStates[state.SQLState()] {
+		return fmt.Errorf("backfill %s: %w %s: %w", b.change, ErrValidate, b.check, err)
 	}
 	if err != nil {
 		return fmt.Errorf("backfill %s: validate the CHECK %s: %w", b.change, b.check, err)
