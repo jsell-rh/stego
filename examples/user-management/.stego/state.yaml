@@ -12,36 +12,36 @@ last_applied:
             .stego/config.yaml:
                 exists: true
                 sha256: 1f22e1d31edec033c594c2564b8069aa79b45707f2319448a8c234843177b8e9
-                mode: 420
+                mode: 436
             authz/schema.zed:
                 exists: true
                 sha256: 4185ebd235edc2b5326b9e701f7ceb06e7183089c48b339fbecdc25a96e601c8
-                mode: 420
+                mode: 436
             go.mod:
                 exists: true
-                sha256: 847892cbb4265bf0f80ddd804e5c497e77e426494bbcb2b7382499790ac4f3b3
-                mode: 420
+                sha256: 237e076b88db6d80497fb222eb1cfecef37a1dcde289dfc6c306d50355213551
+                mode: 436
             go.sum:
                 exists: true
-                sha256: 184a1cbf554fa9b41a85e20d7764f5a8028c9bb7f3ea90da69f0fabb6744f596
-                mode: 420
+                sha256: c0d3569ebcc33e362865eabd91bb5b75d21d048334cc075a19bc2039cd9a5d2b
+                mode: 436
             service.yaml:
                 exists: true
                 sha256: bf9ae6f59e42415acf7e472f491e4544a532f496a834c92a946f82bc5aa4d40b
-                mode: 420
-        sha256: 2498c798581887eca9f14fcc6576a21ccea4ffa9c6e7556430d88097bd033290
+                mode: 436
+        sha256: 44717d11035afce5c9315f7f0fb6795901f8fcd50b784413fa6254d0fb6240f9
     compiler_build:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261114143413-472d23ede5f9
-        vcs: git
-        revision: 472d23ede5f94bd94eb57d769ece3c6c07cf68fd
-        source_state: clean
+        module_version: (devel)
+        vcs: unknown
+        revision: unknown
+        source_state: unknown
     service_name: user-management
     service_hash: bf9ae6f59e42415acf7e472f491e4544a532f496a834c92a946f82bc5aa4d40b
     registry_sha: env-override
-    registry_content_sha256: 969a20cdb7259dc92819f256707ee458d09971794aaccf2793c62f713a25aa84
+    registry_content_sha256: f324c13e88da61c1e0fdb337689099d1df50c1d2f133b9f85964af422b4972b3
     components:
         audit-log:
             version: 1.1.1
@@ -209,9 +209,9 @@ last_applied:
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160
     archetype:
         name: rest-crud
-        version: 3.106.4
+        version: 3.107.0
         runtime:
             module: github.com/jsell-rh/stego/registry/runtime
-            version: v0.98.0
-            sum: h1:4Z0iuyFGXU2jUTNskiC2pnzMDcnX/dRT7A7UFl47kRA=
+            version: v0.99.0
+            sum: h1:PWjNdv4lqbTE/mKGCIHYEXyqyYVHMhvTlZ/qRZLhfAg=
         imports_runtime: true
