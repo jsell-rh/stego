@@ -549,6 +549,12 @@ func runtimePin(name string) (*moduleVersion, error) {
 	return nil, nil
 }
 
+// afterPlainCheck is a test hook that runs in stageRuntimeFolder after the
+// check of the plain tree and before the folder is read into the zip, so a
+// test can change the folder in that window. It is nil, and does nothing, in
+// production.
+var afterPlainCheck func(folder string)
+
 // stageRuntimeFolder enforces ST-BLD-UC02-R05. When go.mod requires the
 // runtime pin and the source revision holds the common registry's runtime
 // folder, it writes the module zip of that folder as the pin, in the module
@@ -575,6 +581,9 @@ func stageRuntimeFolder(ctx context.Context, folder string, pin *moduleVersion, 
 	}
 	if err := checkPlainTree(folder); err != nil {
 		return nil, err
+	}
+	if afterPlainCheck != nil {
+		afterPlainCheck(folder)
 	}
 	if _, err := os.Lstat(filepath.Join(folder, "go.mod")); err != nil {
 		return nil, nil

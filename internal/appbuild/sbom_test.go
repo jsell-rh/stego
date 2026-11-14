@@ -77,40 +77,45 @@ func TestSBOMsAreWrittenFromTheModuleInventoryInFixedOrder(t *testing.T) {
 
 func TestSBOMsNameTheSourceOfTheRuntimePin(t *testing.T) {
 	t.Run("ST-BLD-DS01-T02 The SBOMs name the runtime folder as the source of the runtime pin, and no source for other modules", func(t *testing.T) {
-		record := sbomFixtureRecord()
-		runtimeModule := Module{Path: RuntimeModule, Version: "v0.33.0", Sum: moduleSum("G"), GoModSum: moduleSum("H"), Source: RuntimeFolderSource}
-		record.Modules = append([]Module{record.Modules[0], runtimeModule}, record.Modules[1:]...)
-		if err := validateRecord(&record); err != nil {
-			t.Fatal(err)
-		}
-		sboms, err := WriteSBOMs(&record)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var spdx spdxDocument
-		if err := json.Unmarshal(sboms[0].Document, &spdx); err != nil {
-			t.Fatal(err)
-		}
-		for _, pkg := range spdx.Packages {
-			want := ""
-			if pkg.Name == RuntimeModule {
-				want = sbomSourceComment(RuntimeFolderSource)
+		for source, comment := range map[string]string{
+			RuntimeFolderSource:   "Supplied by source:registry/runtime, the runtime folder of the source revision, not by https://proxy.golang.org (ST-BLD-UC02-R05).",
+			RuntimeCheckoutSource: "Supplied by checkout:registry/runtime, the runtime folder of the STEGO checkout that --runtime-folder named, which hashes to the runtime pin that the stego binary carries, not by https://proxy.golang.org (ST-BLD-UC02-R05).",
+		} {
+			record := sbomFixtureRecord()
+			runtimeModule := Module{Path: RuntimeModule, Version: "v0.33.0", Sum: moduleSum("G"), GoModSum: moduleSum("H"), Source: source}
+			record.Modules = append([]Module{record.Modules[0], runtimeModule}, record.Modules[1:]...)
+			if err := validateRecord(&record); err != nil {
+				t.Fatal(err)
 			}
-			if pkg.Comment != want {
-				t.Errorf("the SPDX package %s has the comment %q; expected %q", pkg.Name, pkg.Comment, want)
+			sboms, err := WriteSBOMs(&record)
+			if err != nil {
+				t.Fatal(err)
 			}
-		}
-		var cdx cdxDocument
-		if err := json.Unmarshal(sboms[1].Document, &cdx); err != nil {
-			t.Fatal(err)
-		}
-		for _, component := range cdx.Components {
-			var want []cdxProperty
-			if component.Name == RuntimeModule {
-				want = []cdxProperty{{sbomSourceProperty, RuntimeFolderSource}}
+			var spdx spdxDocument
+			if err := json.Unmarshal(sboms[0].Document, &spdx); err != nil {
+				t.Fatal(err)
 			}
-			if len(component.Properties) != len(want) || len(want) == 1 && component.Properties[0] != want[0] {
-				t.Errorf("the CycloneDX component %s has the properties %v; expected %v", component.Name, component.Properties, want)
+			for _, pkg := range spdx.Packages {
+				want := ""
+				if pkg.Name == RuntimeModule {
+					want = comment
+				}
+				if pkg.Comment != want {
+					t.Errorf("the SPDX package %s has the comment %q; expected %q", pkg.Name, pkg.Comment, want)
+				}
+			}
+			var cdx cdxDocument
+			if err := json.Unmarshal(sboms[1].Document, &cdx); err != nil {
+				t.Fatal(err)
+			}
+			for _, component := range cdx.Components {
+				var want []cdxProperty
+				if component.Name == RuntimeModule {
+					want = []cdxProperty{{sbomSourceProperty, source}}
+				}
+				if len(component.Properties) != len(want) || len(want) == 1 && component.Properties[0] != want[0] {
+					t.Errorf("the CycloneDX component %s has the properties %v; expected %v", component.Name, component.Properties, want)
+				}
 			}
 		}
 		plain := sbomFixtureRecord()
