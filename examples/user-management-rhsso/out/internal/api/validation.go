@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -73,6 +74,11 @@ func NewValidationMiddleware() func(http.Handler) http.Handler {
 			r.Body.Close()
 			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
+			if !withinTokenLimit(bodyBytes) {
+				handleError(w, r, Validation([]ValidationError{{Message: fmt.Sprintf("the request body holds more than %d JSON values and member names", MaxBodyTokens)}}))
+				return
+			}
+
 			input := &openapi3filter.RequestValidationInput{
 				Request:    r,
 				PathParams: pathParams,
@@ -93,6 +99,31 @@ func NewValidationMiddleware() func(http.Handler) http.Handler {
 			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+// MaxBodyTokens is the largest number of JSON values and member names that a
+// validated body may hold. The schema check makes one failure for each bad
+// value before the list is capped, so a body with more is refused first.
+const MaxBodyTokens = 10000
+
+// withinTokenLimit reports whether body holds at most MaxBodyTokens JSON values
+// and member names. A body that is not JSON is within the limit: the schema check
+// refuses it.
+func withinTokenLimit(body []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	count := 0
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return true
+		}
+		if delim, ok := token.(json.Delim); ok && (delim == ']' || delim == '}') {
+			continue
+		}
+		if count++; count > MaxBodyTokens {
+			return false
+		}
 	}
 }
 
