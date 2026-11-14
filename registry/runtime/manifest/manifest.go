@@ -1356,9 +1356,8 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 	// inherits from (ST-SUP-RP15-LC02 rule 1).
 	plainTable := kind == "r" && !partition && !child && !parent
 	var stepCols map[string]tableColumn
-	var keyed map[string]bool
 	if t.Entity && plainTable {
-		if stepCols, keyed, err = stepColumns(ctx, tx, oid); err != nil {
+		if stepCols, err = stepColumns(ctx, tx, oid); err != nil {
 			return nil, err
 		}
 	}
@@ -1789,8 +1788,15 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 		// (ST-SUP-RP15-LC02); two or more are each refused.
 		accepted := map[string]uint32{}
 		if t.Entity && plainTable {
+			var keys []stepKey
+			for n, i := range indexes {
+				if i.unique || i.primary {
+					keys = append(keys, stepKey{name: n, columns: i.columns, primary: i.primary,
+						exact: i.valid && i.ready && i.immediate && i.distinct && !i.expressions && i.predicate == "" && i.plainKeys})
+				}
+			}
 			for _, n := range extra {
-				function, _, ok, err := acceptSync(ctx, tx, t, oid, n, steps, stepCols, keyed, used)
+				function, _, ok, err := acceptSync(ctx, tx, t, oid, n, steps, stepCols, keys, used)
 				if err != nil {
 					return nil, err
 				}

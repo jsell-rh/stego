@@ -403,8 +403,9 @@ func checkBaseBeforePlan(named string, stdout io.Writer) (baseGate, error) {
 
 // printNewSchemaSteps lists each schema step of the declaration that the base does not hold, with its change, its
 // kind, its phase, and the migration, the trigger and the backfill that it adds (ST-GEN-UC12-R01). The migration is
-// the file of the plan that holds the step's SQL. The add kind, the only kind that generation carries out yet, adds
-// no trigger and no backfill.
+// the file of the plan that holds the step's SQL. An add adds no trigger and no backfill; a rename at expand adds the
+// sync trigger and the backfill, which the migration job runs under its lease before the rollout (decision on finding
+// F5 of the schema-change research, owner, 2026-11-13).
 func printNewSchemaSteps(stdout io.Writer, gate baseGate, plan *compiler.Plan) {
 	if gate.head == nil || len(gate.newSteps) == 0 {
 		return
@@ -430,7 +431,16 @@ func printNewSchemaSteps(stdout io.Writer, gate baseGate, plan *compiler.Plan) {
 				}
 			}
 		}
-		fmt.Fprintf(stdout, "  %d. %s: %s %s at %s; migration %s; trigger none; backfill none\n", position, step.Change, change.Kind, target, step.Phase, migration)
+		trigger, backfill := postgresadapter.StepTrigger(change, step.Phase), postgresadapter.StepBackfill(change, step.Phase)
+		if trigger == "" {
+			trigger = "none"
+		}
+		if backfill == "" {
+			backfill = "none"
+		} else {
+			backfill = "in the migration job under the lease " + backfill
+		}
+		fmt.Fprintf(stdout, "  %d. %s: %s %s at %s; migration %s; trigger %s; backfill %s\n", position, step.Change, change.Kind, target, step.Phase, migration, trigger, backfill)
 	}
 }
 

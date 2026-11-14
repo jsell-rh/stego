@@ -41,10 +41,12 @@ type schemaStep struct {
 }
 
 // stepAddition is what an add step gives: the SQL of its own migration, each index that it builds on a table with
-// rows, and the statements that validate its constraints.
+// rows, the SQL of the migration after those indexes that adds the sync trigger of a rename, and the statements that
+// validate its constraints.
 type stepAddition struct {
 	body      strings.Builder
 	indexes   []stepIndex
+	sync      strings.Builder
 	validates []string
 }
 
@@ -60,6 +62,10 @@ func IndexMigrationName(name string, n int) string { return fmt.Sprintf("%s_inde
 // ValidateMigrationName gives the ledger name of the migration that validates the constraints of the step name.
 func ValidateMigrationName(name string) string { return name + "_validate" }
 
+// SyncMigrationName gives the ledger name of the migration that adds the sync trigger of the step name, after its
+// indexes and before the validation of its constraints.
+func SyncMigrationName(name string) string { return name + "_sync" }
+
 // maxStepIndexes is the most indexes that the two digits of an index migration name number.
 const maxStepIndexes = 99
 
@@ -70,7 +76,7 @@ func StepMigrationName(position int, change, phase string) string {
 }
 
 // stepName is the grammar of the ledger name of a step migration.
-var stepName = regexp.MustCompile(`^step_[0-9]{4}_[a-z0-9]+(-[a-z0-9]+)*_(expand|contract)(_index_[0-9]{2}|_validate)?$`)
+var stepName = regexp.MustCompile(`^step_[0-9]{4}_[a-z0-9]+(-[a-z0-9]+)*_(expand|contract)(_index_[0-9]{2}|_sync|_validate)?$`)
 
 // CheckLedgerName refuses a ledgered migration whose name is not 001_initial, 100_tenancy_row_security or the name of
 // a schema step (ST-SUP-RC01-OC43): the ledger applies and checks migrations in the byte order of their names, so a
@@ -123,14 +129,19 @@ func schemaSteps(ctx gen.Context) ([]schemaStep, error) {
 		if !ok {
 			return nil, fmt.Errorf("schema_history[%d] names the schema change %q, which schema_changes does not declare", i, step.Change)
 		}
-		if change.Kind != "add" || step.Phase != "expand" {
-			return nil, fmt.Errorf("schema_history[%d]: the step %s of the schema change %s (%s) is not built; generation carries out only the expand step of an add", i, step.Phase, change.ID, change.Kind)
+		if (change.Kind != "add" && change.Kind != "rename") || step.Phase != "expand" {
+			return nil, fmt.Errorf("schema_history[%d]: the step %s of the schema change %s (%s) is not built; generation carries out only the expand step of an add and of a rename", i, step.Phase, change.ID, change.Kind)
 		}
 		after, err := at(i + 1)
 		if err != nil {
 			return nil, err
 		}
-		added, err := addedSQL(before, after, key, security != "")
+		var added *stepAddition
+		if change.Kind == "rename" {
+			added, err = renameSQL(ctx, before, after, change)
+		} else {
+			added, err = addedSQL(before, after, key, security != "")
+		}
 		if err != nil {
 			return nil, fmt.Errorf("schema change %s: %w", change.ID, err)
 		}
@@ -145,8 +156,15 @@ func schemaSteps(ctx gen.Context) ([]schemaStep, error) {
 		for n, index := range added.indexes {
 			steps = append(steps, schemaStep{Name: IndexMigrationName(name, n+1), Change: change, Phase: step.Phase, Body: index.statement, Index: index.name, Definition: index.definition})
 		}
+		if added.sync.Len() > 0 {
+			steps = append(steps, schemaStep{Name: SyncMigrationName(name), Change: change, Phase: step.Phase, Body: added.sync.String()})
+		}
 		if len(added.validates) > 0 {
 			steps = append(steps, schemaStep{Name: ValidateMigrationName(name), Change: change, Phase: step.Phase, Body: strings.Join(added.validates, ""), Validate: true})
+		}
+		if change.Kind == "rename" {
+			// The old column stays in the table until the contract step, so the model of the next step keeps it.
+			after = withColumnOf(after, before, change)
 		}
 		before = after
 	}
@@ -262,6 +280,260 @@ func concurrently(statement string) string {
 		}
 	}
 	return statement
+}
+
+// SyncTriggerName gives the name of the sync trigger, and of its function in the schema StepSchema, of the expand
+// step of a rename, a retype or a require that adds the column column to the table of the entity:
+// <table>_<column>_sync, cut as sqlName cuts a name (ST-SUP-RC01-OC23).
+func SyncTriggerName(entity, column string) string { return sqlName(tableName(entity), column, "sync") }
+
+// BackfillLease gives the lease of the backfill of a schema change, which the controller replica that moves its
+// rows holds (ST-GEN-UC13-R01).
+func BackfillLease(change string) string { return "stego.backfill." + change }
+
+// StepTrigger and StepBackfill give the sync trigger and the backfill lease that the step of a change at expand
+// adds, or empty when the kind adds none: only a rename adds them yet (ST-GEN-UC12-R01).
+func StepTrigger(change types.SchemaChange, phase string) string {
+	if change.Kind == "rename" && phase == "expand" {
+		return SyncTriggerName(change.Entity, change.Field)
+	}
+	return ""
+}
+
+// StepBackfill gives the backfill lease of the step, or empty.
+func StepBackfill(change types.SchemaChange, phase string) string {
+	if change.Kind == "rename" && phase == "expand" {
+		return BackfillLease(change.ID)
+	}
+	return ""
+}
+
+// syncTemplate is version 1 of the sync function template of the runtime library
+// (registry/runtime/manifest.SyncSource, ST-SUP-RP15-LC02): %[1]s is K and %[2]s is U, as quote_ident gives them,
+// %[3]s the conversion of NEW.K to the type of U and %[4]s the conversion of NEW.U to the type of K, %[5]s the change
+// ID and %[6]s the backfill role, each as a string literal. The compiler does not depend on the runtime module, so
+// this is a copy: the release before a step accepts the trigger only when its source is byte for byte the runtime's
+// text. TestSyncTemplateCopy compares the two texts, and the generated test of a rename proves the release before
+// accepts the trigger with the runtime's Check (ST-GEN-UC12-R03).
+const syncTemplate = `
+BEGIN
+  IF pg_catalog.current_setting('stego.backfill_change', true) = %[5]s AND CURRENT_USER = %[6]s THEN
+    RETURN NEW;
+  END IF;
+  IF pg_catalog.strpos(',' || pg_catalog.current_setting('stego.schema_step', true) || ',', ',' || %[5]s || ',') > 0 THEN
+    IF TG_OP = 'INSERT' THEN
+      NEW.%[1]s := %[4]s;
+    ELSIF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s OR NEW.%[2]s IS DISTINCT FROM OLD.%[2]s THEN
+      IF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s AND NEW.%[2]s IS DISTINCT FROM OLD.%[2]s AND NEW.%[1]s IS DISTINCT FROM %[4]s THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
+      END IF;
+      NEW.%[1]s := %[4]s;
+    END IF;
+  ELSIF TG_OP = 'INSERT' THEN
+    IF NEW.%[2]s IS NOT NULL AND NEW.%[2]s IS DISTINCT FROM %[3]s THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
+    END IF;
+    NEW.%[2]s := %[3]s;
+  ELSIF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s OR NEW.%[2]s IS DISTINCT FROM OLD.%[2]s THEN
+    IF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s AND NEW.%[2]s IS DISTINCT FROM OLD.%[2]s AND NEW.%[2]s IS DISTINCT FROM %[3]s THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
+    END IF;
+    NEW.%[2]s := %[3]s;
+  END IF;
+  RETURN NEW;
+END;
+`
+
+// syncSource gives the source of the sync function of a rename of k to u, with the identity conversion, for the
+// change and the backfill role owner, as registry/runtime/manifest.SyncSource gives it for version 1.
+func syncSource(change, owner, k, u string) string {
+	qk, qu := deparsedName(k), deparsedName(u)
+	return fmt.Sprintf(syncTemplate, qk, qu, "NEW."+qk, "NEW."+qu, sqlString(change), sqlString(owner))
+}
+
+// syncFunction gives the CREATE FUNCTION statement of the sync function StepSchema.<function>, as
+// registry/runtime/manifest.SyncFunction gives it.
+func syncFunction(function, source string) string {
+	return "CREATE FUNCTION " + deparsedName(StepSchema) + "." + deparsedName(function) +
+		"() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER VOLATILE SET search_path = pg_catalog, pg_temp AS $stego_sync$" +
+		source + "$stego_sync$"
+}
+
+// backfillsTable is the table of the backfill checkpoints of the runtime library
+// (registry/runtime/lease.BackfillsTable, ST-SUP-RC01-OC25), one row for each schema change, and backfillFunctions
+// are its two functions (registry/runtime/lease.BackfillFunctions); copies, as the template is, which
+// TestSyncTemplateCopy compares with the runtime's text.
+const backfillsTable = `CREATE TABLE IF NOT EXISTS stego_schema.backfills (
+	change_id text PRIMARY KEY,
+	last_key bytea,
+	last_key_type text,
+	rows_moved bigint NOT NULL DEFAULT 0,
+	failed_rows bigint NOT NULL DEFAULT 0,
+	duplicate_groups bigint NOT NULL DEFAULT 0,
+	fill_digest text NOT NULL DEFAULT '',
+	token bigint NOT NULL DEFAULT 0,
+	completed_at timestamptz
+)`
+
+const backfillFunctions = `CREATE OR REPLACE FUNCTION stego_schema.backfill_read(text)
+ RETURNS TABLE (last_key bytea, last_key_type text, rows_moved bigint, failed_rows bigint, duplicate_groups bigint, fill_digest text, token bigint, completed boolean)
+ LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+ AS $stego_backfill$SELECT b.last_key, b.last_key_type, b.rows_moved, b.failed_rows, b.duplicate_groups, b.fill_digest, b.token, b.completed_at IS NOT NULL
+  FROM stego_schema.backfills b WHERE b.change_id = $1 FOR UPDATE$stego_backfill$;
+CREATE OR REPLACE FUNCTION stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text, text, text)
+ RETURNS bigint LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+ AS $stego_backfill$DECLARE n bigint;
+BEGIN
+  PERFORM 1 FROM public.leases l WHERE l.name = $10 AND l.holder = $11 AND l.token = $8 AND l.expires_at > pg_catalog.clock_timestamp() FOR SHARE;
+  IF NOT FOUND THEN
+    RETURN 0;
+  END IF;
+  WITH changed AS (UPDATE stego_schema.backfills b SET last_key = $2, last_key_type = $9, rows_moved = $3, failed_rows = $4,
+   duplicate_groups = $5, fill_digest = $6, completed_at = CASE WHEN $7 THEN coalesce(b.completed_at, pg_catalog.now()) END, token = $8
+   WHERE b.change_id = $1 AND b.token <= $8 RETURNING 1) SELECT pg_catalog.count(*) INTO n FROM changed;
+  RETURN n;
+END$stego_backfill$;
+REVOKE ALL ON FUNCTION stego_schema.backfill_read(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stego_schema.backfill_checkpoint(text, bytea, bigint, bigint, bigint, text, boolean, bigint, text, text, text) FROM PUBLIC;
+`
+
+// renameSQL gives the migrations of the expand step of a rename (ST-GEN-UC12-R02, ST-GEN-UC12-R03,
+// ST-SUP-RC01-OC23, ST-SUP-RC01-OC25): its own migration adds the new column U nullable and with no default, and the
+// CHECK of its field after the change NOT VALID, which a later migration validates; it changes nothing that is
+// there, so the old column K keeps its type, NOT NULL, CHECK and indexes. It makes the schema StepSchema, the sync
+// function of the fixed template with the identity, which the release before accepts by its text
+// (ST-SUP-RP15-LC02), and the BEFORE row trigger on INSERT OR UPDATE that runs it. Then it makes the table of the
+// backfill checkpoints, its two SECURITY DEFINER functions, through which the backfill alone reads and changes a
+// row, with EXECUTE for no role other than the owner, and the row of the change. The search index and the unique indexes of U are built CONCURRENTLY by
+// migrations of their own (decision on finding F2, orchestrator under the owner's delegation, 2026-11-13). The
+// migration job runs it as the owner role, which owns each object it makes.
+func renameSQL(ctx gen.Context, before, after []tableModel, change types.SchemaChange) (*stepAddition, error) {
+	_, owner, err := serviceRoles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	name := tableName(change.Entity)
+	old, okOld := findTable(before, name)
+	next, okNext := findTable(after, name)
+	if !okOld || !okNext {
+		return nil, fmt.Errorf("the rename names the entity %s, whose table is not there", change.Entity)
+	}
+	k, okK := findColumn(old, change.From)
+	u, okU := findColumn(next, change.Field)
+	if !okK || !okU {
+		return nil, fmt.Errorf("the rename of %s.%s to %s finds no column %s before the step or %s after it", change.Entity, change.From, change.Field, change.From, change.Field)
+	}
+	if _, clash := findColumn(old, change.Field); clash {
+		return nil, fmt.Errorf("the table %s has a column %s already, so the rename cannot add it", name, change.Field)
+	}
+	// The schema check of the release before accepts the sync trigger for a column K in a unique key only when the
+	// key is K alone after the tenant column, and the step gives U the same unique key by CREATE UNIQUE INDEX
+	// CONCURRENTLY before the trigger (ST-SUP-RP15-LC02 rule 2, decision on ST-GEN-Q18 (a), orchestrator under the
+	// owner's delegation, 2026-11-13).
+	for _, columns := range old.unique {
+		if slices.Contains(columns, change.From) && len(columns) != 1 {
+			return nil, fmt.Errorf("the rename of %s.%s is of a field in a unique key of more than one field, whose sync trigger the schema check of the release before refuses (ST-SUP-RP15-LC02)", change.Entity, change.From)
+		}
+	}
+	for _, fk := range old.foreign {
+		if slices.Contains(fk.from, change.From) {
+			return nil, fmt.Errorf("the rename of %s.%s is of a reference, whose foreign key a rename does not carry yet", change.Entity, change.From)
+		}
+	}
+	if k.typ != u.typ {
+		return nil, fmt.Errorf("the rename of %s.%s changes the column type from %s to %s; a rename keeps the type, and a retype changes it", change.Entity, change.From, k.typ, u.typ)
+	}
+	trigger := SyncTriggerName(change.Entity, change.Field)
+	if !validTriggerName(trigger) {
+		return nil, fmt.Errorf("the sync trigger name %s is not a name the schema check accepts", trigger)
+	}
+	table := "public." + sqlIdentifier(name)
+	out := &stepAddition{}
+	fmt.Fprintf(&out.body, "ALTER TABLE %s ADD COLUMN %s %s;\n", table, sqlIdentifier(u.name), u.typ)
+	for _, check := range next.checks {
+		if check.name == sqlName(name, change.Field, "check") {
+			fmt.Fprintf(&out.body, "ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s) NOT VALID;\n", table, sqlIdentifier(check.name), check.expression)
+			out.validates = append(out.validates, fmt.Sprintf("ALTER TABLE %s VALIDATE CONSTRAINT %s;\n", table, sqlIdentifier(check.name)))
+		}
+	}
+	// The sync function, its trigger and the backfill row come in a migration of their own after the indexes, so
+	// that U has its unique key, valid, before the trigger moves K into it (ST-SUP-RP15-LC02 rule 2).
+	fmt.Fprintf(&out.sync, "CREATE SCHEMA IF NOT EXISTS %s;\n", StepSchema)
+	out.sync.WriteString(syncFunction(trigger, syncSource(change.ID, owner, change.From, change.Field)) + ";\n")
+	fmt.Fprintf(&out.sync, "CREATE TRIGGER %s BEFORE INSERT OR UPDATE ON %s FOR EACH ROW EXECUTE FUNCTION %s.%s();\n",
+		sqlIdentifier(trigger), table, StepSchema, sqlIdentifier(trigger))
+	// The functions revoke EXECUTE from PUBLIC and grant it to no role: only the owner role, which runs the backfill
+	// in the migration job, reads and changes the row (decision on finding M1 of the security review of PR #291,
+	// orchestrator under the owner's delegation, 2026-11-14).
+	out.sync.WriteString(backfillsTable + ";\n" + backfillFunctions)
+	fmt.Fprintf(&out.sync, "INSERT INTO stego_schema.backfills (change_id) VALUES (%s) ON CONFLICT (change_id) DO NOTHING;\n", sqlString(change.ID))
+	if slices.Contains(next.search, change.Field) {
+		out.indexes = append(out.indexes, stepIndex{name: "public." + sqlIdentifier(searchName(next.name, change.Field)),
+			statement: concurrently(searchIndexSQL(next, change.Field)), definition: searchIndexDefinition(next, change.Field)})
+	}
+	for _, columns := range next.unique {
+		if slices.Contains(columns, change.Field) {
+			out.indexes = append(out.indexes, stepIndex{name: "public." + sqlIdentifier(uniqueName(next.name, columns)),
+				statement: concurrently(uniqueIndexSQL(next, columns)), definition: uniqueIndexDefinition(next, columns)})
+		}
+	}
+	return out, nil
+}
+
+// validTriggerName tells whether a trigger name has 63 bytes at most and no control character.
+func validTriggerName(name string) bool {
+	return len(name) > 0 && len(name) <= 63 && !strings.ContainsFunc(name, func(r rune) bool { return r < 0x20 })
+}
+
+// withColumnOf gives the tables after a rename with the old column of the change, its CHECK and its indexes from
+// the tables before, which stay in the database until the contract step.
+func withColumnOf(after, before []tableModel, change types.SchemaChange) []tableModel {
+	name := tableName(change.Entity)
+	old, _ := findTable(before, name)
+	out := slices.Clone(after)
+	for i := range out {
+		if out[i].name != name {
+			continue
+		}
+		t := out[i]
+		t.columns = slices.Clone(t.columns)
+		if k, ok := findColumn(old, change.From); ok {
+			t.columns = append(t.columns, k)
+		}
+		for _, check := range old.checks {
+			if check.name == sqlName(name, change.From, "check") {
+				t.checks = append(slices.Clone(t.checks), check)
+			}
+		}
+		if slices.Contains(old.search, change.From) {
+			t.search = append(slices.Clone(t.search), change.From)
+		}
+		for _, columns := range old.unique {
+			if slices.Contains(columns, change.From) {
+				t.unique = append(slices.Clone(t.unique), columns)
+			}
+		}
+		out[i] = t
+	}
+	return out
+}
+
+// findTable gives the table of the name among tables.
+func findTable(tables []tableModel, name string) (tableModel, bool) {
+	i := slices.IndexFunc(tables, func(t tableModel) bool { return t.name == name })
+	if i < 0 {
+		return tableModel{}, false
+	}
+	return tables[i], true
+}
+
+// findColumn gives the column of the name in the table.
+func findColumn(table tableModel, name string) (columnModel, bool) {
+	i := slices.IndexFunc(table.columns, func(c columnModel) bool { return c.name == name })
+	if i < 0 {
+		return columnModel{}, false
+	}
+	return table.columns[i], true
 }
 
 // subset tells whether each item of old is in new.
