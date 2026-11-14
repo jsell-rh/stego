@@ -375,6 +375,175 @@ func TestBuildDownloadTakesTheRuntimePinFromTheRuntimeFolder(t *testing.T) {
 	})
 }
 
+// runtimeCheckout writes the files of a runtime folder as registry/runtime of
+// a STEGO checkout outside any source, and gives the folder and the hashes of
+// its zip and go.mod at version.
+func runtimeCheckout(t *testing.T, files map[string]string, version string) (string, string, string) {
+	t.Helper()
+	folder := filepath.Join(t.TempDir(), "stego", "registry", "runtime")
+	for name, data := range files {
+		full := filepath.Join(folder, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(data), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archive, err := registry.WriteRuntimeArchive(folder, registry.RuntimeModule, version, filepath.Join(t.TempDir(), "runtime.zip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return folder, archive.Sum, archive.ModSum
+}
+
+// commitUserSource commits a user project with no runtime folder: a module
+// that imports one package of the runtime library at version, with go.sum
+// stating sum and modSum for it and the lines of goSum. It gives the
+// repository and its revision.
+func commitUserSource(t *testing.T, version, sum, modSum, goSum, imported string) (string, string) {
+	t.Helper()
+	repository := filepath.Join(t.TempDir(), "source")
+	for name, data := range map[string]string{
+		"go.mod":           "module example.com/tiny\n\ngo 1.26.11\n\nrequire " + registry.RuntimeModule + " " + version + "\n",
+		"go.sum":           registry.RuntimeModule + " " + version + " " + sum + "\n" + registry.RuntimeModule + " " + version + "/go.mod " + modSum + "\n" + goSum,
+		"cmd/tiny/main.go": "package main\n\nimport _ \"" + registry.RuntimeModule + "/" + imported + "\"\n\nfunc main() {}\n",
+	} {
+		full := filepath.Join(repository, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(data), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, repository, "init", "-q")
+	git(t, repository, "add", "-A")
+	git(t, repository, "commit", "-q", "-m", "source")
+	return repository, git(t, repository, "rev-parse", "HEAD")
+}
+
+func TestBuildDownloadTakesTheRuntimePinFromACheckout(t *testing.T) {
+	t.Run("ST-BLD-UC02-R05-T10 A user project with no runtime folder takes the pin from --runtime-folder into a clean module cache and builds", func(t *testing.T) {
+		files, pinned, goSum := realRuntime(t)
+		folder, sum, modSum := runtimeCheckout(t, files, pinned)
+		source, revision := generatedSourceIn(t, t.TempDir(), pinned, sum, registry.RuntimeModule+"/money", "",
+			registry.RuntimeModule+" "+pinned+" "+sum+"\n"+registry.RuntimeModule+" "+pinned+"/go.mod "+modSum+"\n"+goSum)
+		// The module cache of the developer is empty, so nothing can come from it.
+		t.Setenv("GOMODCACHE", t.TempDir())
+		output := filepath.Join(t.TempDir(), "cache")
+		_, err := capture(t, runBuild, "download", "--source", source, "--revision", revision, "--target", "out/internal/api/tiny",
+			"--go", pinnedGo(t), "--output", output, "--runtime-folder", folder)
+		skipUnlessPinned(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if zips := cachedZips(t, output); len(zips) != 1 || zips[0] != "github.com/jsell-rh/stego/registry/runtime/@v/"+pinned+".zip" {
+			t.Fatalf("the cache holds the zips %v; expected only the runtime pin", zips)
+		}
+		record := readCacheRecord(t, output)
+		want := appbuild.CachedModule{Path: registry.RuntimeModule, Version: pinned, Sum: appbuild.RuntimePins()[pinned], Source: appbuild.RuntimeCheckoutSource}
+		if len(record.Modules) != 1 || record.Modules[0] != want {
+			t.Fatalf("the record lists %v; expected %v", record.Modules, want)
+		}
+		root := t.TempDir()
+		// The build keeps its work folders with the read-only module sources Go extracts; make them writable so the
+		// folder can be removed.
+		t.Cleanup(func() {
+			_ = filepath.WalkDir(root, func(name string, entry os.DirEntry, err error) error {
+				if err == nil && entry.IsDir() {
+					_ = os.Chmod(name, 0700)
+				}
+				return nil
+			})
+		})
+		_, err = capture(t, runBuild, buildArgs(source, revision, pinnedGo(t), filepath.Join(root, "work"), filepath.Join(root, "result"), output)...)
+		if err != nil {
+			t.Fatalf("the user project does not build from the cache: %v", err)
+		}
+		data, err := os.ReadFile(filepath.Join(root, "result", "build.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var built appbuild.Record
+		if err := json.Unmarshal(data, &built); err != nil {
+			t.Fatal(err)
+		}
+		named := false
+		for _, module := range built.Modules {
+			if module.Path == registry.RuntimeModule {
+				named = module.Version == pinned && module.Source == appbuild.RuntimeCheckoutSource
+			} else if module.Source != "" {
+				t.Errorf("the build record names the source %q for %s", module.Source, module.Path)
+			}
+		}
+		if !named {
+			t.Fatalf("the build record does not name %s as the source of the runtime pin: %v", appbuild.RuntimeCheckoutSource, built.Modules)
+		}
+	})
+	t.Run("ST-BLD-UC02-R05-T11 A --runtime-folder whose module sum is not the pin is refused although go.sum agrees, and leaves nothing", func(t *testing.T) {
+		files, pinned, goSum := realRuntime(t)
+		files["money/changed.go"] = "package money\n\n// Changed is not in the pin.\nconst Changed = true\n"
+		folder, sum, modSum := runtimeCheckout(t, files, pinned)
+		source, revision := commitUserSource(t, pinned, sum, modSum, goSum, "money")
+		parent := t.TempDir()
+		_, err := capture(t, runBuild, append(downloadArgs(source, revision, pinnedGo(t), filepath.Join(parent, "cache")), "--runtime-folder", folder)...)
+		skipUnlessPinned(t, err)
+		if err == nil {
+			t.Fatal("a changed runtime folder at a pinned version was taken from --runtime-folder because go.sum agrees with it")
+		}
+		for _, part := range []string{registry.RuntimeModule + " " + pinned, sum, appbuild.RuntimePins()[pinned]} {
+			if !strings.Contains(err.Error(), part) {
+				t.Errorf("the refusal does not name %s: %v", part, err)
+			}
+		}
+		if names := folderNames(t, parent); len(names) != 0 {
+			t.Fatalf("a refused download left %v", names)
+		}
+	})
+	t.Run("ST-BLD-UC02-R05-T12 A --runtime-folder is refused for a source with its own runtime folder, a module with no runtime pin, and a folder with no go.mod", func(t *testing.T) {
+		const version = "v0.99.0"
+		folder, sum, modSum := runtimeCheckout(t, fixtureRuntime(), version)
+		own, ownRevision, _ := commitRuntimeSource(t, fixtureRuntime(), version, "", "", "probe")
+		plain, plainRevision := commitUserSource(t, version, sum, modSum, "", "probe")
+		if err := os.WriteFile(filepath.Join(plain, "go.mod"), []byte("module example.com/tiny\n\ngo 1.26.11\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(plain, "cmd", "tiny", "main.go"), []byte("package main\n\nfunc main() {}\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		git(t, plain, "commit", "-q", "-am", "no runtime")
+		plainRevision = git(t, plain, "rev-parse", "HEAD")
+		user, userRevision := commitUserSource(t, version, sum, modSum, "", "probe")
+		empty := t.TempDir()
+		for name, testCase := range map[string]struct {
+			source, revision, folder string
+			wants                    []string
+		}{
+			"its own runtime folder": {own, ownRevision, folder, []string{"--runtime-folder", "holds its own runtime folder"}},
+			"no runtime pin":         {plain, plainRevision, folder, []string{"--runtime-folder", "requires no runtime library"}},
+			"no go.mod":              {user, userRevision, empty, []string{"--runtime-folder", empty, "with its go.mod"}},
+		} {
+			t.Run(name, func(t *testing.T) {
+				parent := t.TempDir()
+				_, err := capture(t, runBuild, append(downloadArgs(testCase.source, testCase.revision, pinnedGo(t), filepath.Join(parent, "cache")), "--runtime-folder", testCase.folder)...)
+				skipUnlessPinned(t, err)
+				if err == nil {
+					t.Fatal("the download was not refused")
+				}
+				for _, want := range testCase.wants {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("the refusal does not name %q: %v", want, err)
+					}
+				}
+				if names := folderNames(t, parent); len(names) != 0 {
+					t.Fatalf("a refused download left %v", names)
+				}
+			})
+		}
+	})
+}
+
 // zipSum gives the go.sum hash of a module zip.
 func zipSum(t *testing.T, name string) string {
 	t.Helper()
@@ -589,11 +758,20 @@ func buildSource(t *testing.T) (string, string) {
 // buildSourceIn commits the project of buildSource in the folder root.
 func buildSourceIn(t testing.TB, root string) (string, string) {
 	t.Helper()
+	return generatedSourceIn(t, root, "v0.1.0", "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", tinyModule,
+		tinyModule+" "+tinyVersion, tinyModule+" "+tinyVersion+" "+tinySum+"\n"+tinyModule+" "+tinyVersion+"/go.mod "+tinyModSum+"\n")
+}
+
+// generatedSourceIn commits, in the folder root, a generated project whose archetype pins the runtime at version
+// with sum, whose program imports the package imported, and whose go.mod gets the requirement require and whose
+// go.sum is goSum.
+func generatedSourceIn(t testing.TB, root, version, sum, imported, require, goSum string) (string, string) {
+	t.Helper()
 	project := filepath.Join(root, "source")
 	registry := filepath.Join(root, "registry")
 	files := map[string]string{
 		filepath.Join(project, "service.yaml"):                                "kind: service\nname: tiny\narchetype: tiny-arch\nlanguage: go\nentities:\n  - name: Widget\n    fields:\n      - { name: label, type: string }\ncollections:\n  widgets:\n    entity: Widget\n    operations: [create, read]\n",
-		filepath.Join(registry, "archetypes", "tiny-arch", "archetype.yaml"):  "kind: archetype\nruntime: {module: github.com/jsell-rh/stego/registry/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: tiny-arch\nlanguage: go\nversion: 1.0.0\ncomponents:\n  - tiny-api\n  - tiny-store\nconventions:\n  layout: flat\n  error_handling: problem-details-rfc\n  logging: structured-json\n  test_pattern: table-driven\nbindings:\n  storage-adapter: tiny-store\n",
+		filepath.Join(registry, "archetypes", "tiny-arch", "archetype.yaml"):  "kind: archetype\nruntime: {module: github.com/jsell-rh/stego/registry/runtime, version: " + version + ", sum: '" + sum + "'}\nname: tiny-arch\nlanguage: go\nversion: 1.0.0\ncomponents:\n  - tiny-api\n  - tiny-store\nconventions:\n  layout: flat\n  error_handling: problem-details-rfc\n  logging: structured-json\n  test_pattern: table-driven\nbindings:\n  storage-adapter: tiny-store\n",
 		filepath.Join(registry, "components", "tiny-api", "component.yaml"):   "kind: component\nname: tiny-api\nversion: 1.0.0\nstage: ga\noutput_namespace: internal/api\nrequires:\n  - storage-adapter\nprovides:\n  - http-server\nslots: []\n",
 		filepath.Join(registry, "components", "tiny-store", "component.yaml"): "kind: component\nname: tiny-store\nversion: 1.0.0\nstage: ga\noutput_namespace: internal/storage\nrequires: []\nprovides:\n  - storage-adapter\nslots: []\n",
 	}
@@ -603,7 +781,7 @@ func buildSourceIn(t testing.TB, root string) (string, string) {
 	input := compiler.ReconcilerInput{
 		ProjectDir: project, RegistryDir: registry, ModuleName: "example.com/tiny", GoVersion: "1.26.11",
 		Generators: map[string]gen.Generator{
-			"tiny-api":   buildGenerator{[]gen.File{{Path: "internal/api/tiny/main.go", Content: []byte("package main\n\nimport _ \"" + tinyModule + "\"\n\nfunc main() {}\n")}}},
+			"tiny-api":   buildGenerator{[]gen.File{{Path: "internal/api/tiny/main.go", Content: []byte("package main\n\nimport _ \"" + imported + "\"\n\nfunc main() {}\n")}}},
 			"tiny-store": buildGenerator{},
 		},
 	}
@@ -622,8 +800,10 @@ func buildSourceIn(t testing.TB, root string) (string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeProjectFile(t, filepath.Join(project, "go.mod"), string(module)+"\nrequire "+tinyModule+" "+tinyVersion+"\n")
-	writeProjectFile(t, filepath.Join(project, "go.sum"), tinyModule+" "+tinyVersion+" "+tinySum+"\n"+tinyModule+" "+tinyVersion+"/go.mod "+tinyModSum+"\n")
+	if require != "" {
+		writeProjectFile(t, filepath.Join(project, "go.mod"), string(module)+"\nrequire "+require+"\n")
+	}
+	writeProjectFile(t, filepath.Join(project, "go.sum"), goSum)
 	apply()
 	git(t, project, "init", "-q")
 	git(t, project, "add", "-A")
