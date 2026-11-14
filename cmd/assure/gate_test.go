@@ -2108,8 +2108,9 @@ func newFindBaseRepository(t *testing.T) findBaseRepository {
 }
 
 // runFindBase runs, with bash as GitHub Actions does, the gate job's step that finds the base, in the checkout of
-// the change, and gives its exit code, its output and the outputs it wrote.
-func runFindBase(t *testing.T, r findBaseRepository, merge, eventBase, commit string) (int, string, string) {
+// the change, and gives its exit code, its output and the outputs it wrote. The base branch and the default branch
+// are main; env, such as BASE_REF=side, takes the place of a value.
+func runFindBase(t *testing.T, r findBaseRepository, merge, eventBase, commit string, env ...string) (int, string, string) {
 	t.Helper()
 	var step gateStep
 	for _, s := range readGateWorkflow(t).Jobs["gate"].Steps {
@@ -2125,7 +2126,8 @@ func runFindBase(t *testing.T, r findBaseRepository, merge, eventBase, commit st
 	command := exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step.Run)
 	command.Dir = r.checkout
 	command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull,
-		"MERGE=" + merge, "EVENT_BASE=" + eventBase, "BASE_REF=main", "COMMIT=" + commit, "GITHUB_OUTPUT=" + outputs}
+		"MERGE=" + merge, "EVENT_BASE=" + eventBase, "BASE_REF=main", "DEFAULT_BRANCH=main", "COMMIT=" + commit, "GITHUB_OUTPUT=" + outputs}
+	command.Env = append(command.Env, env...)
 	out, err := command.CombinedOutput()
 	var exit *exec.ExitError
 	if err != nil && !errors.As(err, &exit) {
@@ -2144,14 +2146,19 @@ func TestFindBase(t *testing.T) {
 		if code, out, outputs := runFindBase(t, r, r.merge(r.base2, r.head), r.base1, r.head); code != 0 || outputs != "sha="+r.base2+"\n" {
 			t.Fatalf("the merge of the head on the branch head gave exit %d, outputs %q: %s; want exit 0 and sha=%s", code, outputs, out, r.base2)
 		}
-		for _, c := range []struct{ name, merge, eventBase, says string }{
-			{"a stale base: the merge is on the parent of the payload base", r.merge(r.base1, r.head), r.base2, "is not on main at or after"},
-			{"an older base: the merge is on the first commit, before the payload base", r.merge(r.base0, r.head), r.base1, "is not on main at or after"},
-			{"a foreign base: the first parent is not on the base branch", r.merge(r.foreign, r.head), r.base2, "is not on main at or after"},
-			{"a wrong second parent: the merge does not merge the head", r.merge(r.base2, r.base1), r.base1, "does not merge the head"},
-			{"a single parent: the run's commit is no merge", r.base2, r.base1, "does not merge the head"},
+		for _, c := range []struct {
+			name, merge, eventBase, says string
+			env                          []string
+		}{
+			{"a stale base: the merge is on the parent of the payload base", r.merge(r.base1, r.head), r.base2, "is not on main at or after", nil},
+			{"an older base: the merge is on the first commit, before the payload base", r.merge(r.base0, r.head), r.base1, "is not on main at or after", nil},
+			{"a foreign base: the first parent is not on the base branch", r.merge(r.foreign, r.head), r.base2, "is not on main at or after", nil},
+			{"a wrong second parent: the merge does not merge the head", r.merge(r.base2, r.base1), r.base1, "does not merge the head", nil},
+			{"a single parent: the run's commit is no merge", r.base2, r.base1, "does not merge the head", nil},
+			{"a base branch that is not the default branch", r.merge(r.foreign, r.head), r.foreign, "is not the default branch", []string{"BASE_REF=side"}},
+			{"an octopus merge: the merge commit has a third parent", r.merge(r.base2, r.head, r.base1), r.base1, "has more than two parents", nil},
 		} {
-			code, out, outputs := runFindBase(t, r, c.merge, c.eventBase, r.head)
+			code, out, outputs := runFindBase(t, r, c.merge, c.eventBase, r.head, c.env...)
 			if code != 1 || !strings.Contains(out, c.says) || !strings.Contains(out, "The gate did not run") || outputs != "" {
 				t.Errorf("%s gave exit %d, outputs %q: %s; want exit 1 with no output and a line that says %q", c.name, code, outputs, out, c.says)
 			}
