@@ -4454,7 +4454,7 @@ func TestRuntimeList(t *testing.T) {
 		}
 		var document struct {
 			Paths map[string]map[string]struct {
-				Parameters []struct{ Name string } `json:"parameters"`
+				Parameters []struct{ Name, In string } `json:"parameters"`
 			} `json:"paths"`
 		}
 		if err := json.Unmarshal(files["api/openapi.json"], &document); err != nil {
@@ -4462,7 +4462,9 @@ func TestRuntimeList(t *testing.T) {
 		}
 		var names []string
 		for _, p := range document.Paths["/api/v1/orders"]["get"].Parameters {
-			names = append(names, p.Name)
+			if p.In == "query" {
+				names = append(names, p.Name)
+			}
 		}
 		if strings.Join(names, ",") != "pageSize,cursor,orderBy,fields,search" {
 			t.Errorf("the document declares the list parameters %v", names)

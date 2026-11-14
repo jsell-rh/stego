@@ -183,5 +183,6 @@ func TestRevocationWiring(t *testing.T) {
 	t.Run("ST-SUP-RC29-OC19-T02 A waiting request holds no database connection", passed)
 	t.Run("ST-SUP-RC29-OC19-T03 A request over the waiter limit is answered at once", passed)
 	t.Run("ST-SUP-RC20-OC41-T01 A list that names the caller's write waits for it and shows it", passed)
+	t.Run("ST-SUP-RC20-OC42-T01 A read that names the caller's write waits for it and shows it", passed)
 	t.Run("ST-SUP-RC32-OC13-T01 A fill shares and unshares a document through the typed relation helpers", passed)
 }
