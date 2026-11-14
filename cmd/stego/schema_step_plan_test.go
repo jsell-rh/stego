@@ -286,17 +286,17 @@ func TestSchemaStepPlan(t *testing.T) {
 		}
 		// The same base, whose record pins the runtime library before the one that holds the fixed template.
 		s.write(t, "service.yaml", smallServiceDeclaration)
-		s.write(t, ".stego/state.yaml", pin.ReplaceAllString(record, "${1}v0.90.0"))
-		git(t, s.service, "commit", "-q", "-am", "base at v0.90.0")
+		s.write(t, ".stego/state.yaml", pin.ReplaceAllString(record, "${1}v0.94.0"))
+		git(t, s.service, "commit", "-q", "-am", "base at v0.94.0")
 		s.write(t, "service.yaml", noteFields(renamedTitle)+titleRename)
 		stdout, stderr, err := s.stego(t, "compat", "--base", "HEAD")
-		if code := exitCode(t, err); code != 1 || !strings.Contains(stdout+stderr, "ST-GEN-INV36") || !strings.Contains(stdout+stderr, "deploy a release with the runtime library v0.91.0 or later") {
-			t.Errorf("compat on a base at the runtime library v0.90.0: exit %d, want 1 and a fault that names v0.91.0 as the runtime to deploy first:\n%s%s", code, stdout, stderr)
+		if code := exitCode(t, err); code != 1 || !strings.Contains(stdout+stderr, "ST-GEN-INV36") || !strings.Contains(stdout+stderr, "deploy a release with the runtime library v0.95.0 or later") {
+			t.Errorf("compat on a base at the runtime library v0.94.0: exit %d, want 1 and a fault that names v0.95.0 as the runtime to deploy first:\n%s%s", code, stdout, stderr)
 		}
 		// An add step needs no sync trigger, so the same base takes it.
 		s.write(t, "service.yaml", noteBody(smallServiceDeclaration)+"schema_changes:\n  - {id: add-note-body, kind: add, entity: Note, field: body}\nschema_history:\n  - {change: add-note-body, phase: expand}\n")
 		if stdout, stderr, err := s.stego(t, "compat", "--base", "HEAD"); exitCode(t, err) != 0 {
-			t.Errorf("compat on a base at the runtime library v0.90.0 refuses an add step: %v\n%s%s", err, stdout, stderr)
+			t.Errorf("compat on a base at the runtime library v0.94.0 refuses an add step: %v\n%s%s", err, stdout, stderr)
 		}
 	})
 	t.Run("ST-GEN-UC12-R06-T02 Without apply, the check refuses a new field that has no add step", func(t *testing.T) {

@@ -438,6 +438,24 @@ func TestMigration(t *testing.T) {
 	})
 }
 
+func TestTokenStatements(t *testing.T) {
+	t.Run("ST-SUP-RC29-OC06-T07 The migration quotes the table name as an identifier, and as a string literal in the regclass name", func(t *testing.T) {
+		// Review of PR #292, L1: the name was put raw into a quoted identifier and a string literal.
+		column, grant := tokenStatements(`a"b'c`)
+		want := `DO $authz$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public."a""b''c"'::regclass AND attname = 'authz_token' AND NOT attisdropped) THEN ALTER TABLE public."a""b'c" ADD COLUMN IF NOT EXISTS authz_token text NOT NULL DEFAULT '' CHECK (octet_length(authz_token) <= 4096); END IF; END $authz$;` + "\n"
+		if column != want {
+			t.Errorf("the statement of the column is\n%s\nwant\n%s", column, want)
+		}
+		if want := `GRANT SELECT (tenant_id, id), UPDATE (authz_token) ON public."a""b'c" TO `; grant != want {
+			t.Errorf("the grant is %q, want %q", grant, want)
+		}
+		// A plain name gives the text of the golden wiring.
+		if column, _ := tokenStatements("documents"); !strings.Contains(column, `attrelid = 'public."documents"'::regclass`) || !strings.Contains(column, `ALTER TABLE public."documents" ADD`) {
+			t.Errorf("the statement of a plain name is %s", column)
+		}
+	})
+}
+
 func TestTenancy(t *testing.T) {
 	t.Run("ST-SUP-RC29-OC06-T05 A service without pooled tenancy on tenant_id is refused", func(t *testing.T) {
 		ctx := documentContext(t)
@@ -613,6 +631,32 @@ func TestOwnPass(t *testing.T) {
 		}
 		if !ownPass(output, "Test[A-Za-z]+", "ST-X-T02") || !ownPass(output, "Test[A-Za-z]+", "ST-X-T03") {
 			t.Fatal("a passed subtest, also one whose title holds a slash, does not count as passed")
+		}
+	})
+}
+
+func TestAlertSettings(t *testing.T) {
+	t.Run("ST-SUP-RC29-OC24-T01 The generator refuses an alert bound above 10m and a watch interval below 100ms or above the alert bound", func(t *testing.T) {
+		with := func(bound, interval string) gen.Context {
+			ctx := documentContext(t)
+			config := map[string]any{}
+			for k, v := range ctx.ComponentConfig {
+				config[k] = v
+			}
+			config["alert_bound"], config["watch_interval"] = bound, interval
+			ctx.ComponentConfig = config
+			return ctx
+		}
+		for _, c := range [][2]string{{"5s", "1s"}, {"10m", "100ms"}, {"10m", "10m"}, {"1s", "1s"}} {
+			if _, _, err := new(Generator).Generate(with(c[0], c[1])); err != nil {
+				t.Errorf("alert_bound %s and watch_interval %s: refused: %v", c[0], c[1], err)
+			}
+		}
+		for _, bound := range []string{"10m0.001s", "11m", "87600h"} {
+			refused(t, with(bound, "1s"), "alert_bound", "more than 10m")
+		}
+		for _, c := range [][2]string{{"5s", "99ms"}, {"5s", "1ms"}, {"5s", "6s"}, {"10m", "1h"}} {
+			refused(t, with(c[0], c[1]), "watch_interval", "100ms", "alert_bound")
 		}
 	})
 }

@@ -2,9 +2,14 @@ package declaration
 
 import (
 	"fmt"
+	"math/rand/v2"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	core "github.com/authzed/spicedb/pkg/proto/core/v1"
 )
 
 func TestTenantProvisioning(t *testing.T) {
@@ -130,4 +135,260 @@ func TestTenantProvisioning(t *testing.T) {
 			}
 		}
 	})
+	// A long chain of arrows made the fixed point quadratic: each pass over the schema set one more node, so 12000
+	// links took about 48 s (security review of PR 253, L4). The worklist sets each node once, when a node it reads
+	// changes, so the time grows with the size of the schema.
+	t.Run(inv78+": a chain of 12000 arrows is checked in linear time", func(t *testing.T) {
+		const links = 12000
+		var text strings.Builder
+		fmt.Fprintf(&text, "definition user {}\ndefinition node%d {\n relation anyone: user:*\n permission perm = anyone\n}\n", links)
+		for i := links - 1; i >= 0; i-- {
+			fmt.Fprintf(&text, "definition node%d {\n relation next: node%d\n permission perm = next->perm\n}\n", i, i+1)
+		}
+		compiled := compileTD03(t, text.String())
+		start := time.Now()
+		reach := compiled.wildcardReach()
+		elapsed := time.Since(start)
+		if !reach["node0#perm"] || reach["node0#next"] {
+			t.Errorf("node0#perm reaches a wildcard %v and node0#next %v, want true and false", reach["node0#perm"], reach["node0#next"])
+		}
+		if elapsed > 2*time.Second {
+			t.Errorf("the wildcard reach of a chain of %d arrows took %v, want well under 2 s", links, elapsed)
+		}
+	})
+	// A wide intersection whose parts repeat made the worklist quadratic in the fan-in of a node: it kept each
+	// repeated edge and decided the whole intersection again at each one, so a 120 KB schema took 16.6 s (security
+	// review of PR 294, M1). On the AND/OR graph each part is one input and each edge is followed once.
+	for _, c := range []struct {
+		name string
+		text func() string
+		node string
+		want bool
+	}{
+		{"10000 repeats of one part and a last part with no wildcard", func() string {
+			var b strings.Builder
+			b.WriteString("definition user {}\ndefinition doc {\n relation aaa: user:*\n relation bbb: user\n permission xxx = ")
+			b.WriteString(strings.Repeat("aaa & ", 10000))
+			b.WriteString("bbb\n}\n")
+			return b.String()
+		}, "doc#xxx", false},
+		{"10000 repeats of one part with a wildcard", func() string {
+			return "definition user {}\ndefinition doc {\n relation aaa: user:*\n permission xxx = " + strings.Repeat("aaa & ", 9999) + "aaa\n}\n"
+		}, "doc#xxx", true},
+		{"5000 distinct parts, each a wildcard", func() string {
+			var b strings.Builder
+			b.WriteString("definition user {}\ndefinition doc {\n")
+			for i := range 5000 {
+				fmt.Fprintf(&b, " relation rel%d: user:*\n", i)
+			}
+			b.WriteString(" permission xxx = ")
+			for i := range 5000 {
+				fmt.Fprintf(&b, "rel%d & ", i)
+			}
+			b.WriteString("rel0\n}\n")
+			return b.String()
+		}, "doc#xxx", true},
+		{"an arrow over 3000 subject types, repeated 100 times", func() string {
+			var b strings.Builder
+			for i := range 3000 {
+				fmt.Fprintf(&b, "definition typ%d {\n relation www: typ0:*\n permission ppp = www\n}\n", i)
+			}
+			b.WriteString("definition doc {\n relation rrr: typ0")
+			for i := 1; i < 3000; i++ {
+				fmt.Fprintf(&b, " | typ%d", i)
+			}
+			b.WriteString("\n relation zzz: typ0\n permission xxx = " + strings.Repeat("rrr->ppp & ", 100) + "zzz\n}\n")
+			return b.String()
+		}, "doc#xxx", false},
+	} {
+		t.Run(inv78+": a wide intersection is checked in linear time: "+c.name, func(t *testing.T) {
+			text := c.text()
+			if len(text) > MaxSchemaBytes {
+				t.Fatalf("the schema has %d bytes, more than MaxSchemaBytes", len(text))
+			}
+			compiled := compileTD03(t, text)
+			start := time.Now()
+			reach := compiled.wildcardReach()
+			elapsed := time.Since(start)
+			if reach[c.node] != c.want {
+				t.Errorf("%s reaches a wildcard %v, want %v", c.node, reach[c.node], c.want)
+			}
+			if elapsed > 2*time.Second {
+				t.Errorf("the wildcard reach took %v, want well under 2 s", elapsed)
+			}
+		})
+	}
+	// The differential test of the security review of PR 294: on random schemas with wildcards, usersets, self
+	// loops, cycles, arrows and nested unions, intersections and exclusions, the graph gives the same answer as the
+	// fixed point that it replaces, computed pass by pass. STEGO_TEST_REACH_SCHEMAS gives another count, such as the
+	// review's 200000.
+	t.Run(inv78+": the gate graph gives the answer of the fixed point on random schemas", func(t *testing.T) {
+		count := 5000
+		if text := os.Getenv("STEGO_TEST_REACH_SCHEMAS"); text != "" {
+			n, err := strconv.Atoi(text)
+			if err != nil || n < 1 {
+				t.Fatalf("STEGO_TEST_REACH_SCHEMAS %q is not a count", text)
+			}
+			count = n
+		}
+		r := rand.New(rand.NewPCG(294, 294))
+		compiled, sets := 0, 0
+		for i := range count {
+			text := randomReachSchema(r)
+			s, err := CompileAuthzSchema("authz/schema.zed", []byte(text))
+			if err != nil {
+				continue
+			}
+			compiled++
+			got, want := s.wildcardReach(), s.fixedPointReach()
+			for node, v := range want {
+				if v && !got[node] {
+					t.Fatalf("schema %d: the graph misses %s:\n%s", i, node, text)
+				}
+			}
+			for node, v := range got {
+				if v && !want[node] {
+					t.Fatalf("schema %d: the graph adds %s:\n%s", i, node, text)
+				}
+				if v {
+					sets++
+				}
+			}
+		}
+		if compiled < count/2 || sets == 0 {
+			t.Fatalf("only %d of %d random schemas compiled, with %d set nodes", compiled, count, sets)
+		}
+	})
+}
+
+// fixedPointReach is the wildcard reach as it was computed before PR 294, pass by pass over the whole schema until
+// no node changes: the oracle of the differential test.
+func (s *AuthzSchema) fixedPointReach() map[string]bool {
+	reach := map[string]bool{}
+	var rewriteReaches func(typeName string, rewrite *core.UsersetRewrite) bool
+	child := func(typeName string, c *core.SetOperation_Child) bool {
+		switch {
+		case c.GetComputedUserset() != nil:
+			return reach[typeName+"#"+c.GetComputedUserset().GetRelation()]
+		case c.GetTupleToUserset() != nil || c.GetFunctionedTupleToUserset() != nil:
+			tupleset, computed := c.GetTupleToUserset().GetTupleset().GetRelation(), c.GetTupleToUserset().GetComputedUserset().GetRelation()
+			if f := c.GetFunctionedTupleToUserset(); f != nil {
+				tupleset, computed = f.GetTupleset().GetRelation(), f.GetComputedUserset().GetRelation()
+			}
+			for _, subject := range s.definitions[typeName].subjects[tupleset] {
+				if subject.wildcard || reach[subject.namespace+"#"+computed] {
+					return true
+				}
+			}
+			return false
+		case c.GetUsersetRewrite() != nil:
+			return rewriteReaches(typeName, c.GetUsersetRewrite())
+		}
+		return false
+	}
+	rewriteReaches = func(typeName string, rewrite *core.UsersetRewrite) bool {
+		switch {
+		case rewrite.GetUnion() != nil:
+			for _, c := range rewrite.GetUnion().GetChild() {
+				if child(typeName, c) {
+					return true
+				}
+			}
+			return false
+		case rewrite.GetIntersection() != nil:
+			children := rewrite.GetIntersection().GetChild()
+			for _, c := range children {
+				if !child(typeName, c) {
+					return false
+				}
+			}
+			return len(children) > 0
+		case rewrite.GetExclusion() != nil:
+			children := rewrite.GetExclusion().GetChild()
+			return len(children) > 0 && child(typeName, children[0])
+		}
+		return false
+	}
+	relationReaches := func(subjects []schemaSubject) bool {
+		for _, subject := range subjects {
+			if subject.wildcard || subject.relation != "" && subject.relation != "..." && reach[subject.namespace+"#"+subject.relation] {
+				return true
+			}
+		}
+		return false
+	}
+	for changed := true; changed; {
+		changed = false
+		for typeName, definition := range s.definitions {
+			for name, subjects := range definition.subjects {
+				if !reach[typeName+"#"+name] && relationReaches(subjects) {
+					reach[typeName+"#"+name], changed = true, true
+				}
+			}
+			for name, rewrite := range definition.rewrites {
+				if !reach[typeName+"#"+name] && rewriteReaches(typeName, rewrite) {
+					reach[typeName+"#"+name], changed = true, true
+				}
+			}
+		}
+	}
+	return reach
+}
+
+// randomReachSchema gives a random schema of one to five definitions for the differential test, as the security
+// review of PR 294 made them.
+func randomReachSchema(r *rand.Rand) string {
+	defs, rels, perms := 1+r.IntN(5), 1+r.IntN(3), 1+r.IntN(4)
+	subject := func(tupleset bool) string {
+		d := fmt.Sprintf("def%d", r.IntN(defs))
+		switch k := r.IntN(4); {
+		case k == 0 && (!tupleset || r.IntN(4) == 0):
+			return d + ":*"
+		case k == 1 && !tupleset:
+			if r.IntN(2) == 0 {
+				return fmt.Sprintf("%s#wre%d", d, r.IntN(rels))
+			}
+			return fmt.Sprintf("%s#per%d", d, r.IntN(perms))
+		}
+		return d
+	}
+	leaf := func() string {
+		switch r.IntN(4) {
+		case 0:
+			return fmt.Sprintf("wre%d", r.IntN(rels))
+		case 1:
+			return fmt.Sprintf("per%d", r.IntN(perms))
+		case 2:
+			return fmt.Sprintf("tre%d->per%d", r.IntN(rels), r.IntN(perms))
+		}
+		return fmt.Sprintf("tre%d->wre%d", r.IntN(rels), r.IntN(rels))
+	}
+	var expr func(depth int) string
+	expr = func(depth int) string {
+		if depth > 2 || r.IntN(3) == 0 {
+			return leaf()
+		}
+		op := []string{" + ", " & ", " - "}[r.IntN(3)]
+		parts := make([]string, 2+r.IntN(2))
+		for i := range parts {
+			parts[i] = expr(depth + 1)
+		}
+		return "(" + strings.Join(parts, op) + ")"
+	}
+	var b strings.Builder
+	for d := range defs {
+		fmt.Fprintf(&b, "definition def%d {\n", d)
+		for i := range rels {
+			var w, ts []string
+			for range 1 + r.IntN(3) {
+				w, ts = append(w, subject(false)), append(ts, subject(true))
+			}
+			fmt.Fprintf(&b, " relation wre%d: %s\n relation tre%d: %s\n", i, strings.Join(unique(w), " | "), i, strings.Join(unique(ts), " | "))
+		}
+		for i := range perms {
+			fmt.Fprintf(&b, " permission per%d = %s\n", i, expr(0))
+		}
+		b.WriteString("}\n")
+	}
+	return b.String()
 }

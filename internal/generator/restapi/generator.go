@@ -2962,7 +2962,7 @@ const (
 )
 
 // revocationStates are the states of a revocation that Authz-Revocation and the status route give.
-var revocationStates = []string{"pending", "complete", "parked", "failed"}
+var revocationStates = []string{"pending", "complete", "parked", "failed", "expired"}
 
 // revocationHeaders adds the revocation headers to an operation of a collection, as ST-SUP-RC20-OC43 states them: a
 // get, a read or a list, takes the optional request headers Authz-Revocation-After and Prefer, answers 400 to a value

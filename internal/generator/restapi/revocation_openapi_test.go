@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
+
+	"github.com/jsell-rh/stego/internal/generator/spicedbauthz"
 )
 
 // revocationOperation is what the test reads of one operation of the OpenAPI document.
@@ -74,7 +76,7 @@ func TestRevocationDocument(t *testing.T) {
 				t.Errorf("the %s has no 400 response for a bad Authz-Revocation-After", read.name)
 			}
 			state := op.Responses["200"].Headers["Authz-Revocation"]
-			if strings.Join(state.Schema.Enum, ",") != "pending,complete,parked,failed,unknown" {
+			if strings.Join(state.Schema.Enum, ",") != "pending,complete,parked,failed,expired,unknown" {
 				t.Errorf("the 200 of the %s answers Authz-Revocation with %v, want the states and unknown", read.name, state.Schema.Enum)
 			}
 		}
@@ -86,7 +88,12 @@ func TestRevocationDocument(t *testing.T) {
 				t.Errorf("the %s %s answers %s with the headers %v, want Authz-Revocation: pending and Authz-Revocation-Location", write.method, write.path, write.code, response.Headers)
 			}
 		}
-		status, ok := paths["/authz/revocations/{id}"]["get"]
+		// The status route is the route that the spicedb-authz wiring registers.
+		route := strings.TrimPrefix(spicedbauthz.RevocationRoute, "GET ")
+		if route == spicedbauthz.RevocationRoute || revocationRoute != route {
+			t.Errorf("the document names the status route %s, but spicedb-authz registers %s", revocationRoute, spicedbauthz.RevocationRoute)
+		}
+		status, ok := paths[route]["get"]
 		if !ok {
 			t.Fatalf("the document has no status route; its paths are %v", paths)
 		}
@@ -101,6 +108,18 @@ func TestRevocationDocument(t *testing.T) {
 		body := ok200.Content["application/json"].Schema
 		if _, ok := ok200.Headers["Authz-Revocation"]; !ok || strings.Join(body.Required, ",") != "id,state" || len(body.Properties) != 2 {
 			t.Errorf("the 200 of the status route has the headers %v and the body %v, want Authz-Revocation and a body of id and state only", ok200.Headers, body)
+		}
+		// The status route answers each state that authz.Status gives, expired among them, and never unknown.
+		states := "pending,complete,parked,failed,expired"
+		if got := strings.Join(ok200.Headers["Authz-Revocation"].Schema.Enum, ","); got != states {
+			t.Errorf("the 200 of the status route answers Authz-Revocation with %s, want %s", got, states)
+		}
+		var state struct {
+			Enum []string `json:"enum"`
+		}
+		_ = json.Unmarshal(body.Properties["state"], &state)
+		if got := strings.Join(state.Enum, ","); got != states {
+			t.Errorf("the body of the status route has the states %s, want %s", got, states)
 		}
 		if _, ok := status.Responses["404"]; !ok {
 			t.Error("the status route has no 404")

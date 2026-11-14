@@ -23,6 +23,9 @@ import (
 //go:embed testdata/tables_test.go
 var tablesTests []byte
 
+//go:embed testdata/table_steps_test.go
+var tableStepsTests []byte
+
 const tablesModule = "example.com/tables-check"
 
 // runtimeService gives the context of a pooled service on the runtime data path whose adapter writes to ns and
@@ -208,12 +211,14 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	goMod := "module " + tablesModule + "\n\ngo 1.26.11\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n github.com/jsell-rh/stego/registry/runtime v0.93.0\n)\n\nreplace github.com/jsell-rh/stego/registry/runtime => " + runtimeDir + "\n"
+	goMod := "module " + tablesModule + "\n\ngo 1.26.11\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n github.com/jsell-rh/stego/registry/runtime v0.97.0\n)\n\nreplace github.com/jsell-rh/stego/registry/runtime => " + runtimeDir + "\n"
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(project, "check", "tables_test.go"), tablesTests, 0o644); err != nil {
-		t.Fatal(err)
+	for name, body := range map[string][]byte{"tables_test.go": tablesTests, "table_steps_test.go": tableStepsTests} {
+		if err := os.WriteFile(filepath.Join(project, "check", name), body, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	tidy := exec.Command("go", "mod", "tidy")
 	tidy.Dir, tidy.Env = project, append(os.Environ(), "GOWORK=off")
@@ -230,7 +235,7 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 	if before == nil {
 		t.Fatal("the boards service has no marker digest of a release before")
 	}
-	run := exec.Command("go", "test", "-json", "-mod=readonly", "-count=1", "-timeout=120s", "./check")
+	run := exec.Command("go", "test", "-json", "-mod=readonly", "-count=1", "-timeout=240s", "./check")
 	run.Dir, run.Env = project, append(os.Environ(), "GOWORK=off", "STEGO_TEST_MARKER_BEFORE="+string(before[1]))
 	output, _ := run.CombinedOutput()
 	passed := map[string]bool{}
@@ -251,12 +256,18 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 	return passed, log.String()
 }
 
-// passedThere fails the test when the generated subtest of id did not pass: the subtest itself, not only one of its
-// own subtests, whose names have the same prefix.
+// passedThere fails the test when the generated subtest of id under TestTables did not pass: the subtest itself, not
+// only one of its own subtests, whose names have the same prefix.
 func passedThere(t *testing.T, passed map[string]bool, log, id string) {
 	t.Helper()
+	passedIn(t, passed, log, "TestTables", id)
+}
+
+// passedIn fails the test when the generated subtest of id under the generated test top did not pass.
+func passedIn(t *testing.T, passed map[string]bool, log, top, id string) {
+	t.Helper()
 	for name := range passed {
-		if rest, ok := strings.CutPrefix(name, "TestTables/"+id+"_"); ok && !strings.Contains(rest, "/") {
+		if rest, ok := strings.CutPrefix(name, top+"/"+id+"_"); ok && !strings.Contains(rest, "/") {
 			return
 		}
 	}
@@ -301,6 +312,17 @@ func TestTables(t *testing.T) {
 			t.Skip("PostgreSQL fixture is not configured")
 		}
 		passedThere(t, passed, log, id)
+	}
+	// The cases of testdata/table_steps_test.go run in the same generated module, under TestTableSteps.
+	onSteps := func(t *testing.T, id string) {
+		t.Helper()
+		if !database {
+			if os.Getenv("STEGO_REQUIRE_POSTGRES") == "1" {
+				t.Fatal("PostgreSQL fixture is required")
+			}
+			t.Skip("PostgreSQL fixture is not configured")
+		}
+		passedIn(t, passed, log, "TestTableSteps", id)
 	}
 
 	t.Run("ST-SUP-RC01-OC41-T01 The tables are SQL from the declaration, with no store", func(t *testing.T) {
@@ -393,6 +415,7 @@ func TestTables(t *testing.T) {
 	t.Run("ST-GEN-UC12-R02-T02 on PostgreSQL", func(t *testing.T) { onPostgres(t, "ST-GEN-UC12-R02-T02") })
 	t.Run("ST-SUP-RC01-OC23-T01 on PostgreSQL", func(t *testing.T) { onPostgres(t, "ST-SUP-RC01-OC23-T01") })
 	t.Run("ST-SUP-RC01-OC25-T01 on PostgreSQL", func(t *testing.T) { onPostgres(t, "ST-SUP-RC01-OC25-T01") })
+	t.Run("ST-SUP-RC01-OC23-T05 on PostgreSQL", func(t *testing.T) { onPostgres(t, "ST-SUP-RC01-OC23-T05") })
 	t.Run("ST-GEN-UC12-R03-T02 on PostgreSQL", func(t *testing.T) { onPostgres(t, "ST-GEN-UC12-R03-T02") })
 
 	t.Run("ST-SUP-RC01-OC22-T03 An add step takes a database with rows to the schema of a new database, and the release before still runs on it", func(t *testing.T) {
@@ -423,6 +446,24 @@ func TestTables(t *testing.T) {
 		onPostgres(t, "ST-SUP-RC01-OC38-T05")
 	})
 
+	t.Run("ST-SUP-RC01-OC22-T08 A step waits behind a long reader, and each reader still gets its rows", func(t *testing.T) {
+		onSteps(t, "ST-SUP-RC01-OC22-T08")
+	})
+	t.Run("ST-SUP-RC01-OC22-T07 A retry after a lock timeout commits each statement once and applies no step twice", func(t *testing.T) {
+		onSteps(t, "ST-SUP-RC01-OC22-T07")
+	})
+	t.Run("ST-SUP-RC01-OC38-T06 An index build succeeds while an older transaction is open, and both indexes are valid", func(t *testing.T) {
+		onSteps(t, "ST-SUP-RC01-OC38-T06")
+	})
+	t.Run("ST-SUP-RC01-OC38-T07 A unique build that a concurrent duplicate fails leaves no index and no ledger row, and a rerun builds it", func(t *testing.T) {
+		onSteps(t, "ST-SUP-RC01-OC38-T07")
+	})
+	t.Run("ST-SUP-RC01-OC38-T08 Each relation that takes the name of a step index fails the step with no ledger row", func(t *testing.T) {
+		onSteps(t, "ST-SUP-RC01-OC38-T08")
+	})
+	t.Run("ST-SUP-RP15-LC01-T15 The release before accepts each emitted step form, NOT VALID and validated, and the release of the step refuses NOT VALID", func(t *testing.T) {
+		onSteps(t, "ST-SUP-RP15-LC01-T15")
+	})
 	t.Run("ST-SUP-RC01-OC41-T03 A service that needs the store is refused on the runtime data path", func(t *testing.T) {
 		refused := map[string]func(*gen.Context){
 			"schema_generation": func(ctx *gen.Context) {
