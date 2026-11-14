@@ -990,6 +990,73 @@ func TestRevocationWiring(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RC20-OC42-T02 A wait does not open a denied row, and reads and the status route share the waiter limit", func(t *testing.T) {
+		stop := s.startRelay(t)
+		denied, created := s.create(t, alice, "k-oc42-2a")
+		s.complete(t, alice, location(t, created))
+		shown, created := s.create(t, alice, "k-oc42-2b")
+		s.complete(t, alice, location(t, created))
+		stop()
+		// bob's own revocation stays pending, as no relay runs. A read of alice's document that names it waits to
+		// the cap of 3 s, and the check after the wait denies it with the same answer as a read with no header.
+		_, created = s.create(t, bob, "k-oc42-2c")
+		pending := location(t, created)
+		item := basePath + "/documents/" + denied
+		plain := s.do(t, &bob, http.MethodGet, item, "")
+		waited := s.do(t, &bob, http.MethodGet, item, "", authz.RevocationAfterHeader, pending, "Prefer", "wait=5")
+		// The two problem bodies are the same but for the time of each answer.
+		untimed := func(r reply) string {
+			var body map[string]any
+			if err := json.Unmarshal(r.body, &body); err != nil {
+				return "not JSON: " + string(r.body)
+			}
+			delete(body, "timestamp")
+			text, _ := json.Marshal(body)
+			return string(text)
+		}
+		if plain.code != http.StatusNotFound || waited.code != http.StatusNotFound || untimed(waited) != untimed(plain) ||
+			waited.header.Get(authz.RevocationHeader) != "pending" || waited.took < 2500*time.Millisecond {
+			t.Fatalf("a read of a denied document that names bob's pending revocation answered %d %v %s after %s; a plain read %d %s; want the plain 404 after the cap of 3 s with Authz-Revocation: pending",
+				waited.code, waited.header, waited.body, waited.took, plain.code, plain.body)
+		}
+		// Two reads of tenant t1 hold its 2 places, so a status wait of t1 answers at once.
+		_, created = s.create(t, alice, "k-oc42-2d")
+		own := location(t, created)
+		mine := basePath + "/documents/" + shown
+		reads := make(chan reply, 2)
+		for range 2 {
+			go func() {
+				reads <- s.do(t, &alice, http.MethodGet, mine, "", authz.RevocationAfterHeader, own, "Prefer", "wait=5")
+			}()
+		}
+		time.Sleep(300 * time.Millisecond)
+		over := s.do(t, &alice, http.MethodGet, own, "", "Prefer", "wait=5")
+		if over.took > time.Second || over.header.Get("Preference-Applied") != "" || over.state(t) != "pending" {
+			t.Fatalf("a status wait while two reads hold the places of t1 answered %v %s after %s, want pending at once with no Preference-Applied", over.header, over.body, over.took)
+		}
+		for range 2 {
+			if r := <-reads; r.code != http.StatusOK || r.header.Get(authz.RevocationHeader) != "pending" || r.took < 2500*time.Millisecond {
+				t.Fatalf("a held read answered %d %v after %s, want 200 pending after the cap of 3 s", r.code, r.header, r.took)
+			}
+		}
+		// Two status waits of t1 hold its places, so a read that names the revocation answers at once.
+		statuses := s.waits(t, map[string]string{"t1/" + alice.subject: own}, alice, alice)
+		time.Sleep(300 * time.Millisecond)
+		overRead := s.do(t, &alice, http.MethodGet, mine, "", authz.RevocationAfterHeader, own, "Prefer", "wait=5")
+		if overRead.code != http.StatusOK || overRead.took > time.Second || overRead.header.Get(authz.RevocationHeader) != "pending" {
+			t.Fatalf("a read while two status waits hold the places of t1 answered %d %v after %s, want 200 pending at once", overRead.code, overRead.header, overRead.took)
+		}
+		for range 2 {
+			if r := <-statuses; r.took < 2500*time.Millisecond {
+				t.Fatalf("a held status wait answered after %s, want after the cap of 3 s", r.took)
+			}
+		}
+		stop = s.startRelay(t)
+		s.complete(t, bob, pending)
+		s.complete(t, alice, own)
+		stop()
+	})
+
 	t.Run("ST-SUP-RC32-OC13-T01 A fill shares and unshares a document through the typed relation helpers", func(t *testing.T) {
 		stop := s.startRelay(t)
 		defer stop()
