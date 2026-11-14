@@ -2032,3 +2032,103 @@ func runGateReleaseStep(t *testing.T, code int) (int, string) {
 	}
 	return command.ProcessState.ExitCode(), string(data)
 }
+
+// findBaseRepository is an origin repository whose branch main holds the commits base0, base1 and base2, a head commit
+// on base0, and a checkout of the origin, as the gate job's checkout of the change has it.
+type findBaseRepository struct {
+	origin, checkout                   string
+	base0, base1, base2, head, foreign string
+	// merge makes a merge commit of the parents in the origin, as GitHub makes refs/pull/N/merge.
+	merge func(parents ...string) string
+}
+
+func newFindBaseRepository(t *testing.T) findBaseRepository {
+	t.Helper()
+	folder := t.TempDir()
+	r := findBaseRepository{origin: filepath.Join(folder, "origin"), checkout: filepath.Join(folder, "stego")}
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_AUTHOR_NAME=t",
+			"GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+		out, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if err := os.MkdirAll(r.origin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(r.origin, "init", "-q", "-b", "main")
+	git(r.origin, "config", "uploadpack.allowAnySHA1InWant", "true")
+	commit := func(message string, parents ...string) string {
+		args := []string{"commit-tree", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", "-m", message}
+		for _, p := range parents {
+			args = append(args, "-p", p)
+		}
+		return git(r.origin, args...)
+	}
+	r.base0 = commit("base0")
+	r.base1 = commit("base1", r.base0)
+	r.base2 = commit("base2", r.base1)
+	r.head = commit("head", r.base0)
+	r.foreign = commit("foreign", r.base2)
+	git(r.origin, "update-ref", "refs/heads/main", r.base2)
+	git(r.origin, "update-ref", "refs/heads/side", r.foreign)
+	git(folder, "clone", "-q", "--no-checkout", r.origin, r.checkout)
+	r.merge = func(parents ...string) string { return commit("merge", parents...) }
+	return r
+}
+
+// runFindBase runs, with bash as GitHub Actions does, the gate job's step that finds the base, in the checkout of
+// the change, and gives its exit code, its output and the outputs it wrote.
+func runFindBase(t *testing.T, r findBaseRepository, merge, eventBase, commit string) (int, string, string) {
+	t.Helper()
+	var step gateStep
+	for _, s := range readGateWorkflow(t).Jobs["gate"].Steps {
+		if s.ID == "base" {
+			step = s
+		}
+	}
+	if step.Run == "" {
+		t.Fatal("the gate job has no step with the ID base")
+	}
+	outputs := filepath.Join(t.TempDir(), "github-output")
+	writeFile(t, outputs, "")
+	command := exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step.Run)
+	command.Dir = r.checkout
+	command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull,
+		"MERGE=" + merge, "EVENT_BASE=" + eventBase, "BASE_REF=main", "COMMIT=" + commit, "GITHUB_OUTPUT=" + outputs}
+	out, err := command.CombinedOutput()
+	var exit *exec.ExitError
+	if err != nil && !errors.As(err, &exit) {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(outputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return command.ProcessState.ExitCode(), string(out), string(data)
+}
+
+func TestFindBase(t *testing.T) {
+	t.Run("ST-ASR-PO01-T The step that finds the base takes only the first parent of a merge of the head on the base branch at or after the payload base", func(t *testing.T) {
+		r := newFindBaseRepository(t)
+		if code, out, outputs := runFindBase(t, r, r.merge(r.base2, r.head), r.base1, r.head); code != 0 || outputs != "sha="+r.base2+"\n" {
+			t.Fatalf("the merge of the head on the branch head gave exit %d, outputs %q: %s; want exit 0 and sha=%s", code, outputs, out, r.base2)
+		}
+		for _, c := range []struct{ name, merge, eventBase, says string }{
+			{"a stale base: the merge is on the parent of the payload base", r.merge(r.base1, r.head), r.base2, "is not on main at or after"},
+			{"an older base: the merge is on the first commit, before the payload base", r.merge(r.base0, r.head), r.base1, "is not on main at or after"},
+			{"a foreign base: the first parent is not on the base branch", r.merge(r.foreign, r.head), r.base2, "is not on main at or after"},
+			{"a wrong second parent: the merge does not merge the head", r.merge(r.base2, r.base1), r.base1, "does not merge the head"},
+			{"a single parent: the run's commit is no merge", r.base2, r.base1, "does not merge the head"},
+		} {
+			code, out, outputs := runFindBase(t, r, c.merge, c.eventBase, r.head)
+			if code != 1 || !strings.Contains(out, c.says) || !strings.Contains(out, "The gate did not run") || outputs != "" {
+				t.Errorf("%s gave exit %d, outputs %q: %s; want exit 1 with no output and a line that says %q", c.name, code, outputs, out, c.says)
+			}
+		}
+	})
+}

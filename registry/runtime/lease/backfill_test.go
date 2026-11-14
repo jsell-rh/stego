@@ -1002,6 +1002,58 @@ func TestBackfillComplete(t *testing.T) {
 			t.Fatal("the change is complete after a validation that failed")
 		}
 	})
+	t.Run("ST-SUP-RP09-LC10-T05 A validation whose session an administrator ends, as at a failover, ends Run with ErrSession at once, and a Run on a new session completes the change", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 10, 0)
+		settings := withCompleteCheck(t, d, BackfillSettings{BatchSize: 20, LockTimeout: 20 * time.Second})
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		// A session holds SHARE UPDATE EXCLUSIVE on the table, so the validation waits, and its backend is ended
+		// with pg_terminate_backend while it waits: SQLSTATE 57P01 (review of PR #305).
+		hold, err := d.other.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = hold.Rollback() }()
+		if _, err := hold.ExecContext(ctx, "LOCK TABLE public.items IN SHARE UPDATE EXCLUSIVE MODE"); err != nil {
+			t.Fatal(err)
+		}
+		ended := make(chan int, 1)
+		go func() {
+			defer close(ended)
+			for ctx.Err() == nil {
+				var n int
+				_ = d.other.QueryRowContext(ctx, `SELECT count(pg_catalog.pg_terminate_backend(pid)) FROM pg_catalog.pg_stat_activity
+  WHERE query LIKE '%VALIDATE CONSTRAINT `+completeCheck+`%' AND wait_event_type = 'Lock' AND pid <> pg_catalog.pg_backend_pid()`).Scan(&n)
+				if n > 0 {
+					_ = hold.Rollback()
+					ended <- n
+					return
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		}()
+		held := heldLease(t, d, "h1", Settings{})
+		b := newBackfill(t, it, settings)
+		err = b.Run(ctx, d.db, held)
+		if n := <-ended; n == 0 {
+			t.Fatal("no validation was ended")
+		}
+		// The session is broken: Run returns at once, and the caller holds the lease again with new sessions
+		// (review of PR #305, L3).
+		if !errors.Is(err, ErrSession) || errors.Is(err, ErrValidate) {
+			t.Fatalf("Run after the validation was ended gave %v, want ErrSession", err)
+		}
+		if got := checkpointRow(t, d); got.completed.Valid {
+			t.Fatal("the change is complete after the validation was ended")
+		}
+		if err := b.Run(ctx, d.db, held); err != nil {
+			t.Fatalf("the Run on a new session gave %v, want the change complete", err)
+		}
+		if got := checkpointRow(t, d); !got.completed.Valid {
+			t.Fatal("the change is not complete")
+		}
+	})
 	t.Run("ST-SUP-RP09-LC10-T03 The validation takes no lock stronger than SHARE UPDATE EXCLUSIVE, blocks no write, and the change is complete only after it", func(t *testing.T) {
 		d := openDatabase(t)
 		it := newItems(t, d, 30)
