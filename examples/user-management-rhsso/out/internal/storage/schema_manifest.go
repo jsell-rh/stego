@@ -2,7 +2,10 @@
 
 package storage
 
-import "github.com/jsell-rh/stego/registry/runtime/manifest"
+import (
+	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
+)
 
 // SchemaManifest is what the commands and queries of the service need of the tables of the declaration: the columns with
 // their types, the constraints, the primary key and unique indexes and, on an owned table, the row-level security
@@ -84,3 +87,12 @@ var SchemaManifest = manifest.Manifest{Schemas: []manifest.Schema{{Name: "stego_
 			Policies:    []manifest.Policy{{Name: "stego_tenant", Command: "*", Using: "(tenant_id = current_setting('app.tenant'::text, true))", WithCheck: "(tenant_id = current_setting('app.tenant'::text, true))"}},
 		},
 	}}
+
+// SchemaSteps are the IDs of the schema changes of this release whose last step is expand and that have a sync
+// trigger. Each transaction that writes sets the writer marker stego.schema_step to them, so the sync trigger of each
+// copies the new column into the old one (ST-SUP-RC01-OC23).
+var SchemaSteps = []string{}
+
+// BackfillCopies are the batches of the backfill of each of them, which the migration job runs before the rollout
+// (ST-GEN-UC13).
+var BackfillCopies = []lease.Copy{}
