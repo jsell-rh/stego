@@ -85,7 +85,7 @@ func fixture(t *testing.T) *accessFixture {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, err := f.admin.ExecContext(ctx, "DROP DATABASE "+identifier(f.database)+" WITH (FORCE)"); err != nil {
-			t.Logf("drop the database %s: %v", f.database, err)
+			t.Logf("pgtest: cleanup failed: drop the database %s: %v", f.database, err)
 		}
 	})
 	cfg.Database = f.database

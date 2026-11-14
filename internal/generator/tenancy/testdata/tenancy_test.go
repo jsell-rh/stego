@@ -61,7 +61,7 @@ func migrated(t *testing.T) *sql.DB {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, err := server.ExecContext(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
-			t.Logf("drop the database %s: %v", name, err)
+			t.Logf("pgtest: cleanup failed: drop the database %s: %v", name, err)
 		}
 	})
 	cfg.Database = name
@@ -386,7 +386,7 @@ func database(t *testing.T, server *sql.DB, cfg *pgx.ConnConfig, roles string) s
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, err := server.ExecContext(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
-			t.Logf("drop the database %s: %v", name, err)
+			t.Logf("pgtest: cleanup failed: drop the database %s: %v", name, err)
 		}
 	})
 	c := cfg.Copy()

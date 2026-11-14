@@ -95,7 +95,7 @@ func newEnv(t *testing.T) *env {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, err := admin.ExecContext(ctx, "DROP DATABASE "+e.name+" WITH (FORCE)"); err != nil {
-			t.Logf("drop the database %s: %v", e.name, err)
+			t.Logf("pgtest: cleanup failed: drop the database %s: %v", e.name, err)
 		}
 	})
 	e.owner = e.open(ownerRole, rolePassword)

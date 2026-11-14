@@ -89,7 +89,7 @@ func newFixture(t *testing.T) *fixture {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, err := admin.ExecContext(ctx, "DROP DATABASE "+f.db+" WITH (FORCE)"); err != nil {
-			t.Logf("drop the database %s: %v", f.db, err)
+			t.Logf("pgtest: cleanup failed: drop the database %s: %v", f.db, err)
 		}
 	})
 	f.owner = f.open(ownerRole)
