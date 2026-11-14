@@ -90,9 +90,12 @@ func newEnv(t *testing.T) *env {
 	exec("GRANT " + e.purgeRole + " TO " + ownerRole + " WITH SET TRUE, INHERIT FALSE")
 	t.Cleanup(func() { _, _ = admin.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+e.purgeRole) })
 	exec("CREATE DATABASE " + e.name + " OWNER " + ownerRole)
+	// The drop gets 30 seconds, and a drop that fails is logged: the cleanup alone never fails the test.
 	t.Cleanup(func() {
-		if _, err := admin.ExecContext(context.Background(), "DROP DATABASE "+e.name+" WITH (FORCE)"); err != nil {
-			t.Errorf("drop the database %s: %v", e.name, err)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := admin.ExecContext(ctx, "DROP DATABASE "+e.name+" WITH (FORCE)"); err != nil {
+			t.Logf("drop the database %s: %v", e.name, err)
 		}
 	})
 	e.owner = e.open(ownerRole, rolePassword)

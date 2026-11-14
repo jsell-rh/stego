@@ -56,9 +56,12 @@ func migrated(t *testing.T) *sql.DB {
 	if _, err := server.ExecContext(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
 		t.Fatal(err)
 	}
+	// The drop gets 30 seconds, and a drop that fails is logged: the cleanup alone never fails the test.
 	t.Cleanup(func() {
-		if _, err := server.ExecContext(context.Background(), "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
-			t.Error(err)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := server.ExecContext(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
+			t.Logf("drop the database %s: %v", name, err)
 		}
 	})
 	cfg.Database = name
@@ -378,9 +381,12 @@ func database(t *testing.T, server *sql.DB, cfg *pgx.ConnConfig, roles string) s
 	if _, err := server.ExecContext(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
 		t.Fatal(err)
 	}
+	// The drop gets 30 seconds, and a drop that fails is logged: the cleanup alone never fails the test.
 	t.Cleanup(func() {
-		if _, err := server.ExecContext(context.Background(), "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
-			t.Error(err)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := server.ExecContext(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
+			t.Logf("drop the database %s: %v", name, err)
 		}
 	})
 	c := cfg.Copy()

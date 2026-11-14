@@ -42,11 +42,13 @@ func schemaDB(t *testing.T) *sql.DB {
 	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
 		t.Fatal(err)
 	}
+	// The drop gets 30 seconds, since a loaded server can take more than 5, and a drop that fails is logged: the
+	// cleanup alone never fails the test.
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, err := admin.ExecContext(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
-			t.Error(err)
+			t.Logf("drop the database %s: %v", name, err)
 		}
 	})
 	cfg.Database = name
