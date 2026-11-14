@@ -294,7 +294,15 @@ CREATE TABLE IF NOT EXISTS stego_outbox.messages (
 	CHECK ((state = 'parked') = (parked_from IS NOT NULL))
 );
 
-ALTER TABLE stego_outbox.messages ADD COLUMN IF NOT EXISTS idempotent boolean NOT NULL DEFAULT false;
+-- A queue of an earlier migration gets the column idempotent. The catalog is read first, because ADD COLUMN IF NOT
+-- EXISTS takes ACCESS EXCLUSIVE on the queue even when the column is there, and the job runs this text at each run.
+DO $do$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = 'stego_outbox.messages'::regclass
+		AND a.attname = 'idempotent' AND NOT a.attisdropped) THEN
+		ALTER TABLE stego_outbox.messages ADD COLUMN IF NOT EXISTS idempotent boolean NOT NULL DEFAULT false;
+	END IF;
+END $do$;
 
 -- The payload is stored as bytea, exactly the bytes that Enqueue checked, and a destination may carry up to 1 MiB
 -- (MaxDestinationPayloadBytes) of them (ST-SUP-RP01-LC28). A table of an earlier migration with a jsonb payload
@@ -305,7 +313,7 @@ DECLARE
 	want constant text := 'CHECK (((octet_length(payload) >= 1) AND (octet_length(payload) <= 1048576)))';
 	have text;
 BEGIN
-	PERFORM pg_catalog.set_config('lock_timeout', '5s', true);
+	PERFORM pg_catalog.set_config('lock_timeout', '1s', true);
 	IF (SELECT pg_catalog.format_type(a.atttypid, a.atttypmod) FROM pg_catalog.pg_attribute AS a
 		WHERE a.attrelid = 'stego_outbox.messages'::regclass AND a.attname = 'payload') = 'jsonb' THEN
 		-- jsonb kept the values of a payload but not its bytes, so an audit-sink message stored before this change

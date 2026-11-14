@@ -54,7 +54,7 @@ func TestMigrate(t *testing.T) {
 		endpoint, key := startSpiceDB(t)
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
-		want := []string{StepOwnerRole, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepOutboxSequence, StepAuditTables, StepAuditSink,
+		want := []string{StepOwnerRole, StepJobLock, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepOutboxSequence, StepAuditTables, StepAuditSink,
 			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain}
 		run := func(m Migration) (*steps, error) {
 			s := &steps{backends: map[int]bool{}}
@@ -220,6 +220,104 @@ func TestMigrateLedgerRole(t *testing.T) {
 		var elsewhere int
 		if err := f.admin.QueryRow("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1", f.owner).Scan(&elsewhere); err != nil || elsewhere != 0 {
 			t.Fatalf("the schema of the owner holds %d relations (%v), want none", elsewhere, err)
+		}
+	})
+}
+
+func TestMigrateLocks(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC03-T05 A run again of the job waits at most the lock timeout behind a long transaction, and the reads of the table go on", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatal(err)
+		}
+		// A long transaction of the running release reads the key table and holds it.
+		long, err := f.admin.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = long.Rollback() }()
+		if _, err := long.Exec("SELECT count(*) FROM public.idempotency_keys"); err != nil {
+			t.Fatal(err)
+		}
+		waits := make(chan string, 64)
+		retried = func(step string) { waits <- step }
+		defer func() { retried = nil }()
+		m := f.migration(nil)
+		m.Timeout = 2 * time.Minute
+		ran := make(chan error, 1)
+		go func() { ran <- Migrate(context.Background(), settings, m) }()
+		reader, err := f.admin.Conn(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer reader.Close()
+		if _, err := reader.ExecContext(context.Background(), "SET statement_timeout = '2s'"); err != nil {
+			t.Fatal(err)
+		}
+		read := func(what string) {
+			var n int
+			if err := reader.QueryRowContext(context.Background(), "SELECT count(*) FROM public.idempotency_keys").Scan(&n); err != nil {
+				t.Fatalf("a read of the key table %s failed: %v", what, err)
+			}
+		}
+		// The reader reads the key table while the job waits for its lock, until the job's lock wait has ended at the
+		// lock timeout twice; the job that waited with no lock timeout would never get there, and each read would
+		// queue behind it until its statement timeout.
+		for seen := 0; seen < 2; {
+			select {
+			case step := <-waits:
+				if step != StepIdempotencyKeys {
+					t.Fatalf("the step %s waited for a lock, want the idempotency step", step)
+				}
+				seen++
+			case err := <-ran:
+				t.Fatalf("the job ended with %v while the long transaction held the key table, want it to wait", err)
+			case <-time.After(30 * time.Second):
+				t.Fatal("the job's lock wait did not end at the lock timeout within 30 s")
+			default:
+				read("while the job waits")
+			}
+		}
+		read("after two lock waits of the job")
+		// The long transaction ends, and the job runs the text again and passes.
+		if err := long.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err := <-ran:
+			if err != nil {
+				t.Fatalf("the job after the long transaction ended gave %v", err)
+			}
+		case <-time.After(60 * time.Second):
+			t.Fatal("the job did not end within 60 s after the long transaction ended")
+		}
+	})
+
+	t.Run("ST-SUP-RP14-LC03-T06 Two jobs started at once run one after the other, and both pass", func(t *testing.T) {
+		endpoint, key := startSpiceDB(t)
+		f := newFixture(t)
+		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
+		// Both jobs wait at the start of their first step until both have started, so they reach the tables of a
+		// fresh database together when nothing orders them.
+		var started sync.WaitGroup
+		started.Add(2)
+		stepped = func(step string, _ *sql.Conn) {
+			if step == StepOwnerRole {
+				started.Done()
+				started.Wait()
+			}
+		}
+		defer func() { stepped = nil }()
+		errs := make(chan error, 2)
+		for range 2 {
+			go func() { errs <- Migrate(context.Background(), settings, f.migration(nil)) }()
+		}
+		for range 2 {
+			if err := <-errs; err != nil {
+				t.Fatalf("one of two jobs started at once gave %v at the stage %s, want both to pass", err, Stage(err))
+			}
 		}
 	})
 }
