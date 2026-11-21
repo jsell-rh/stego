@@ -11,3 +11,4 @@ docs/operations.md
 docs/subscriptions.md
 docs/upgrade.md
 docs/workers.md
+docs/fills.md

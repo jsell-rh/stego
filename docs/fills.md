@@ -78,10 +78,10 @@ entities:
       wallet_id: {relation: wallet, permission: view}
     fields:
       - { name: wallet_id, type: ref, to: Wallet }
-      - { name: kind, type: enum, values: [deposit, withdrawal, transfer_in, transfer_out] }
+      - { name: movement, type: enum, values: [deposit, withdrawal, transfer_in, transfer_out] }
       - { name: amount, type: int64, min: 1 }
     events:
-      fields: [wallet_id, kind, amount]
+      fields: [wallet_id, movement, amount]
   - name: Campaign
     resource_type: campaign
     permissions: {read: view, list: view}
@@ -169,6 +169,9 @@ workers:
 
 experimental_acceptances:
   - {component: worker, accepted_until: 2027-03-31, reason: the daily totals of the balances}
+
+fill_modules:
+  - {module: github.com/google/uuid, reason: fills make request IDs}
 
 mixins:
   - durable-events
@@ -510,7 +513,7 @@ func New() commands.WithdrawFill {
 		if err != nil {
 			return nil, err
 		}
-		_, err = transactions.Create(ctx, commands.Transaction{WalletID: updated.ID(), Kind: "withdrawal", Amount: req.Amount}, updated)
+		_, err = transactions.Create(ctx, commands.Transaction{WalletID: updated.ID(), Movement: "withdrawal", Amount: req.Amount}, updated)
 		if err != nil {
 			return nil, err
 		}
@@ -1016,6 +1019,7 @@ To let the fills import a Go module, list it under `fill_modules` at the top
 level of the declaration, with the reason that the fills need it, so a
 reviewer can judge it:
 
+<!-- excerpt -->
 ```yaml
 fill_modules:
   - {module: github.com/google/uuid, reason: fills make request IDs}
@@ -1107,7 +1111,7 @@ events carry (runtime v0.176.0, rest-api 4.32.0):
 <!-- excerpt -->
 ```yaml
     events:
-      fields: [wallet_id, kind, amount]
+      fields: [wallet_id, movement, amount]
 ```
 
 - `fields` names one to 64 fields of the entity, each once. The event of a
