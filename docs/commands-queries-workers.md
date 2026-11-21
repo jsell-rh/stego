@@ -1424,6 +1424,26 @@ decided with the grant. A wait that stays pending for the whole wait cap
 writes the warn line `authz.revocation.pending_past_cap`: check that the
 worker mode, which runs the relay, runs.
 
+### Release notes for runtime v0.180.0
+
+- The runtime writes a counted compare-only value that a read gave only into
+  its own field and row, in the attempt that read it. A fill that gives it to
+  a compare-only field with no limit, or to another row, gets an internal
+  error, and the command commits nothing. Thus a fill cannot get the stored
+  hash back through a field with no limit, and cannot give the hash a new
+  count of 0 in a new row (ST-SUP-RP10-LC54, security review of PR #479, L1).
+  New methods `sealed.Compared.IsCounted` and `sealed.Compared.CounterBy`.
+- A rerun of a command in the same request does not charge again the checks
+  that an earlier attempt charged only for the same stored value. A new PIN
+  that a reset wrote between two attempts gets its own charges (security
+  review of PR #479, L2).
+- The charge of a check waits at most 1 s for a lock, such as behind the reset
+  of a command that has not committed; then the command answers 503. When
+  each connection of the pool of the charges is in use, the runtime writes
+  the warn line `command.attempts.pool_saturated` with the entity and the
+  counts of the pool, and no value, at most once in 10 s (security review of
+  PR #479, L3).
+
 ### Release notes for runtime v0.178.0
 
 - The charge of a check of a counted compare-only secret runs on a small pool

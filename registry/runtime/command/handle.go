@@ -1638,9 +1638,10 @@ type state struct {
 	// check of a counted value did not commit (ST-SUP-RP10-LC54).
 	attempts     map[attemptKey]*attemptRow
 	chargeFailed bool
-	// checks count the checks of each counted row in this attempt, and charges are the checks that the attempts of
-	// the call charged, which a rerun does not charge again (security review of PR #451, second review, I1).
-	checks       map[attemptKey]int
+	// checks count the checks of each stored value of a counted row in this attempt, and charges are the checks that
+	// the attempts of the call charged, which a rerun does not charge again for the same stored value (security
+	// review of PR #451, second review, I1; of PR #479, L2).
+	checks       map[chargeKey]int
 	charges      *charges
 	destinations map[string]Destination
 	// lists are the lists that the command or the worker declares, which its handle takes only (ST-SUP-RP10-LC38).

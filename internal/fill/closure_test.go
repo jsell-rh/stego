@@ -164,6 +164,42 @@ func TestCommandFillClosure(t *testing.T) {
 			t.Fatalf("the check read files that the go tool ignores: %v", faults)
 		}
 	})
+	t.Run("ST-SUP-RC32-OC03-T06 A fill or a fill module that can read memory past the Go types is refused", func(t *testing.T) {
+		// reflect, unsafe and //go:linkname can read the stored hash of a counted secret and the store key of the
+		// runtime (security review of PR #479, I1).
+		linkname := "package reserveandcharge\n\nimport _ \"unsafe\"\n\n//go:linkname key example.com/x.key\nvar key int\n"
+		cases := []struct {
+			name    string
+			imports []string
+			extra   map[string]string
+			helper  string
+			want    string
+		}{
+			{"reflect in the fill", []string{"reflect"}, nil, "", "import reflect,"},
+			{"unsafe in the fill", []string{"unsafe"}, nil, "", "import unsafe,"},
+			{"//go:linkname in the fill", []string{"fmt"}, map[string]string{"link.go": linkname}, "", "//go:linkname"},
+			{"reflect in a fill module", []string{closureHelper}, nil, "package dbhelper\n\nimport _ \"reflect\"\n", "import reflect,"},
+			{"//go:linkname in a fill module", []string{closureHelper}, nil, "package dbhelper\n\nimport _ \"strings\"\n\n//go:linkname key example.com/x.key\nvar key int\n", "//go:linkname"},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				root := closureTreeWith(t, c.extra, c.imports...)
+				if c.helper != "" {
+					if err := os.WriteFile(filepath.Join(root, "mods", "dbhelper", "helper.go"), []byte(c.helper), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				faults := qualifyCommandFill(t, root)
+				var text []string
+				for _, f := range faults {
+					text = append(text, f.Message)
+				}
+				if joined := strings.Join(text, "\n"); len(faults) == 0 || !strings.Contains(joined, c.want) {
+					t.Fatalf("the check gave the faults %q, want a fault that names %q", joined, c.want)
+				}
+			})
+		}
+	})
 	t.Run("ST-SUP-RC32-OC03-T02 A command fill that imports only allow-listed packages is accepted", func(t *testing.T) {
 		if faults := qualifyCommandFill(t, closureTree(t, "fmt", "encoding/json", "time")); len(faults) != 0 {
 			t.Fatalf("the fill was refused: %v", faults)

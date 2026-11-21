@@ -225,6 +225,19 @@ func (c Compared) StoredBy(ctx context.Context, key *StoreKey) (string, error) {
 	return "", nil
 }
 
+// IsCounted tells whether c is a stored value with a counter of wrong attempts, whose hash Stored does not give.
+func (c Compared) IsCounted() bool { return c.counter != nil && c.hash != nil }
+
+// CounterBy gives the counter of a stored counted value when key is the store key that CountedByKey bound to it, and
+// nil otherwise. The command runtime writes such a value again only into the field and the row of that counter
+// (ST-SUP-RP10-LC54; security review of PR #479, L1).
+func (c Compared) CounterBy(key *StoreKey) Counter {
+	if !c.IsCounted() || key == nil || key != c.key {
+		return nil
+	}
+	return c.counter
+}
+
 // String gives [secret].
 func (c Compared) String() string { return Redacted }
 

@@ -294,7 +294,7 @@ func realRuntime(t *testing.T) (map[string]string, string, string) {
 }
 
 func TestBuildDownloadTakesTheRuntimePinFromTheRuntimeFolder(t *testing.T) {
-	const version = "v0.178.0"
+	const version = "v0.180.0"
 	t.Run("ST-BLD-UC02-R05-T01 The runtime folder that is STEGO's registry pin supplies it with no module proxy", func(t *testing.T) {
 		files, pinned, goSum := realRuntime(t)
 		source, revision, sum := commitRuntimeSource(t, files, pinned, "", goSum, "money")
@@ -505,7 +505,7 @@ func TestBuildDownloadTakesTheRuntimePinFromACheckout(t *testing.T) {
 		}
 	})
 	t.Run("ST-BLD-UC02-R05-T12 A --runtime-folder is refused for a source with its own runtime folder, a module with no runtime pin, and a folder with no go.mod", func(t *testing.T) {
-		const version = "v0.178.0"
+		const version = "v0.180.0"
 		folder, sum, modSum := runtimeCheckout(t, fixtureRuntime(), version)
 		own, ownRevision, _ := commitRuntimeSource(t, fixtureRuntime(), version, "", "", "probe")
 		plain, plainRevision := commitUserSource(t, version, sum, modSum, "", "probe")

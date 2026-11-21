@@ -136,6 +136,13 @@ func (s *state) sealArgs(ctx context.Context, args []any) ([]any, error) {
 			}
 			value = b
 		case countedHash:
+			// A stored counted value goes back only into the field and the row whose count it is bound to, in the
+			// attempt that read it: a copy to another row would get a new count of 0 (security review of PR #479,
+			// L1).
+			if a.value.IsCounted() && !s.boundTo(a.value, attemptKey{counter: a.counter, row: a.row}) {
+				return nil, sealedf("command: a counted compare-only value of %s is written to another field or row than the one it was read from",
+					a.counter.spec.Entity)
+			}
 			// A new value of a counted field resets the count of its row when the call commits (security review of
 			// PR #451, L2).
 			if a.value.IsNew() {
@@ -152,7 +159,12 @@ func (s *state) sealArgs(ctx context.Context, args []any) ([]any, error) {
 				value = stored
 			}
 		case hashArg:
-			stored, err := a.value.StoredBy(ctx, storeKey)
+			// A field with no counter never takes a counted value, so its read cannot give the hash of the value to
+			// the fill (security review of PR #479, L1).
+			if a.value.IsCounted() {
+				return nil, sealedf("command: a counted compare-only value is written to a field with no limit of wrong attempts")
+			}
+			stored, err := a.value.StoredContext(ctx)
 			if err != nil {
 				return nil, sealedf("command: a compare-only value does not hash")
 			}

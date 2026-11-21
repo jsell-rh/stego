@@ -38,7 +38,7 @@ func TestReadWithVariables(t *testing.T) {
 
 func TestKeyRingNeed(t *testing.T) {
 	t.Run("ST-SUP-RC32-OC21-T02 A service with no secret field gets no key ring variable and no key ring need", func(t *testing.T) {
-		pin := registry.RuntimePin{Module: "github.com/jsell-rh/stego/registry/runtime", Version: "v0.178.0", Sum: "h1:a"}
+		pin := registry.RuntimePin{Module: "github.com/jsell-rh/stego/registry/runtime", Version: "v0.180.0", Sum: "h1:a"}
 		source := &registry.SecretSource{Name: "{service}-secret-key-ring", Key: "key-ring"}
 		variables := []registry.EnvironmentVariable{{Name: "STEGO_MODE"}, {Name: "STEGO_SECRET_KEY_RING_FILE", Type: "path", SecretSource: source, ReadWith: "sealed"}}
 		needs := []registry.Need{{Kind: "secret", Name: "{service}-secret-key-ring", Keys: []string{"key-ring"}}, {Kind: "secret", Name: "{service}-other", Keys: []string{"k"}}}
@@ -63,7 +63,7 @@ func TestKeyRingNeed(t *testing.T) {
 
 func TestClientVariables(t *testing.T) {
 	t.Run("ST-DLV-UC01-R06-T07 The platform requirements leave out a variable that only a client program of the component reads", func(t *testing.T) {
-		pin := registry.RuntimePin{Module: "github.com/jsell-rh/stego/registry/runtime", Version: "v0.178.0", Sum: "h1:a"}
+		pin := registry.RuntimePin{Module: "github.com/jsell-rh/stego/registry/runtime", Version: "v0.180.0", Sum: "h1:a"}
 		variables := []registry.EnvironmentVariable{{Name: "APPLY_CONFIG", ReadByClient: true}, {Name: "DATABASE_URL"}, {Name: "STEGO_WORKER_DATABASE_URL", ReadWith: "service"}}
 		service := []gen.File{{Path: "internal/stegoruntime/runtime.go", Content: []byte("package stegoruntime\n\nimport \"github.com/jsell-rh/stego/registry/runtime/service\"\n")}}
 		var names []string

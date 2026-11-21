@@ -156,9 +156,13 @@ type Runtime struct {
 	// recorder and beforeCommit are set only by the tests of the package: the statement recorder, and a step just
 	// before COMMIT.
 	recorder func(query string, args []any)
-	// charged, set only by the tests, gets the result of each charge of a check of a counted secret.
-	charged      func(bool)
-	beforeCommit func(ctx context.Context, tx *sql.Tx) error
+	// charged, set only by the tests, gets the result of each charge of a check of a counted secret, and chargeErr
+	// the error of each charge that did not commit.
+	charged   func(bool)
+	chargeErr func(error)
+	// saturationLogged is the time, in Unix nanoseconds, of the last log that the pool of the charges is full.
+	saturationLogged atomic.Int64
+	beforeCommit     func(ctx context.Context, tx *sql.Tx) error
 	// rerun, when set by a test, gets the random wait before each rerun and the time left after it.
 	rerun func(n int, wait, left time.Duration)
 	// step, when set by a test, runs right after lock_timeout is set before a statement of the wrapper, the enqueue,
